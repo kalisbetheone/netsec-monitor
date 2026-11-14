@@ -24,7 +24,7 @@ from common import (EsBuffer, Heartbeat, atomic_write, consumer, day_index, es_c
                     load_json, log, producer, running)
 
 L = log("responder")
-VERSION = "responder v2.1"
+VERSION = "responder v2.2"
 EXEMPT = [ipaddress.ip_network(c.strip()) for c in os.getenv("EXEMPT_CIDRS", "127.0.0.0/8,10.10.30.0/24").split(",") if c.strip()]
 MIN_CONF = float(os.getenv("MIN_CONFIDENCE", "0.90"))       # θ của tài liệu mô tả
 MAX_AGE = float(os.getenv("MAX_AGE_S", "600"))              # bỏ cảnh báo cũ hơn 10 phút (E1)
@@ -44,6 +44,13 @@ SHARED_ESCALATE = int(os.getenv("SHARED_ESCALATE", "3"))    # số dấu vân ta
 UA_SAFE = re.compile(r'^[\x20-\x21\x23\x25-\x5b\x5d-\x7e]{0,256}$')
 OFFENSE_RESET = int(os.getenv("OFFENSE_RESET_S", str(7*86400)))
 SWEEP_S = 10
+# CHẾ ĐỘ CHẠY THỬ (15/11/2026). enforce: chặn thật (như trước). dryrun: đi đủ chuỗi quyết định, ghi kiểm toán
+# 'would_block' với đủ trường như 'block', nhớ "lệnh chặn ảo" để các cảnh báo sau được xử như khi chặn thật, nhưng KHÔNG
+# gửi lệnh chặn nào. Đổi khi đang chạy: nsmctl mode dryrun|enforce (lưu trong trạng thái, thắng biến môi trường).
+MODE_ENV = os.getenv("RESPONDER_MODE", "enforce").lower()
+# Cảnh báo "nửa trọng số" (classifier chế độ tầng 2 'weighted': nhãn CHỈ do model, Cổng 2 không chặn): mỗi cảnh báo tính
+# TIER2_WEIGHT vào ngưỡng (mặc định 0,5 -> cần 10 cảnh báo / 60 giây thay vì 5) và không bao giờ khoá ngay.
+T2_WEIGHT = float(os.getenv("TIER2_WEIGHT", "0.5"))
 CTL_MAX_AGE = float(os.getenv("CTL_MAX_AGE_S", "120"))      # lệnh quản trị cũ hơn ngần này bị bỏ (không phát lại lệnh cũ)
 STATE_PATH = "/state/responder.json"
 
@@ -53,6 +60,13 @@ if not isinstance(state, dict):
 state.setdefault("blocks", {})   # chịu được state cũ/hỏng thiếu khoá
 if not isinstance(state.get("exempt_extra"), list): state["exempt_extra"] = []   # dải miễn trừ thêm lúc chạy (nsmctl)
 if not isinstance(state.get("shared"), dict): state["shared"] = {}               # ip -> hạn (epoch) được coi là IP dùng chung
+if not isinstance(state.get("would"), dict): state["would"] = {}                 # lệnh chặn ẢO của chế độ chạy thử
+if state.get("mode") not in ("enforce", "dryrun"): state["mode"] = None           # None = theo RESPONDER_MODE
+
+def mode():
+    return state.get("mode") or (MODE_ENV if MODE_ENV in ("enforce", "dryrun") else "enforce")
+
+def dry(): return mode() == "dryrun"
 def _nets(items):
     out = []
     for c in items:
@@ -61,8 +75,10 @@ def _nets(items):
     return out
 EXTRA = _nets(state["exempt_extra"])
 hits = defaultdict(list)         # ip -> [ts sự kiện] đã sắp xếp, trong cửa sổ dài
-for _ip, _ts in (state.get("hits") or {}).items():           # khôi phục bộ đếm sau khi khởi động lại
-    if isinstance(_ts, list): hits[_ip] = sorted(float(t) for t in _ts)
+hits2 = defaultdict(list)        # như hits, cho cảnh báo nửa trọng số (tầng 2 đơn lẻ)
+for _src, _dst in ((state.get("hits"), hits), (state.get("hits2"), hits2)):   # khôi phục bộ đếm sau khi khởi động lại
+    for _ip, _ts in (_src or {}).items():
+        if isinstance(_ts, list): _dst[_ip] = sorted(float(t) for t in _ts)
 seen = defaultdict(dict)         # ip -> {dấu vân tay request: {"t0": ts, "c": {nguồn: số lần}}}
 dirty = False
 es_buf = None
@@ -86,6 +102,7 @@ def audit(decision, ip, reason, alert=None, **extra):
 def save_state():
     global dirty
     state["hits"] = {ip: ts for ip, ts in hits.items() if ts}
+    state["hits2"] = {ip: ts for ip, ts in hits2.items() if ts}
     state["exempt_env"] = [str(n) for n in EXEMPT]            # chỉ để nsmctl hiển thị; nguồn thật là biến môi trường
     atomic_write(STATE_PATH, json.dumps(state)); dirty = False
 
@@ -107,19 +124,30 @@ def control(c):
     global EXTRA, dirty
     now = time.time()
     cmd, cid = str(c.get("cmd") or ""), str(c.get("id") or "")[:64]
+    if cmd.startswith("rule_"): return None          # lệnh dành cho rulegen (gỡ luật) — rulegen tự ghi kiểm toán
     try: age = now - float(c.get("ts"))
     except (TypeError, ValueError): age = float("inf")
     if abs(age) > CTL_MAX_AGE:
         audit("ctl_reject", None, "stale", ctl_id=cid, cmd=cmd); return "ctl_reject"
     try:
+        if cmd == "mode":
+            new = str(c.get("mode") or "").lower()
+            if new not in ("enforce", "dryrun"): raise ValueError("mode")
+            old = mode()
+            state["mode"] = new
+            n_would = len(state["would"])
+            state["would"] = {}                       # lệnh chặn ảo không bao giờ thành lệnh chặn thật
+            publish_blocklist()                       # cũng lưu trạng thái; danh sách chặn THẬT đang có giữ nguyên tới khi hết hạn
+            audit("mode", None, "manual", ctl_id=cid, mode=new, mode_before=old, would_cleared=n_would); return "mode"
         if cmd == "unblock":
             ip = str(ipaddress.ip_address(str(c.get("ip") or "").strip()))
             was = False
             for k in [k for k in state["blocks"] if split_key(k)[0] == ip]:   # cả IP lẫn mọi dấu vân tay của IP đó
                 rec = state["blocks"].pop(k)                   # gỡ hẳn: admin xác nhận chặn nhầm -> không tính tái phạm
                 was = was or bool(rec.get("active") and rec["expires"] > now)
-            for k in [k for k in list(hits) + list(seen) if split_key(k)[0] == ip]:
-                hits.pop(k, None); seen.pop(k, None)
+            for k in [k for k in state["would"] if split_key(k)[0] == ip]: state["would"].pop(k, None)
+            for k in [k for k in list(hits) + list(hits2) + list(seen) if split_key(k)[0] == ip]:
+                hits.pop(k, None); hits2.pop(k, None); seen.pop(k, None)
             publish_blocklist()
             audit("unblock", ip, "manual", ctl_id=cid, was_blocked=was); return "unblock"
         if cmd in ("exempt_add", "exempt_del"):
@@ -128,7 +156,7 @@ def control(c):
             if cmd == "exempt_add":
                 cur.add(str(net))
                 for k in [k for k in state["blocks"] if ipaddress.ip_address(split_key(k)[0]) in net]:   # đang chặn -> gỡ luôn
-                    state["blocks"].pop(k, None); hits.pop(k, None); seen.pop(k, None)
+                    state["blocks"].pop(k, None); hits.pop(k, None); hits2.pop(k, None); seen.pop(k, None)
             else:
                 if str(net) not in cur:
                     audit("ctl_reject", str(net), "not_in_runtime_list", ctl_id=cid, cmd=cmd); return "ctl_reject"
@@ -137,7 +165,7 @@ def control(c):
             publish_blocklist()                                # cũng lưu trạng thái
             audit(cmd, str(net), "manual", ctl_id=cid); return cmd
     except ValueError:
-        audit("ctl_reject", str(c.get("ip") or c.get("cidr") or "")[:64], "invalid_argument", ctl_id=cid, cmd=cmd)
+        audit("ctl_reject", str(c.get("ip") or c.get("cidr") or c.get("mode") or "")[:64], "invalid_argument", ctl_id=cid, cmd=cmd)
         return "ctl_reject"
     audit("ctl_reject", None, "unknown_command", ctl_id=cid, cmd=cmd[:32]); return "ctl_reject"
 
@@ -173,19 +201,35 @@ def ttl_for(offenses):
     return min(t, MAX_TTL)
 
 def block(key, rec, now, reason, a):
+    """Chặn thật (enforce) hoặc ghi 'sẽ chặn' (dryrun). Ở dryrun mọi thứ giống hệt — thời hạn, số lần vi phạm, leo thang
+    dấu vân tay -> cả IP — chỉ khác: ghi vào bảng ảo state['would'], quyết định là 'would_block', KHÔNG phát lệnh chặn."""
+    global dirty
+    is_dry = dry()
+    table = state["would"] if is_dry else state["blocks"]
+    verdict = "would_block" if is_dry else "block"
     offenses = rec["offenses"]+1 if rec and now - rec.get("last", 0) < OFFENSE_RESET else 1
     ttl = ttl_for(offenses)
-    state["blocks"][key] = {"expires": now+ttl, "offenses": offenses, "last": now, "active": True}
-    hits.pop(key, None); seen.pop(key, None)
+    table[key] = {"expires": now+ttl, "offenses": offenses, "last": now, "active": True}
+    hits.pop(key, None); hits2.pop(key, None); seen.pop(key, None)
     ip, ua = split_key(key)
     if ua is not None:                     # đủ nhiều dấu vân tay của cùng IP bị chặn cùng lúc -> chặn cả IP
-        n_fp = sum(1 for k, r in state["blocks"].items()
+        n_fp = sum(1 for k, r in table.items()
                    if "|" in k and split_key(k)[0] == ip and r.get("active") and r["expires"] > now)
         if n_fp >= SHARED_ESCALATE:
-            audit("block", key, reason, a, ttl_s=ttl, offenses=offenses, expires=iso(now+ttl))
-            return block(ip, state["blocks"].get(ip), now, "shared_escalate", a)
-    publish_blocklist()
-    audit("block", key, reason, a, ttl_s=ttl, offenses=offenses, expires=iso(now+ttl))
+            audit(verdict, key, reason, a, ttl_s=ttl, offenses=offenses, expires=iso(now+ttl))
+            return block(ip, table.get(ip), now, "shared_escalate", a)
+    if is_dry: dirty = True
+    else: publish_blocklist()
+    audit(verdict, key, reason, a, ttl_s=ttl, offenses=offenses, expires=iso(now+ttl))
+
+def active_rec(key, now):
+    """-> (bản ghi dùng để tính tái phạm, đang bị chặn?) theo chế độ hiện tại. Lệnh chặn THẬT còn hạn luôn được tính."""
+    real = state["blocks"].get(key)
+    if real and real.get("active") and real["expires"] > now: return real, True
+    if dry():
+        w = state["would"].get(key)
+        return (w or real), bool(w and w.get("active") and w["expires"] > now)
+    return real, False
 
 def is_shared(ip_s, now):
     try: a = ipaddress.ip_address(ip_s)
@@ -215,25 +259,31 @@ def decide(a):
     except (ValueError, TypeError): ts = now
     if now - ts > MAX_AGE: return audit("skip", key, "stale", a)                             # 3
     ts = min(ts, now)
-    rec = state["blocks"].get(key)
-    if rec and rec.get("active") and rec["expires"] > now: return audit("skip", key, "already_blocked", a)
+    skip_reason = "would_already_blocked" if dry() else "already_blocked"
+    rec, blocked = active_rec(key, now)
+    if blocked: return audit("skip", key, skip_reason, a)
     if is_shared(key, now):                 # D1: chặn theo (IP, User-Agent), không chặn cả NAT
         fk = fp_key(key, a)
         if fk is not None:
-            key = fk; rec = state["blocks"].get(key)
-            if rec and rec.get("active") and rec["expires"] > now: return audit("skip", key, "already_blocked", a)
-    if a.get("immediate"):          # tầng 3 behaviour: đã tự gom cả cửa sổ hành vi -> không đếm lại
+            key = fk; rec, blocked = active_rec(key, now)
+            if blocked: return audit("skip", key, skip_reason, a)
+    weighted = bool(a.get("weighted"))      # tầng 2 đơn lẻ (chế độ 'weighted'): nửa trọng số, không bao giờ khoá ngay
+    if a.get("immediate") and not weighted:  # tầng 3 behaviour: đã tự gom cả cửa sổ hành vi -> không đếm lại
         return block(key, rec, now, f"immediate:{a.get('class')}", a)
     if is_duplicate(key, a, ts): return audit("skip", key, "duplicate_sensor", a)
-    q = hits[key]; bisect.insort(q, ts); dirty = True                                        # 4
-    ref = q[-1]
-    del q[:bisect.bisect_left(q, ref - LONG_WINDOW)]
-    n_short = len(q) - bisect.bisect_left(q, ref - WINDOW)
-    n_long = len(q)
+    q = (hits2 if weighted else hits)[key]; bisect.insort(q, ts); dirty = True               # 4
+    q1, q2 = hits[key], hits2[key]
+    ref = max(q1[-1] if q1 else 0.0, q2[-1] if q2 else 0.0)
+    del q1[:bisect.bisect_left(q1, ref - LONG_WINDOW)]
+    del q2[:bisect.bisect_left(q2, ref - WINDOW)]            # cảnh báo nửa trọng số CHỈ tính ở cửa sổ ngắn: một người
+    short = lambda qq: len(qq) - bisect.bisect_left(qq, ref - WINDOW)   # gõ vài chục câu "giống SQL" trong ngày không bị khoá
+    n_short = short(q1) + T2_WEIGHT * short(q2)
+    n_long = len(q1)
     short_hit, long_hit = n_short >= THRESHOLD, n_long >= LONG_THRESHOLD
     if not short_hit and not long_hit:
-        return audit("count", key, f"{n_short}/{THRESHOLD} | {n_long}/{LONG_THRESHOLD}@long", a)
-    block(key, rec, now, "threshold" if short_hit else "long_window", a)                     # 5 + 6
+        return audit("count", key, f"{n_short:g}/{THRESHOLD} | {n_long:g}/{LONG_THRESHOLD}@long", a,
+                     **({"weighted": True} if weighted else {}))
+    block(key, rec, now, ("threshold" if short_hit else "long_window") + ("+tier2" if q2 else ""), a)   # 5 + 6
 
 def sweep():
     global dirty
@@ -244,10 +294,17 @@ def sweep():
             audit("unblock", ip, "ttl_expired", offenses=r["offenses"])
         elif not r.get("active") and now - r.get("last", 0) > OFFENSE_RESET:
             del state["blocks"][ip]; dirty = True
-    for ip in list(hits):                                    # dọn bộ đếm đã hết cửa sổ (không để phình mãi)
-        q = hits[ip]
-        del q[:bisect.bisect_left(q, now - LONG_WINDOW)]
-        if not q: del hits[ip]; dirty = True
+    for k, r in list(state["would"].items()):                # lệnh chặn ảo hết hạn (giữ lại để tính tái phạm như bảng thật)
+        if r.get("active") and r["expires"] <= now:
+            r["active"] = False; dirty = True
+            audit("would_unblock", k, "ttl_expired", offenses=r["offenses"])
+        elif not r.get("active") and now - r.get("last", 0) > OFFENSE_RESET:
+            del state["would"][k]; dirty = True
+    for hh, win in ((hits, LONG_WINDOW), (hits2, WINDOW)):   # dọn bộ đếm đã hết cửa sổ (không để phình mãi)
+        for ip in list(hh):
+            q = hh[ip]
+            del q[:bisect.bisect_left(q, now - win)]
+            if not q: del hh[ip]; dirty = True
     for ip in [i for i, t in state["shared"].items() if t <= now]:
         del state["shared"][ip]; dirty = True
     for ip in list(seen):
@@ -268,6 +325,7 @@ def main():
     sweep(); publish_blocklist()
     c = consumer("responder", ["alerts", "nsm.control"])
     hb = Heartbeat("responder", es_buf)
+    L.info("chế độ: %s (RESPONDER_MODE=%s, đổi lúc chạy: nsmctl mode dryrun|enforce)", mode(), MODE_ENV)
     L.info("%s started: θ=%.2f, ngắn %d/%ss, dài %d/%ss, tuổi tối đa %ss, thời hạn chặn %s", VERSION, MIN_CONF,
            THRESHOLD, WINDOW, LONG_THRESHOLD, LONG_WINDOW, MAX_AGE, TTL_STEPS or f"{BASE_TTL}×2^n")
     last_sweep = time.time()
@@ -278,14 +336,16 @@ def main():
         elif msg is not None:
             try:
                 if msg.topic() == "nsm.control":
-                    L.info("lệnh quản trị: %s", control(json.loads(msg.value())))
+                    r_ = control(json.loads(msg.value()))
+                    if r_ is not None: L.info("lệnh quản trị: %s", r_)
                 else:
                     decide(json.loads(msg.value())); hb.inc()
             except Exception: L.exception("bad alert")
         if time.time() - last_sweep >= SWEEP_S:
             sweep(); last_sweep = time.time()
             hb.tick(c, blocked=sum(1 for r in state["blocks"].values() if r.get("active")), tracked_ips=len(hits),
-                    shared_ips=len(state["shared"]))
+                    shared_ips=len(state["shared"]), mode=mode(),
+                    would_blocked=sum(1 for r in state["would"].values() if r.get("active")))
         es_buf.maybe_flush(); prod.poll(0)
     L.info("responder dừng — lưu trạng thái")
     save_state(); es_buf.maybe_flush(force=True); prod.flush(5); c.close()

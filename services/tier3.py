@@ -121,11 +121,13 @@ def evaluate(ip, s, ref, prod, es_buf):
     alert = flagged and s["streak"] >= CONFIRM and ref - s["last_alert"] >= COOLDOWN
     if alert or ref - s["last_doc"] >= WINDOW:                # 1 bản ghi / cửa sổ, và mỗi lần báo
         s["last_doc"] = ref
-        es_buf.add(day_index("web-events", ref), {
-            "@timestamp": iso(ref), "source": "behaviour", "src_ip": ip,
-            "label": "behaviour" if flagged else "benign", "confidence": 0.9 if flagged else 0.0,
-            "tier": 3, "anom_score": round(sc, 4), "b_shape": shape,
-            **{f"b_{k}": v for k, v in d.items()}})
+        doc = {"@timestamp": iso(ref), "source": "behaviour", "src_ip": ip,
+               "label": "behaviour" if flagged else "benign", "confidence": 0.9 if flagged else 0.0,
+               "tier": 3, "anom_score": round(sc, 4), "b_shape": shape,
+               **{f"b_{k}": v for k, v in d.items()}}
+        es_buf.add(day_index("web-events", ref), doc)
+        if flagged and os.getenv("ATTACK_ARCHIVE", "1") != "0":   # bản lưu dài 1 năm của sự kiện tấn công (xem classifier)
+            es_buf.add(day_index("attack-events", ref), doc)
     if alert:
         s["last_alert"] = ref
         prod.produce("alerts", key=ip.encode(), value=json.dumps({
