@@ -62,9 +62,10 @@ OVR_SVCS=""; EXEMPTS=(); STOPPED=""; BGPIDS=""; MODSEC_SET=0; G2SET=0
 modsec(){ "${CP[@]}" exec -T apache sh -c "sed -i 's/^SecRuleEngine .*/SecRuleEngine $1/' /etc/modsecurity/modsecurity.conf && apache2ctl -k graceful" >/dev/null 2>&1; }
 # xoá MỌI luật tự sinh (trạng thái rulegen + chỉ mục rule-status + tệp luật đã phát) — trước và sau kịch bản có rulegen,
 # để luật của kịch bản này không làm sai kết quả của kịch bản khác. Để rulegen ở trạng thái DỪNG.
+rulegen_floor(){ "${CP[@]}" run --rm --no-deps --entrypoint sh rulegen -c 'date +%s > /state/not_before' >/dev/null 2>&1; }
 clear_rules(){
   "${CP[@]}" stop -t 5 rulegen >/dev/null 2>&1
-  "${CP[@]}" run --rm --no-deps --entrypoint sh rulegen -c 'rm -f /state/rules.json' >/dev/null 2>&1
+  "${CP[@]}" run --rm --no-deps --entrypoint sh rulegen -c 'rm -f /state/rules.json; date +%s > /state/not_before' >/dev/null 2>&1
   ES -X DELETE "localhost:9200/rule-status?ignore_unavailable=true" >/dev/null 2>&1
   "${CP[@]}" exec -T enforcer sh -c ': > /rules/published/autogen.conf' >/dev/null 2>&1
 }
@@ -74,6 +75,7 @@ restore(){
   docker ps -aqf "name=sc_" | xargs -r docker rm -f >/dev/null 2>&1
   for c in "${EXEMPTS[@]}"; do bash "$D/tools/nsmctl.sh" exempt-del "$c" >/dev/null 2>&1; done
   EXEMPTS=()
+  case " $STOPPED " in *" rulegen "*) rulegen_floor;; esac     # rulegen không học từ dữ liệu của kịch bản vừa xong
   for s in $STOPPED; do "${CP[@]}" start "$s" >/dev/null 2>&1; done
   STOPPED=""
   if [ -n "$OVR_SVCS" ]; then rm -f "$OVR"; "${CP[@]}" up -d $OVR_SVCS >/dev/null 2>&1; OVR_SVCS=""; fi
@@ -194,6 +196,7 @@ for f in "${FILES[@]}"; do
     echo "   nginx nạp lại: ${NREL:-0} lần"
   fi
   docker ps -aqf "name=sc_${name}_" | xargs -r docker rm -f >/dev/null 2>&1
+  case " $STOPPED " in *" rulegen "*) rulegen_floor;; esac
   for s in $STOPPED; do "${CP[@]}" start "$s" >/dev/null 2>&1; done; STOPPED=""
   grep -hv '^\s*$' "$SD"/actors.log 2>/dev/null | tail -n 6 | sed 's/^/ /'
   echo "   chờ ${settle}s cho đường ống ghi dữ liệu ..."; sleep "$settle"

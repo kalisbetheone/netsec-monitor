@@ -62,4 +62,4 @@ call PUT /_index_template/nsm-long '{"index_patterns": ["web-events-*"], "priori
 # chỉ mục đã có từ trước khi có chính sách
 call PUT "/apache-errors-*,nsm-health-*/_settings?allow_no_indices=true&expand_wildcards=open" '{"index.lifecycle.name": "nsm-short"}'
 call PUT "/web-events-*/_settings?allow_no_indices=true&expand_wildcards=open" '{"index.lifecycle.name": "nsm-long"}'
-echo "es-init: tài khoản grafana_ro, nsm_writer, nsm_rulegen, nsm_ctl và chính sách xoá chỉ mục cũ ($SHORT / $LONG) đã sẵn sàng"
+echo "es-init: tài khoản grafana_ro, nsm_writer, nsm_rulegen, nsm_ctl và chính sách xoá chỉ mục cũ (kiểm toán+tấn công $AUDIT, cổng 1 $GATE, sự kiện $LONG, nhật ký $SHORT) đã sẵn sàng"

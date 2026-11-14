@@ -19,7 +19,7 @@ RUN apt-get update \
 # DVWA_REF: MÃ COMMIT của DVWA (cố định 15/11/2026 — trước đây lấy nhánh master nên mỗi lần dựng lại có thể ra một
 # ứng dụng khác với bản đã đo). Đổi bản: --build-arg DVWA_REF=<mã commit / tag / nhánh>.
 ARG DVWA_REF=a1978a2fed195acd093010af6395f86a281537ca
-RUN git init -q /var/www/html && cd /var/www/html  && git remote add origin https://github.com/digininja/DVWA.git  && git fetch -q --depth 1 origin "${DVWA_REF}" && git checkout -q FETCH_HEAD  && cp /var/www/html/config/config.inc.php.dist /var/www/html/config/config.inc.php \
+RUN git config --global --add safe.directory /var/www/html && git init -q /var/www/html && cd /var/www/html  && git remote add origin https://github.com/digininja/DVWA.git  && git fetch -q --depth 1 origin "${DVWA_REF}" && git checkout -q FETCH_HEAD  && cp /var/www/html/config/config.inc.php.dist /var/www/html/config/config.inc.php \
  && chown -R www-data:www-data /var/www/html \
  && chmod -R 777 /var/www/html/hackable/uploads /var/www/html/config
 

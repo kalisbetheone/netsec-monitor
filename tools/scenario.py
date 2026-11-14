@@ -507,12 +507,15 @@ def run_exploit(act, rng, marker, res):
                 time.sleep(interval)
 
 
-BOT_FIRST = (10, 10, 8, 1)                      # địa chỉ nguồn của tác nhân botnet: 10.10.8.1–10.10.9.254 (ngoài dải cấp IP của kịch bản)
-BOT_MAX = 508
+# Địa chỉ nguồn của tác nhân botnet: 10.10.6.1–10.10.9.254 (ngoài dải cấp IP của kịch bản). Mỗi kịch bản botnet nên dùng
+# một đoạn riêng (bot_offset): nếu một kịch bản dùng lại IP mà container của kịch bản ngay trước vừa dùng, bảng ARP của
+# nginx còn trỏ về địa chỉ MAC cũ -> phản hồi đầu tiên của mỗi IP bị thất lạc (quá thời gian 10 giây), đo nhầm thành lỗi
+# của hệ thống (đã gặp 15/11: kịch bản 40 sau 39, 138/6 000 request lỗi; chạy lại bằng IP mới: 0 lỗi).
+BOT_MAX = 1016
 
 
 def bot_ips(n, offset=0):
-    return [f"10.10.{8 + (offset + i) // 254}.{1 + (offset + i) % 254}" for i in range(min(n, BOT_MAX - offset))]
+    return [f"10.10.{6 + (offset + i) // 254}.{1 + (offset + i) % 254}" for i in range(min(n, BOT_MAX - offset))]
 
 
 def add_alias(n, ip, mask="255.255.240.0", dev="eth0"):
@@ -876,6 +879,11 @@ def cmd_observe(a):
     gate = search_all("gate-events-*", ips, t0, t1, ["@timestamp", "src_ip", "reason", "status", "count"])
     aerr = search_all("apache-errors-*", ips, t0, t1, ["@timestamp", "src_ip", "module", "level", "count"])
     o = {"kind": "observe", "t0": t0, "t1": t1, "web": web, "decisions": dec, "gate": gate, "apache_errors": aerr}
+    # kiểu botnet: địa chỉ nguồn của từng bot là bí danh của container, không phải r["ip"] -> đọc riêng các lệnh CHẶN
+    # của chúng (chỉ lệnh chặn: lượng request của botnet vượt giới hạn 10 000 bản ghi một lần đọc)
+    bot_src = {x["src"] for r in runs for x in r.get("sent", []) if x.get("src")} - ips
+    o["bot_blocks"] = search_all("audit-decisions-*", bot_src, t0, t1, ["@timestamp", "src_ip", "reason"],
+                                 extra={"term": {"decision.keyword": "block"}}) if bot_src else []
     # luật tự sinh (rule-status: một bản ghi / luật, trạng thái cuối cùng)
     try:
         o["rules"] = [h["_source"] for h in es("POST", "/rule-status/_search?ignore_unavailable=true",
@@ -950,7 +958,9 @@ def per_ip_stats(run, obs):
     return {"ip": ip, "sent": len(sent), "gates": dict(g), "detected": sum(det), "any_detected": any(det),
             "blocked": in_time, "blocked_any": bool(blocks) or first_g1 is not None,
             "blocked_late": bool(blocks) and not in_time,
-            "t_block_s": round(first_g1 - run["t_start"], 1) if first_g1 else None,
+            "t_block_s": round(first_g1 - run["t_start"], 1) if first_g1 else (     # không kịp thấy 403 (đợt gửi đã xong):
+                round(min(epoch(d["@timestamp"]) for d in blocks) - run["t_start"], 1)  # lấy thời điểm quyết định chặn
+                if in_time and blocks else None),
             "block_reasons": sorted({d.get("reason") for d in blocks}), "web_labels": dict(labels),
             "net_alerts": dict(net), "behaviour": dict(beh), "decisions": len(dec)}
 
@@ -1093,9 +1103,15 @@ def cmd_judge(a):
                 f"{nx}/{tot}" + ("" if not nx else " — còn lọt: " + "; ".join(p_ for d in byf.values() for p_ in d["still"])[:300]))
     bots = [r["extra"]["botnet"] for r in runs if isinstance(r.get("extra"), dict) and "botnet" in r["extra"]]
     if bots:
-        nb, nblk = sum(b["bots"] for b in bots), sum(b["bots_blocked"] for b in bots)
-        extra["botnet"] = {"bots": nb, "bots_blocked": nblk, "bots_limited": sum(b["bots_limited"] for b in bots),
-                           "requests": sum(b["requests"] for b in bots)}
+        nb, nseen = sum(b["bots"] for b in bots), sum(b["bots_blocked"] for b in bots)
+        # "bị chặn" = có lệnh chặn của responder (kể cả khi bot đã gửi xong trước lúc lệnh có hiệu lực — botnet thật sẽ
+        # gửi tiếp) HOẶC bot đã thấy 403 của Cổng 1
+        dec_ips = {d["src_ip"] for d in obs.get("bot_blocks", [])}
+        seen_ips = {x["src"] for r in runs for x in r.get("sent", []) if x.get("src") and x["gate"] == "gate1"}
+        nblk = len(dec_ips | seen_ips) if (dec_ips or seen_ips) else nseen
+        reasons = Counter(d.get("reason") for d in obs.get("bot_blocks", []))
+        extra["botnet"] = {"bots": nb, "bots_blocked": nblk, "bots_saw_403": nseen, "bots_limited": sum(b["bots_limited"] for b in bots),
+                           "requests": sum(b["requests"] for b in bots), "block_reasons": dict(reasons.most_common(4))}
         if "bots_blocked_min_share" in e:
             chk(f"≥ {100 * e['bots_blocked_min_share']:g} % số IP của botnet bị chặn", nblk / max(nb, 1) >= e["bots_blocked_min_share"],
                 f"{nblk}/{nb} IP")

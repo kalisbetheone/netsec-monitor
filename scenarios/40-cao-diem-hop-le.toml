@@ -9,6 +9,7 @@ name = "khách hợp lệ"
 role = "benign"
 kind = "botnet"
 bots = 150
+bot_offset = 500
 families = ["benign", "benign", "benign", "benign_quote"]
 count = 40
 interval_s = 1

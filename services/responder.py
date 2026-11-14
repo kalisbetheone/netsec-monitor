@@ -51,8 +51,15 @@ MODE_ENV = os.getenv("RESPONDER_MODE", "enforce").lower()
 # Cảnh báo "nửa trọng số" (classifier chế độ tầng 2 'weighted': nhãn CHỈ do model, Cổng 2 không chặn): mỗi cảnh báo tính
 # TIER2_WEIGHT vào ngưỡng (mặc định 0,5 -> cần 10 cảnh báo / 60 giây thay vì 5) và không bao giờ khoá ngay.
 T2_WEIGHT = float(os.getenv("TIER2_WEIGHT", "0.5"))
-# Cảnh báo từ luật tầng 1 "rất chắc" (cờ strong, xem classifier): mỗi cảnh báo tính STRONG_WEIGHT (2,5 -> 2 cảnh báo là chặn).
-STRONG_WEIGHT = float(os.getenv("STRONG_WEIGHT", "2.5"))
+# Cảnh báo nửa trọng số KHÔNG tự mình khoá IP (T2_SOLO_BLOCK=0, 15/11/2026): phải có ít nhất một cảnh báo đủ trọng số (tầng 1,
+# Cổng 2 cũng chặn, Suricata...) trong cửa sổ ngắn. Lý do (kịch bản 02, 15/11): model 14/11 gắn nhãn sqli cho ~17 % truy vấn
+# "khó" của người dùng thật (dấu nháy, từ khoá SQL) -> 10 nhãn / 60 giây là đủ ngưỡng, 4/5 người dùng bị khoá. Nhãn chỉ do
+# model vẫn được ghi, vẫn hiện trên Grafana và vẫn là đầu vào của rulegen (luật sinh ra mới chặn ở Cổng 2).
+T2_SOLO_BLOCK = os.getenv("T2_SOLO_BLOCK", "0") == "1"
+# Cảnh báo từ luật tầng 1 "rất chắc" (cờ strong, xem classifier): mỗi cảnh báo tính STRONG_WEIGHT. Mặc định 1 (TẮT, 15/11):
+# với 2,5 người dùng gõ văn bản có cú pháp tấn công (kịch bản 02, vai 'ambiguous') bị khoá sau 2 câu, trong khi chính các
+# request đó đã bị Cổng 2 chặn đồng bộ — khoá IP sớm hơn gần như không thêm gì. Bật lại: STRONG_WEIGHT=2.5.
+STRONG_WEIGHT = float(os.getenv("STRONG_WEIGHT", "1.0"))
 CTL_MAX_AGE = float(os.getenv("CTL_MAX_AGE_S", "120"))      # lệnh quản trị cũ hơn ngần này bị bỏ (không phát lại lệnh cũ)
 STATE_PATH = "/state/responder.json"
 
@@ -291,8 +298,10 @@ def decide(a):
     n_short = short(q1) + T2_WEIGHT * short(q2) + (STRONG_WEIGHT - 1.0) * len(sts)
     n_long = len(q1)
     short_hit, long_hit = n_short >= THRESHOLD, n_long >= LONG_THRESHOLD
+    solo = short_hit and not T2_SOLO_BLOCK and short(q1) == 0      # chỉ toàn cảnh báo nửa trọng số -> không khoá
+    if solo: short_hit = False
     if not short_hit and not long_hit:
-        return audit("count", key, f"{n_short:g}/{THRESHOLD} | {n_long:g}/{LONG_THRESHOLD}@long", a,
+        return audit("count", key, f"{n_short:g}/{THRESHOLD} | {n_long:g}/{LONG_THRESHOLD}@long" + (" | tier2_only" if solo else ""), a,
                      **({"weighted": True} if weighted else {}))
     state.get("strong_ts", {}).pop(key, None)
     block(key, rec, now, ("threshold" if short_hit else "long_window") + ("+tier2" if q2 else "") + ("+strong" if sts else ""), a)   # 5 + 6

@@ -99,7 +99,26 @@ secrets_absent = true            # giá trị bí mật (họ "secret") không c
 heartbeat_gap = "tier3"          # nhịp tim của dịch vụ ngừng khi dừng, có lại sau khi bật
 alert_fired = "tier3"            # Grafana có lần chuyển cảnh báo (chứa chuỗi này) sang Alerting
 bodies_received_min_share = 0.99 # thân POST của vai benign tới được classifier
+# --- thêm 15/11/2026 ---
+<vai>_ok_min_share = 0.99        # tỷ lệ request của vai nhận phản hồi bình thường (không 403 / 429)
+bots_blocked_min_share = 0.8     # tỷ lệ địa chỉ của tác nhân kind = "botnet" bị chặn (min / max)
+exploited_min_share = 0.5        # (kind = "exploit") tỷ lệ request mà phản hồi cho thấy ứng dụng đã bị khai thác (min / max)
+exploited_max = 0
 ```
+
+Thêm 15/11/2026 cho tác nhân:
+
+- `kind = "exploit"`: đăng nhập DVWA (mức `low`) rồi gửi các payload mẫu, đọc thân phản hồi để biết ứng dụng có thực sự bị
+  khai thác hay không. Dùng để **kiểm chứng bộ thử**: kịch bản 34 tắt mọi lớp chặn để chứng minh payload có tác dụng thật,
+  35 và 36 bật lại từng lớp để đo lớp nào ngăn được.
+- `kind = "botnet"`: một container mang `bots` địa chỉ nguồn (bí danh trên cùng giao diện mạng, cần `NET_ADMIN`), dùng để thử
+  các tình huống nhiều nguồn cùng lúc (nhồi tài khoản quy mô lớn, flood phân tán, cao điểm hợp lệ) mà không phải tạo hàng
+  trăm container.
+- `host = "booking.local"`: đổi tên miền đích (mặc định `dvwa.local`) để nhắm vào cổng đặt chỗ giả lập.
+- `source = "file:<đường dẫn>"`: lấy payload từ tệp, mỗi dòng một chuỗi hoặc `{"value": ...}`.
+
+Mọi tác nhân chỉ gửi tới máy chủ web của lab trong mạng Docker riêng; mục đích là đo khả năng phát hiện, chặn và chặn nhầm của
+NSM, không dùng ngoài lab.
 
 IP của tác nhân lấy trong `10.10.11.1 – 10.10.15.254` (mạng `external_net` là `10.10.0.0/20`). Trước mỗi kịch bản, trạng thái
 chặn của responder được xoá (như `tools/reset.sh`), nên các kịch bản không ảnh hưởng nhau.
@@ -114,4 +133,5 @@ chặn của responder được xoá (như `tools/reset.sh`), nên các kịch b
 | C1 / C2 / C3 / C4 | 06 / 08 / 07 / 09, 10 |
 | D1 / D2 / D3 / D4 | 13 / 24 / 11, 14 / 25 |
 | E1 / E2 / E3 / E4 / E5 | 15 / 16, 19 / 17, 26 / 12 / 18 |
+| Đợt nâng cấp 15/11 | 34–36 (kiểm chứng bộ thử bằng khai thác thật), 37 (giới hạn tốc độ một IP), 38 (nhồi tài khoản 200 IP), 39 (flood phân tán 300 IP — giới hạn đã biết), 40 (cao điểm hợp lệ không bị chặn nhầm), 41 (luật tự sinh áp dụng ngay và gỡ) |
 | Ngoài spec | 05 (họ mới), 20–21 (bộ thử bên ngoài), 28 (né bằng đệm), 29 (che mật khẩu), 30 (nhịp tim + cảnh báo), 31 (xoay nhật ký), 33 (vòng đời luật) |
