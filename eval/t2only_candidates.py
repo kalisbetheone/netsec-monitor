@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""eval/t2only_candidates.py — tìm payload tấn công mà regex TẦNG 1 KHÔNG bắt nhưng model TẦNG 2 bắt (bước 1 của bộ thử
+"""eval/t2only_candidates.py — tìm payload tấn công mà regex TẦNG 1 KHÔNG bắt nhưng model TẦNG 2 bắt trên dữ liệu model CHƯA THẤY (bước 1 của bộ thử
 "chỉ tầng 2 thấy"). Bước 2 (tools/t2only.sh) gửi các ứng viên qua Cổng 2 thật và giữ lại những cái CRS cũng không chặn.
 
 Nguồn: phần tấn công của HttpParams, SecLists, openappsec Malicious trong eval/data/normalized (dữ liệu công khai).
@@ -23,6 +23,8 @@ for ds in ("httpparams", "seclists", "openappsec_mal"):
         for line in fh:
             d = json.loads(line)
             if d.get("ds_class") not in ("sqli", "xss", "lfi", "rce") or "error" in d: continue
+            # chỉ dữ liệu model CHƯA THẤY khi huấn luyện: HttpParams (độc lập), SecLists / openappsec phần valid
+            if ds != "httpparams" and d.get("split") != "valid": continue
             if d.get("method") not in ("GET", "POST"): continue
             q, b = d.get("query") or "", d.get("body") or ""
             if not (q or b) or len(q) + len(b) > 1500: continue
@@ -34,7 +36,7 @@ for ds in ("httpparams", "seclists", "openappsec_mal"):
             key = (q, b)
             if key in seen: continue
             seen.add(key)
-            out.append({"src": ds, "cls": d["ds_class"], "t2_label": r["label"], "t2_conf": r.get("t2_conf"),
+            out.append({"src": ds, "split": d.get("split"), "cls": d["ds_class"], "t2_label": r["label"], "t2_conf": r.get("t2_conf"),
                         "method": d["method"], "query": q, "body": b, "ct": d.get("ct") or ""})
 random.Random(7).shuffle(out)
 p = os.path.join(ROOT, "eval", "t2only_candidates.jsonl")

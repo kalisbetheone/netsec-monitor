@@ -51,6 +51,8 @@ MODE_ENV = os.getenv("RESPONDER_MODE", "enforce").lower()
 # Cảnh báo "nửa trọng số" (classifier chế độ tầng 2 'weighted': nhãn CHỈ do model, Cổng 2 không chặn): mỗi cảnh báo tính
 # TIER2_WEIGHT vào ngưỡng (mặc định 0,5 -> cần 10 cảnh báo / 60 giây thay vì 5) và không bao giờ khoá ngay.
 T2_WEIGHT = float(os.getenv("TIER2_WEIGHT", "0.5"))
+# Cảnh báo từ luật tầng 1 "rất chắc" (cờ strong, xem classifier): mỗi cảnh báo tính STRONG_WEIGHT (2,5 -> 2 cảnh báo là chặn).
+STRONG_WEIGHT = float(os.getenv("STRONG_WEIGHT", "2.5"))
 CTL_MAX_AGE = float(os.getenv("CTL_MAX_AGE_S", "120"))      # lệnh quản trị cũ hơn ngần này bị bỏ (không phát lại lệnh cũ)
 STATE_PATH = "/state/responder.json"
 
@@ -274,19 +276,26 @@ def decide(a):
     if a.get("immediate") and not weighted:  # tầng 3 behaviour: đã tự gom cả cửa sổ hành vi -> không đếm lại
         return block(key, rec, now, f"immediate:{a.get('class')}", a)
     if is_duplicate(key, a, ts): return audit("skip", key, "duplicate_sensor", a)
+    strong = bool(a.get("strong")) and not weighted
     q = (hits2 if weighted else hits)[key]; bisect.insort(q, ts); dirty = True               # 4
+    if strong: state.setdefault("strong_ts", {}).setdefault(key, []).append(ts)
     q1, q2 = hits[key], hits2[key]
     ref = max(q1[-1] if q1 else 0.0, q2[-1] if q2 else 0.0)
     del q1[:bisect.bisect_left(q1, ref - LONG_WINDOW)]
     del q2[:bisect.bisect_left(q2, ref - WINDOW)]            # cảnh báo nửa trọng số CHỈ tính ở cửa sổ ngắn: một người
     short = lambda qq: len(qq) - bisect.bisect_left(qq, ref - WINDOW)   # gõ vài chục câu "giống SQL" trong ngày không bị khoá
-    n_short = short(q1) + T2_WEIGHT * short(q2)
+    sts = [t for t in state.get("strong_ts", {}).get(key, []) if t > ref - WINDOW]
+    if "strong_ts" in state:
+        if sts: state["strong_ts"][key] = sts
+        else: state["strong_ts"].pop(key, None)
+    n_short = short(q1) + T2_WEIGHT * short(q2) + (STRONG_WEIGHT - 1.0) * len(sts)
     n_long = len(q1)
     short_hit, long_hit = n_short >= THRESHOLD, n_long >= LONG_THRESHOLD
     if not short_hit and not long_hit:
         return audit("count", key, f"{n_short:g}/{THRESHOLD} | {n_long:g}/{LONG_THRESHOLD}@long", a,
                      **({"weighted": True} if weighted else {}))
-    block(key, rec, now, ("threshold" if short_hit else "long_window") + ("+tier2" if q2 else ""), a)   # 5 + 6
+    state.get("strong_ts", {}).pop(key, None)
+    block(key, rec, now, ("threshold" if short_hit else "long_window") + ("+tier2" if q2 else "") + ("+strong" if sts else ""), a)   # 5 + 6
 
 def sweep():
     global dirty

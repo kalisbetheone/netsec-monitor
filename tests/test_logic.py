@@ -21,6 +21,7 @@ sys.path.insert(0, SVC); sys.path.insert(0, os.path.join(ROOT, "web", "enforcer"
 os.environ.update({
     "MODEL_PATH": os.path.join(ROOT, "models", "tier2.joblib"),
     "TIER3_MODEL": os.path.join(ROOT, "models", "tier3.joblib"),
+    "TIER1_STRONG": os.path.join(ROOT, "models", "tier1_strong.json"),
     "TIER2_THRESHOLD": "0.90",
     # đúng giá trị trong docker-compose.yml
     "MIN_CONFIDENCE": "0.90", "MAX_AGE_S": "600", "THRESHOLD": "5", "WINDOW_S": "60",
@@ -963,6 +964,20 @@ check("403 của Cổng 1 (IP đã bị chặn) không đưa vào tầng 3", T.g
 _d = {"n_req": 60, "frac_404": 0.0, "frac_post": 0.0, "uniq_uri": 5, "uniq_q_ratio": 0.1}
 check("mẫu hành vi 'ratelimit': 40/60 request bị 429", T.attack_shape(_d, {"n404": 0, "ndeny": 0, "npost": 0, "n429": 40}) == "ratelimit")
 check("vài request bị 429 (5/60) chưa phải mẫu tấn công", T.attack_shape(_d, {"n404": 0, "ndeny": 0, "npost": 0, "n429": 5}) is None)
+
+print("== luật tầng 1 'rất chắc' (D5): cờ strong, 2 cảnh báo là chặn")
+check("đọc được danh sách luật rất chắc từ models/tier1_strong.json", len(C.STRONG_PATTERNS) >= 5, str(len(C.STRONG_PATTERNS)))
+r = C.classify("/x", [("id", "1 union select 1,2")], [], "Mozilla/5.0", {"query": "id=1", "body": "", "uri": "/x"})
+check("UNION SELECT (0 lần khớp nhầm trên 750 000 request thật) -> strong", r.get("strong") is True, str(r))
+r = C.classify("/x", [("cb", "javascript:alert(1)")], [], "Mozilla/5.0", {"query": "cb=1", "body": "", "uri": "/x"})
+check("javascript: (có khớp nhầm trên lưu lượng thật) -> không strong", r["label"] == "xss" and not r.get("strong"), str(r))
+clock[0] += 300000
+d1 = alert("10.10.10.195", target="/s?id=1 union select 1", strong=True)
+d2 = alert("10.10.10.195", target="/s?id=2 union select 2", strong=True)
+check("2 cảnh báo strong -> chặn (lý do ghi rõ)", d1["decision"] == "count" and d2["decision"] == "block" and "strong" in d2["reason"], str(d2))
+clock[0] += 300000
+dd = [alert("10.10.10.196", target=f"/s?q={i}") for i in range(4)]
+check("cảnh báo thường vẫn cần 5", all(x["decision"] == "count" for x in dd), str([x["decision"] for x in dd]))
 
 print("== tier3: chiến dịch nhồi tài khoản phân tán (nhiều IP, mỗi IP vài lần đăng nhập)")
 def run_campaign(n_ips, per_ip, t0=5_000_000.0, status=302, uri="/login.php", method="POST"):
