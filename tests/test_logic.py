@@ -775,6 +775,9 @@ check("luật đồng bộ nạp SAU luật tự sinh",
 print("== công cụ kịch bản: tổng hợp kết quả GoTestWAF / waf-bypass và ghép ma trận")
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import scenario as SC
+check("công cụ kịch bản còn đủ các lệnh con (15/11: một bản vá từng xoá nhầm cmd_observe)",
+      all(callable(getattr(SC, f, None)) for f in ("cmd_plan", "cmd_actor", "cmd_observe", "cmd_judge", "cmd_report",
+                                                    "cmd_toolparse", "grafana_alerts", "per_ip_stats", "matrix_table")))
 _g = SC.gotestwaf_summary({"score": 60.0, "summary": {
     "true_positive_tests": {"score": 40.0, "summary": {"total_sent": 10, "resolved_tests": 10, "blocked_tests": 4, "bypassed_tests": 6,
                                                        "unresolved_tests": 0, "failed_tests": 0},

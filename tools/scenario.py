@@ -710,6 +710,74 @@ def tool_md(name, t):
     return L + [""]
 
 
+def cmd_observe(a):
+    runs = [json.loads(ln) for ln in sys.stdin if ln.strip().startswith("{")]
+    ips = {r["ip"] for r in runs}
+    t0 = min(r["t_start"] for r in runs) - 5
+    t1 = max(r.get("t_end", time.time()) for r in runs) + 120
+    web = search_all("web-events-*", ips, t0, t1,
+                     ["@timestamp", "src_ip", "source", "label", "tier", "status", "ua", "evidence_field", "matched",
+                      "b_shape", "signature", "has_body", "method"])
+    dec = search_all("audit-decisions-*", ips, t0, t1, ["@timestamp", "src_ip", "decision", "reason", "cls",
+                                                        "alert_source", "ttl_s", "offenses"])
+    gate = search_all("gate-events-*", ips, t0, t1, ["@timestamp", "src_ip", "reason", "status", "count"])
+    aerr = search_all("apache-errors-*", ips, t0, t1, ["@timestamp", "src_ip", "module", "level", "count"])
+    o = {"kind": "observe", "t0": t0, "t1": t1, "web": web, "decisions": dec, "gate": gate, "apache_errors": aerr}
+    # luật tự sinh (rule-status: một bản ghi / luật, trạng thái cuối cùng)
+    try:
+        o["rules"] = [h["_source"] for h in es("POST", "/rule-status/_search?ignore_unavailable=true",
+                                               {"size": 1000, "query": {"match_all": {}}})["hits"]["hits"]]
+    except Exception as e:                    # noqa: BLE001
+        o["rules"] = []; note(f"   (không đọc được rule-status: {e})")
+    # nhịp tim mọi dịch vụ trong khoảng thời gian
+    try:
+        o["health"] = [h["_source"] for h in es("POST", "/nsm-health-*/_search?ignore_unavailable=true", {
+            "size": 10000, "_source": ["@timestamp", "service"], "sort": [{"@timestamp": "asc"}],
+            "query": {"range": {"@timestamp": {"gte": iso(t0), "lte": iso(t1)}}}})["hits"]["hits"]]
+    except Exception as e:                    # noqa: BLE001
+        o["health"] = []; note(f"   (không đọc được nsm-health: {e})")
+    # giá trị bí mật mà tác nhân đã gửi (C1): có còn nguyên văn trong bất kỳ bản ghi nào của các IP này không
+    secrets = [x.lower() for r in runs for x in (r.get("extra") or {}).get("secrets", [])]
+    if secrets:
+        docs = []
+        for idx in ("web-events-*", "audit-decisions-*", "gate-events-*", "apache-errors-*"):
+            try:
+                docs += [h["_source"] for h in es("POST", f"/{idx}/_search?ignore_unavailable=true", {
+                    "size": 10000, "query": {"bool": {"filter": [{"terms": {"src_ip.keyword": sorted(ips)}},
+                                                                 {"range": {"@timestamp": {"gte": iso(t0), "lte": iso(t1)}}}]}}})["hits"]["hits"]]
+            except Exception:                 # noqa: BLE001
+                pass
+        hit = [d for d in docs if any(sv in json.dumps(d, ensure_ascii=False).lower() for sv in secrets)]
+        o["secret_check"] = {"secrets": len(secrets), "docs_checked": len(docs), "docs_with_secret": len(hit),
+                             "fields": sorted({k for d in hit for k, v in d.items() if any(sv in json.dumps(v, ensure_ascii=False).lower() for sv in secrets)})}
+    o["alerts"] = grafana_alerts(t0, t1)
+    note(f"   quan sát: {len(web)} sự kiện, {len(dec)} quyết định, {len(gate)} bản ghi Cổng 1, {len(o['rules'])} luật, "
+         f"{len(o['health'])} nhịp tim")
+    out(o)
+
+
+def grafana_alerts(t0, t1):
+    """Lịch sử trạng thái cảnh báo của Grafana (chú thích type=alert) trong khoảng thời gian; None nếu không đọc được."""
+    pw = os.getenv("GRAFANA_ADMIN_PASSWORD")
+    if not pw:
+        return None
+    url = (f"{os.getenv('GRAFANA_URL', 'http://grafana:3000')}/api/annotations?type=alert&limit=1000"
+           f"&from={int(t0 * 1000)}&to={int(t1 * 1000)}")
+    rq = urllib.request.Request(url)
+    rq.add_header("Authorization", "Basic " + base64.b64encode(f"admin:{pw}".encode()).decode())
+    try:
+        with urllib.request.urlopen(rq, timeout=20) as r:
+            items = json.loads(r.read())
+        return [{"time": it.get("time"), "newState": it.get("newState"), "alertName": it.get("alertName"),
+                 "text": (it.get("text") or "")[:300]} for it in items]
+    except Exception as e:                    # noqa: BLE001
+        note(f"   (không đọc được cảnh báo Grafana: {e})")
+        return None
+
+
+# =====================================================================
+# judge
+# =====================================================================
 def per_ip_stats(run, obs):
     ip = run["ip"]
     web = [w for w in obs["web"] if w.get("src_ip") == ip]
