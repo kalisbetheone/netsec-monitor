@@ -28,15 +28,15 @@ groups:
         title: "NSM: luật tự sinh vừa được ban hành"
         condition: C
         data:
-          - {"refId": "A", "relativeTimeRange": {"from": 600, "to": 0}, "datasourceUid": "rulestatus", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "rulestatus"}, "query": "state:active AND changed_at:[now-10m TO now]", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "A", "relativeTimeRange": {"from": 600, "to": 0}, "datasourceUid": "rulestatus", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "rulestatus"}, "query": "state:active AND changed_at:[now-10m TO now]", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "3", "type": "terms", "field": "revoke_cmd.keyword", "settings": {"size": "20", "order": "desc", "orderBy": "_count", "min_doc_count": "1"}}, {"id": "4", "type": "terms", "field": "token.keyword", "settings": {"size": "20", "order": "desc", "orderBy": "_count", "min_doc_count": "1"}}, {"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
           - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "sum", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
           - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "gt", "params": [0]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
         noDataState: OK
         execErrState: Error
         for: 0s
         annotations:
-          summary: "Một luật tự sinh vừa chuyển sang chế độ CHẶN ở Cổng 2"
-          description: "Luật mới có hiệu lực với MỌI người dùng. Kiểm tra bảng 'Vòng đời luật tự sinh' (token, đích) xem có nguy cơ chặn nhầm lưu lượng hợp lệ không."
+          summary: "Một luật tự sinh vừa bắt đầu CHẶN ở Cổng 2: {{ index $labels \"token.keyword\" }}"
+          description: "Luật mới có hiệu lực NGAY với MỌI người dùng. Nội dung: {{ index $labels \"token.keyword\" }}. Nếu luật chặn nhầm lưu lượng hợp lệ, gỡ bằng một lệnh: {{ index $labels \"revoke_cmd.keyword\" }} (xem mọi luật đang sống: bash tools/nsmctl.sh rules). Luật cũng tự gỡ nếu chặn 3 request của nguồn sạch."
         labels: {severity: warning, he_thong: nsm}
       - uid: nsm-manual-change
         title: "NSM: có thay đổi thủ công (nsmctl)"
