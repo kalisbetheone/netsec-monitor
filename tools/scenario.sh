@@ -58,7 +58,7 @@ py(){ docker run --rm -i "${USEROPT[@]}" "${MNT[@]}" --entrypoint python "$PYIMG
 pymon(){ docker run --rm -i --network "$NET_MON" -e ES_URL=http://elasticsearch:9200 -e ES_USER=elastic \
   --env-file "$D/.env" "${MNT[@]}" --entrypoint python "$PYIMG" -B /tools/scenario.py --run "$RUN" "$@"; }
 
-OVR_SVCS=""; EXEMPTS=(); STOPPED=""; BGPIDS=""; MODSEC_SET=0
+OVR_SVCS=""; EXEMPTS=(); STOPPED=""; BGPIDS=""; MODSEC_SET=0; G2SET=0
 modsec(){ "${CP[@]}" exec -T apache sh -c "sed -i 's/^SecRuleEngine .*/SecRuleEngine $1/' /etc/modsecurity/modsecurity.conf && apache2ctl -k graceful" >/dev/null 2>&1; }
 # xoá MỌI luật tự sinh (trạng thái rulegen + chỉ mục rule-status + tệp luật đã phát) — trước và sau kịch bản có rulegen,
 # để luật của kịch bản này không làm sai kết quả của kịch bản khác. Để rulegen ở trạng thái DỪNG.
@@ -70,6 +70,7 @@ clear_rules(){
 }
 restore(){
   [ "$MODSEC_SET" = 1 ] && { modsec On; MODSEC_SET=0; }
+  [ "$G2SET" = 1 ] && { bash "$D/tools/gate2.sh" all block >/dev/null 2>&1; G2SET=0; }
   docker ps -aqf "name=sc_" | xargs -r docker rm -f >/dev/null 2>&1
   for c in "${EXEMPTS[@]}"; do bash "$D/tools/nsmctl.sh" exempt-del "$c" >/dev/null 2>&1; done
   EXEMPTS=()
@@ -124,6 +125,9 @@ for f in "${FILES[@]}"; do
     echo "   rulegen đang chạy"; sleep 5
   fi
   MODS=$(grep '^MODSEC_DO|' "$SD/plan.txt" | cut -d'|' -f2)
+  G2D=$(grep '^G2DETECT|' "$SD/plan.txt" | cut -d'|' -f2 | tr '\n' ' ')
+  for l in $G2D; do bash "$D/tools/gate2.sh" "$l" detect >/dev/null 2>&1 && G2SET=1; done
+  [ -n "${G2D// /}" ] && echo "   Cổng 2: lớp chỉ ghi nhận trong kịch bản này: $G2D"
   RELOADS=$(grep '^RELOADS|' "$SD/plan.txt" | cut -d'|' -f2)
 
   # sự cố theo lịch
@@ -169,7 +173,8 @@ for f in "${FILES[@]}"; do
             /tools/scenario.py --run "$RUN" toolparse "/scenarios/$base" --slot "$slot" --index "$i" --ipn "$j" \
             --path "/sd/wafbypass_$i.json" --t0 "$t0" --t1 "$(date +%s)" > "$SD/a_${i}_${j}.json" 2>>"$SD/actors.log" ;;
         *)
-          docker run --rm -i --name "sc_${name}_${i}_${j}" --network "$NET_EXT" --ip "$ip" "${MNT[@]}" \
+          CAP=(); [ "$kind" = botnet ] && CAP=(--cap-add NET_ADMIN)      # botnet: thêm địa chỉ IP nguồn phụ trong container
+          docker run --rm -i --name "sc_${name}_${i}_${j}" --network "$NET_EXT" --ip "$ip" ${CAP[@]+"${CAP[@]}"} "${MNT[@]}" \
             --entrypoint python "$PYIMG" -B /tools/scenario.py --run "$RUN" actor "/scenarios/$base" --slot "$slot" \
             --index "$i" --ipn "$j" < /dev/null > "$SD/a_${i}_${j}.json" 2>>"$SD/actors.log" ;;
       esac ) &
@@ -181,6 +186,7 @@ for f in "${FILES[@]}"; do
   while [ "$(alive_actors)" -gt 0 ] && [ "$(date +%s)" -lt "$deadline" ]; do sleep 1; done
   for p in $BGPIDS; do wait "$p" 2>/dev/null; done; BGPIDS=""
   [ "$MODSEC_SET" = 1 ] && { modsec On; MODSEC_SET=0; }
+  [ "$G2SET" = 1 ] && { bash "$D/tools/gate2.sh" all block >/dev/null 2>&1; G2SET=0; }
   if [ "${RELOADS:-0}" = 1 ]; then                # E5: số lần nginx nạp lại danh sách chặn trong kịch bản
     NREL=$("${CP[@]}" logs --since "$T0ISO" nginx 2>/dev/null | grep -c "blocklist reloaded")
     printf '{"scenario": "%s", "actor": -1, "name": "nginx", "role": "system", "ip": "-", "kind": "system", "t_start": %s, "t_end": %s, "sent": [], "extra": {"nginx_reloads": %s, "duration_s": %s}}\n' \

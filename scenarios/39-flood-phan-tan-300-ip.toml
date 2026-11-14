@@ -1,0 +1,31 @@
+title = "Flood phân tán: botnet 300 IP, mỗi IP dưới ngưỡng của từng IP"
+case = "DDoS lớp ứng dụng (đo)"
+notes = """300 IP, mỗi IP 1,5 request/giây trong 60 giây (90 request — dưới ngưỡng flood 100 request/phút và dưới hạn mức \
+20 request/giây của từng IP), tổng khoảng 450 request/giây — vượt trần tổng 350 request/giây của Cổng 1. Không IP nào bị chặn \
+(giới hạn đã biết: không phân biệt được với một đợt cao điểm hợp lệ). Trần tổng bảo vệ Apache nhưng người dùng hợp lệ cũng \
+nhận 429 theo tỷ lệ. Kịch bản ghi lại con số thật: tỷ lệ request hợp lệ thành công trong lúc bị tấn công."""
+max_s = 150
+
+[[actor]]
+name = "botnet flood"
+kind = "botnet"
+bots = 300
+family = "benign"
+count = 90
+interval_s = 0.66
+unique_suffix = true
+stop_on_block = false
+
+[[actor]]
+name = "người dùng"
+role = "benign"
+family = "benign"
+count = 100
+interval_s = 0.5
+stop_on_block = false
+start_s = 5
+
+[expect]
+bots_blocked_max_share = 0.05
+benign_blocked = false
+known_gap = true

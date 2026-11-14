@@ -1,0 +1,15 @@
+title = "Khai thác thật trên DVWA — CRS + luật tầng 1 đồng bộ cùng chặn (cấu hình vận hành)"
+case = "B1"
+notes = """Cùng bộ payload như kịch bản 34 và 35, Cổng 2 ở cấu hình vận hành. Kỳ vọng: không payload nào còn khai thác được \
+ngay từ request đầu tiên. Payload còn lọt (nếu có) được liệt kê trong báo cáo."""
+max_s = 150
+exempt = ["self"]
+
+[[actor]]
+name = "khai thác"
+kind = "exploit"
+per_family = 8
+interval_s = 0.3
+
+[expect]
+exploited_max = 0

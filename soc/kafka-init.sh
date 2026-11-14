@@ -50,11 +50,12 @@ cons() {      # cons <vai trò> <nhóm> <topic>...  — quyền ĐỌC (topic + 
 prod filebeat   web.logs net.events web.audit gate1.logs web.errors
 cons classifier classifier web.logs net.events web.audit
 prod classifier alerts
-cons tier3      tier3 web.logs
+cons tier3      tier3 web.logs gate1.logs        # gate1.logs: request bị Cổng 1 giới hạn tốc độ (429) — 15/11/2026
 prod tier3      alerts
 cons responder  responder alerts nsm.control
 prod responder  enforce.blocklist
 cons rulegen    rulegen-status enforce.status
+cons rulegen    rulegen-ctl nsm.control          # lệnh gỡ luật (nsmctl rule-revoke) — 15/11/2026
 prod rulegen    enforce.rules
 cons enforcer   enforcer enforce.blocklist enforce.rules
 prod enforcer   enforce.status

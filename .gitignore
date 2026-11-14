@@ -10,3 +10,7 @@ train/*.log
 bench-results/
 __pycache__/
 *.pyc
+
+# đầu ra công cụ đánh giá (sinh lại được)
+eval/t2only_candidates.jsonl
+eval/*.log

@@ -1,6 +1,9 @@
 title = "Nhồi tài khoản phân tán: 50 IP, mỗi IP 4 lần đăng nhập"
 case = "C4"
-notes = "Mỗi IP quá ít request để tầng 3 nhận ra, không có payload để CRS/classifier bắt. Kỳ vọng ghi là lọt (giới hạn đã biết)."
+notes = """Mỗi IP quá ít request để các mẫu theo-từng-IP nhận ra, không có payload để CRS/classifier bắt. Trước 15/11/2026 đây \
+là lỗ hổng đã biết (0/50 IP bị chặn). Từ 15/11 tầng 3 đếm thêm trên TOÀN HỆ THỐNG: >= 8 IP, mỗi IP >= 3 lần thử đăng nhập, \
+tổng >= 40 lần trong 60 giây -> báo từng IP tham gia (mẫu 'stuffing'). Mỗi IP chỉ gửi 4 request trong 6 giây nên một phần \
+IP đã gửi xong trước khi bị chặn; kỳ vọng tính cả IP bị chặn muộn."""
 max_s = 120
 
 [[actor]]
@@ -11,5 +14,6 @@ count = 4
 interval_s = 2
 
 [expect]
-attack_blocked = false
-known_gap = true
+attack_blocked = true
+attack_blocked_min_share = 0.5
+block_reason = "behaviour"

@@ -8,6 +8,7 @@ rulegen = true
 modsec_detection_only_s = 60
 
 [override.rulegen]
+RULE_APPLY = "shadow"          # 15/11/2026: mặc định là áp dụng ngay; kịch bản này kiểm riêng đường chạy thử như tài liệu đặc tả
 INTERVAL_S = "15"
 SHADOW_S = "20"
 RULE_TTL_S = "60"

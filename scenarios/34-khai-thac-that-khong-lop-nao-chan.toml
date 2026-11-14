@@ -1,0 +1,17 @@
+title = "Khai thác thật trên DVWA (đã đăng nhập, mức low) — KHÔNG lớp nào chặn"
+case = "B1 (kiểm chứng bộ thử)"
+notes = """Cả Cổng 2 ở chế độ chỉ ghi nhận. Mục đích: chứng minh các payload của bộ thử KHAI THÁC ĐƯỢC THẬT (đọc được bảng \
+users, chạy được lệnh, đọc được /etc/passwd, chèn được script) khi không có gì chặn — nếu không thì con số "bị ngăn" ở hai \
+kịch bản sau không có nghĩa. Dấu hiệu khai thác đọc từ thân phản hồi. IP được miễn trừ để gửi đủ mọi payload."""
+max_s = 150
+exempt = ["self"]
+modsec_detection_only_s = 140
+
+[[actor]]
+name = "khai thác"
+kind = "exploit"
+per_family = 8
+interval_s = 0.3
+
+[expect]
+exploited_min_share = 0.5

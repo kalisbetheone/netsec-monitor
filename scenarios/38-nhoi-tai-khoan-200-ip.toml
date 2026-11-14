@@ -1,0 +1,28 @@
+title = "Nhồi tài khoản quy mô lớn: botnet 200 IP, mỗi IP 4 lần đăng nhập"
+case = "C4 mở rộng (đánh cắp dữ liệu: chiếm tài khoản)"
+notes = """Mỗi IP chỉ thử 4 lần nên không mẫu theo-từng-IP nào thấy (kịch bản 10 từng là lỗ hổng đã biết). Bộ đếm toàn hệ \
+thống của tầng 3 (mẫu 'stuffing') nhận ra chiến dịch và khoá từng IP tham gia. Người dùng hợp lệ đăng nhập trong lúc đó không \
+bị ảnh hưởng. Một container giữ 200 địa chỉ nguồn (kiểu tác nhân botnet)."""
+max_s = 150
+
+[[actor]]
+name = "botnet nhồi tài khoản"
+kind = "botnet"
+bots = 200
+family = "login"
+count = 4
+interval_s = 4
+stop_on_block = true
+
+[[actor]]
+name = "người dùng"
+role = "benign"
+family = "benign"
+count = 60
+interval_s = 0.5
+stop_on_block = false
+
+[expect]
+bots_blocked_min_share = 0.8
+benign_blocked = false
+benign_ok_min_share = 0.99

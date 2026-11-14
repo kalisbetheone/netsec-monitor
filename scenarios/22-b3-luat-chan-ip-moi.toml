@@ -10,7 +10,7 @@ modsec_detection_only_s = 70
 
 [override.rulegen]
 INTERVAL_S = "15"
-SHADOW_S = "20"
+SHADOW_S = "20"                # chỉ có tác dụng khi RULE_APPLY=shadow; mặc định từ 15/11/2026 là áp dụng ngay
 LOOKBACK_S = "900"
 
 [[actor]]

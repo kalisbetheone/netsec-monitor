@@ -55,6 +55,17 @@ RUN sed -i 's#^SecAuditLog .*#SecAuditLog /var/log/apache-json/modsec_audit.json
       && sed -i 's/^SecAuditLogFormat .*/SecAuditLogFormat JSON/' /etc/modsecurity/modsecurity.conf \
       || printf '\nSecAuditLogFormat JSON\n' >> /etc/modsecurity/modsecurity.conf )
 
+# Cổng đặt chỗ giả lập (booking.local) — ứng dụng được bảo vệ trong bài toán "bảo vệ máy chủ dịch vụ trực tuyến và dữ
+# liệu khách hàng" (15/11/2026). PHP + SQLite, dữ liệu tổng hợp sinh lúc build; DVWA vẫn là vhost mặc định (dvwa.local).
+# Chi tiết: web/apache/booking/README.md.
+COPY booking/ /var/www/booking/
+RUN find /var/www/booking -type f \( -name '*.php' -o -name '*.conf' -o -name '*.txt' -o -name '*.css' \) -exec sed -i 's/\r$//' {} + \
+ && mkdir -p /var/lib/booking \
+ && BOOKING_DB=/var/lib/booking/booking.db php /var/www/booking/seed.php \
+ && chown -R root:root /var/www/booking && chmod -R a+rX,go-w /var/www/booking \
+ && chown -R www-data:www-data /var/lib/booking && chmod 750 /var/lib/booking && chmod 640 /var/lib/booking/booking.db \
+ && cp /var/www/booking/booking-vhost.conf /etc/apache2/sites-available/010-booking.conf && a2ensite 010-booking
+
 COPY watch-rules.sh entrypoint.sh /usr/local/bin/
 RUN for f in /usr/local/bin/watch-rules.sh /usr/local/bin/entrypoint.sh \
              /etc/apache2/conf-available/logjson.conf /etc/apache2/conf-available/zz-autogen.conf \
