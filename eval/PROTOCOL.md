@@ -154,3 +154,37 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   `tools/tier1sync.sh` (CRS 949110 và luật tự sinh được tạm gỡ trong lúc đo). Khác biệt đã biết: ModSecurity giải mã '+'
   thành dấu cách cả trong ĐƯỜNG DẪN và giải mã `%uXXXX` (classifier thì không) nên bắt thêm SQLi/CRLF dạng đó; nội dung TỆP
   tải lên được soi qua thân thô multipart (`SecStreamInBodyInspection On`).
+- 15/11/2026 — **tầng 2 chế độ `weighted` và thang độ tin cậy.** Nhãn chỉ do model (Cổng 2 không chặn) vẫn thành cảnh báo
+  nhưng mang cờ `weighted`: responder tính `TIER2_WEIGHT` = 0,5 vào ngưỡng cửa sổ ngắn, không tính cửa sổ dài, không khoá
+  ngay; khi Cổng 2 cũng chặn thì tính đủ. Điểm model trong [ngưỡng, 1] được đổi tuyến tính sang [0,90; 1,00]
+  (`TIER2_CONF_FLOOR`) vì ngưỡng của model (chọn trên valid, model 14/11: 0,67) không cùng thang với θ = 0,90 của responder;
+  điểm gốc lưu ở `t2_conf`. Hệ quả cho đo đạc: trường `confidence` của nhãn tầng 2 từ ngày này không so trực tiếp được với
+  trước; so điểm model thì dùng `t2_conf`. Nhãn `weighted` vào `web-events-*` như nhãn tấn công — khi đếm báo nhầm của
+  classifier phải báo riêng phần `weighted`.
+- 15/11/2026 — **luật tự sinh áp dụng ngay** (`RULE_APPLY=immediate`): luật qua kiểm tra tĩnh và kho lành tính là chặn
+  ngay, không qua chạy thử `SHADOW_S`; tự gỡ khi chặn `REVOKE_BENIGN_HITS` = 3 request của nguồn sạch có tiếng (đếm từ
+  `apache-errors-*`), hoặc không khớp gì trong `REVOKE_S`; sống `RULE_TTL_S` rồi tự gia hạn nếu còn chặn được tấn công.
+  Hệ quả cho đo đạc: chỉ số "chặn nhầm trong lúc chạy thử" của bộ sinh luật không còn đo được ở cấu hình mặc định —
+  muốn đo phải đặt `RULE_APPLY=shadow` cho lượt đo đó và ghi rõ; số request lành tính bị luật tự sinh chặn trước khi luật bị
+  tự gỡ là chỉ số mới phải báo cáo.
+- 15/11/2026 — **chỉ mục `attack-events-*`**: sự kiện có nhãn tấn công được ghi thêm một bản (giữ 1 năm); `web-events-*`
+  vẫn đủ mọi sự kiện. Công cụ đo tiếp tục đọc `web-events-*`; đếm trên `attack-events-*` sẽ trùng với phần tấn công của
+  `web-events-*`, không cộng hai chỉ mục.
+- 15/11/2026 — **đo khai thác thật** (kiểu tác nhân `exploit` của `tools/scenario.py`, có sau khi áp bản vá
+  `p_scenario.py`): đăng nhập DVWA bằng tài khoản mặc định của lab, đặt mức `low`, gửi payload các họ cơ bản vào đúng
+  trang có lỗ hổng và đọc THÂN PHẢN HỒI để biết payload có khai thác được thật không. Tiêu chí (chốt trước khi chạy):
+  SQLi — trang trả từ hai bản ghi người dùng trở lên (`First name:` ≥ 2) hoặc lộ lỗi cú pháp SQL; RCE — phản hồi có kết quả
+  lệnh (`uid=…(`, `root:x:0:0`, `www-data`, chuỗi `Linux <bản> <số>`); LFI — `root:x:0:0`, `[boot loader]`, hoặc mã PHP
+  thô; XSS — payload được trả lại nguyên văn và có `<script`, `onerror`, `onload` hoặc `javascript:`. Chỉ request đi qua
+  được Cổng 2 (`gate` = `pass`) mới được tính là khai thác được. Chỉ số: tỷ lệ payload khai thác được khi không lớp nào
+  chặn (để chứng tỏ bộ thử có nghĩa) và số payload còn khai thác được ở từng cấu hình bảo vệ. Ứng dụng đặt chỗ giả lập
+  (`booking.local`) KHÔNG có lỗ hổng cài sẵn nên không dùng cho phép đo này.
+- 15/11/2026 — **kiểu tác nhân `botnet`** (sau khi áp bản vá `p_scenario2.py`): một container thêm địa chỉ IP phụ cho giao
+  diện mạng (dải 10.10.8.1–10.10.9.254, ngoài dải cấp IP của kịch bản; cần NET_ADMIN) và gửi từ hàng trăm IP nguồn, mỗi IP
+  một luồng. Dùng cho flood phân tán và nhồi tài khoản quy mô lớn, nơi MỖI IP ở dưới ngưỡng theo từng IP. Kết quả theo IP
+  của kiểu này không so trực tiếp được với các kịch bản mỗi IP một container (thời điểm gửi của các IP trùng nhau hơn).
+- 15/11/2026 — **ĐÍNH CHÍNH số đo waf-bypass ngày 13/11:** tỷ lệ chặn là **74,2 %** tính theo cặp (payload, vùng đặt) —
+  mỗi cặp là một request thật (trường `zones` của `wafbypass_summary`). Con số 53 % trong các báo cáo trước tính theo số
+  TỆP payload (trường `files`), trong đó một tệp bị chặn ở vùng này nhưng lọt ở vùng khác nằm trong CẢ danh sách bị chặn
+  lẫn danh sách lọt — nên đó không phải tỷ lệ request bị chặn. Từ ngày này chỉ báo tỷ lệ theo cặp; tỷ lệ theo tệp nếu cần
+  thì ghi rõ là theo tệp.
