@@ -46,6 +46,7 @@ services:
   # ================= VÙNG NGOÀI (giả lập Kali) =================
   attacker:
     logging: *logging
+    restart: unless-stopped        # 15/11: trước đây không có -> Docker khởi động lại là container này dừng hẳn
     image: curlimages/curl:8.10.1
     command: ["sleep", "infinity"]
     volumes: ["./tools:/tools:ro"]
@@ -53,6 +54,7 @@ services:
 
   client:
     logging: *logging
+    restart: unless-stopped        # nguồn lưu lượng lành tính của kho nền: dừng quá 7 ngày thì rulegen từ chối sinh luật
     image: curlimages/curl:8.10.1
     entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /tools/benign.sh | sh"]
     volumes: ["./tools:/tools:ro"]

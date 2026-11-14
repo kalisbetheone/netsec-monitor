@@ -772,6 +772,179 @@ _za = open(os.path.join(ROOT, "web", "apache", "zz-autogen.conf"), encoding="utf
 check("luật đồng bộ nạp SAU luật tự sinh",
       0 <= _za.find("autogen/active.conf") < _za.find("nsm-sync/tier1.conf"))
 
+print("== công cụ kịch bản: tổng hợp kết quả GoTestWAF / waf-bypass và ghép ma trận")
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import scenario as SC
+check("công cụ kịch bản còn đủ các lệnh con (15/11: một bản vá từng xoá nhầm cmd_observe)",
+      all(callable(getattr(SC, f, None)) for f in ("cmd_plan", "cmd_actor", "cmd_observe", "cmd_judge", "cmd_report",
+                                                    "cmd_toolparse", "grafana_alerts", "per_ip_stats", "matrix_table")))
+_g = SC.gotestwaf_summary({"score": 60.0, "summary": {
+    "true_positive_tests": {"score": 40.0, "summary": {"total_sent": 10, "resolved_tests": 10, "blocked_tests": 4, "bypassed_tests": 6,
+                                                       "unresolved_tests": 0, "failed_tests": 0},
+                            "test_sets": {"owasp": {"sqli": {"sent": 10, "blocked": 4, "bypassed": 6, "unresolved": 0},
+                                                    "empty": {"sent": 0, "blocked": 0, "bypassed": 0, "unresolved": 0}}}},
+    "true_negative_tests": {"score": 90.0, "summary": {"total_sent": 10, "resolved_tests": 10, "blocked_tests": 1, "bypassed_tests": 9,
+                                                       "unresolved_tests": 0, "failed_tests": 0}, "test_sets": {}}}})
+check("GoTestWAF: lấy đúng số bị chặn / đi qua của hai bộ thử", _g["tp"]["blocked"] == 4 and _g["tn"]["bypassed"] == 9
+      and list(_g["sets"]) == ["tp:owasp/sqli"], str(_g))
+_w = SC.wafbypass_summary({"PASSED": {"SQLi/1.json": {"ARGS": 1, "BODY": 1}, "XSS/2.json": {"ARGS": 1}},
+                           "BYPASSED": {"SQLi/1.json": {"COOKIE": 1}}, "FALSED": {"FP/1.json": {"ARGS": 1}}, "FAILED": {},
+                           "TARGET": "x"})
+check("waf-bypass: đếm theo tệp, theo cặp (payload, vùng) và theo nhóm",
+      _w["files"] == {"PASSED": 2, "BYPASSED": 1, "FALSED": 1, "FAILED": 0} and _w["zones"]["PASSED"] == 3
+      and _w["by_group"]["SQLi"] == {"PASSED": 1, "BYPASSED": 1} and _w["block_share_zones"] == 0.75, str(_w))
+check("bảng Markdown của công cụ có dòng tổng", any("Tấn công (bị chặn là đúng) | 10 | 4" in l for l in SC.tool_md("x", _g))
+      and any("bị chặn 3, lọt 1" in l for l in SC.tool_md("y", _w)))
+_runs = [{"actor": 0, "sent": [{"k": 0, "fam": "sqli", "place": "query", "ev": "-", "gate": "pass"}]},
+         {"actor": 1, "sent": [{"k": 0, "fam": "benign", "place": "query", "ev": "-", "gate": "pass"}]}]
+_obs = {"web": [{"source": "web", "ua": "x nsm-sc/r/s/0/0", "label": "sqli"}, {"source": "web", "ua": "x nsm-sc/r/s/1/0", "label": "benign"}]}
+_m = SC.matrix_table(_runs, _obs)
+check("ma trận ghép theo (tác nhân, số thứ tự): nhãn của tác nhân này không đè tác nhân khác",
+      _m["sqli|query|-"]["clf"] == 1 and _m["benign|query|-"]["clf"] == 0, str(_m))
+
+# =====================================================================  đợt 15/11/2026
+print("== responder: chế độ chạy thử (dryrun) — ghi 'sẽ chặn', không gửi lệnh chặn")
+R.state["blocks"].clear(); R.state["would"].clear(); R.hits.clear(); R.hits2.clear(); R.seen.clear()
+clock[0] = 4_000_000.0
+R.time.time = lambda: clock[0]          # các mục phía trên đã đổi đồng hồ chung (module time dùng chung giữa các dịch vụ)
+d = ctl("mode", mode="dryrun")
+check("nsmctl mode dryrun có hiệu lực và được ghi kiểm toán", d["decision"] == "mode" and d["mode"] == "dryrun" and R.mode() == "dryrun", str(d))
+n_pub = len(R.prod.msgs)
+dec = [alert("10.10.10.190", target=f"/d?id={i}' union select 1") for i in range(5)]
+check("đủ ngưỡng -> would_block với đủ trường như block",
+      dec[-1]["decision"] == "would_block" and dec[-1]["reason"] == "threshold" and dec[-1]["ttl_s"] == 900
+      and dec[-1]["offenses"] == 1 and "expires" in dec[-1], str(dec[-1]))
+check("chạy thử: không có lệnh chặn nào được gửi", len(R.prod.msgs) == n_pub and "10.10.10.190" not in R.state["blocks"])
+d = alert("10.10.10.190", target="/d?id=9' union select 1")
+check("chạy thử: cảnh báo tiếp theo được xử như khi đã chặn", d["decision"] == "skip" and d["reason"] == "would_already_blocked", str(d))
+d = ctl("mode", mode="enforce")
+check("về enforce: xoá lệnh chặn ảo, không biến thành lệnh chặn thật",
+      R.mode() == "enforce" and not R.state["would"] and "10.10.10.190" not in R.state["blocks"] and d["would_cleared"] == 1, str(d))
+dec = [alert("10.10.10.190", target=f"/e?id={i}' union select 1") for i in range(5)]
+check("enforce: chặn thật như trước", dec[-1]["decision"] == "block" and R.state["blocks"]["10.10.10.190"]["active"], str(dec[-1]))
+d = ctl("mode", mode="xyz")
+check("giá trị chế độ lạ bị từ chối", d["decision"] == "ctl_reject" and R.mode() == "enforce", str(d))
+check("lệnh rule_* (của rulegen) bị responder bỏ qua, không ghi 'unknown_command'",
+      R.control({"cmd": "rule_revoke", "id": "t9", "ts": clock[0], "rule_id": 1}) is None and R.es_buf.docs[-1].get("ctl_id") != "t9")
+
+print("== responder: cảnh báo nửa trọng số của tầng 2 (chế độ weighted)")
+clock[0] += 200000
+dec = [alert("10.10.10.191", target=f"/w?q={i}", weighted=True, tier=2) for i in range(9)]
+check("9 cảnh báo nửa trọng số (4,5 điểm) chưa đủ ngưỡng 5", all(d["decision"] == "count" for d in dec), str([d["decision"] for d in dec]))
+d = alert("10.10.10.191", target="/w?q=10", weighted=True, tier=2)
+check("cảnh báo nửa trọng số thứ 10 -> chặn, lý do ghi rõ có tầng 2", d["decision"] == "block" and "tier2" in d["reason"], str(d))
+clock[0] += 200000
+for i in range(3): alert("10.10.10.192", target=f"/m?id={i}' union select 1")
+dec = [alert("10.10.10.192", target=f"/m?q={i}", weighted=True) for i in range(4)]
+check("3 cảnh báo thường + 4 nửa trọng số = 5 điểm -> chặn ở cảnh báo cuối",
+      dec[-1]["decision"] == "block" and dec[-2]["decision"] == "count", str([d["decision"] for d in dec]))
+clock[0] += 200000
+dec = []
+for i in range(30):
+    dec.append(alert("10.10.10.193", target=f"/l?q={i}", weighted=True)); clock[0] += 600
+check("nửa trọng số KHÔNG tính vào cửa sổ dài (30 lần rải trong 5 giờ không bị chặn)",
+      all(d["decision"] == "count" for d in dec), str([d["decision"] for d in dec][-3:]))
+d = alert("10.10.10.194", cls="sqli", immediate=True, weighted=True)
+check("cảnh báo nửa trọng số không bao giờ khoá ngay", d["decision"] == "count", str(d))
+
+print("== classifier: chế độ tầng 2 'weighted', thang độ tin cậy, bản lưu tấn công")
+_saved = (C.T2_MODE, C.T2_THRESHOLD, C.tier2)
+C.T2_THRESHOLD = 0.67
+check("điểm model đúng ngưỡng -> 0,90; điểm 1,0 -> 1,0; ở giữa thì nằm giữa",
+      C.t2_confidence(0.67) == 0.9 and C.t2_confidence(1.0) == 1.0 and 0.9 < C.t2_confidence(0.8) < 1.0)
+C.tier2 = lambda ev, gate_text=None: ("sqli", 0.8, ["uni", "sel"])
+_ev = lambda **kw: {"query": "q=hello", "body": "", "uri": "/s", **kw}
+C.T2_MODE = "weighted"
+r = C.classify("/s", [("q", "hello")], [], "Mozilla/5.0", _ev())
+check("weighted + Cổng 2 KHÔNG chặn -> dùng nhãn tầng 2, có cờ weighted, độ tin cậy >= 0,9, giữ điểm gốc",
+      r["label"] == "sqli" and r["tier"] == 2 and r.get("weighted") is True and r["conf"] >= 0.9 and r["t2_conf"] == 0.8, str(r))
+r = C.classify("/s", [("q", "hello")], [], "Mozilla/5.0", _ev(_waf_blocked=True))
+check("weighted + Cổng 2 CŨNG chặn -> tính đủ (không có cờ weighted)", r["label"] == "sqli" and "weighted" not in r, str(r))
+C.T2_MODE = "corroborate"
+r = C.classify("/s", [("q", "hello")], [], "Mozilla/5.0", _ev())
+check("corroborate + Cổng 2 không chặn -> vẫn lành tính, nhãn model chỉ ghi nhận", r["label"] == "benign" and r["t2_label"] == "sqli", str(r))
+C.T2_MODE, C.T2_THRESHOLD, C.tier2 = _saved
+class _IdxBuf:
+    def __init__(self): self.idx = []
+    def add(self, idx, doc, _id=None): self.idx.append(idx.split("-20")[0])
+_b = _IdxBuf()
+C.store_event(_b, 1794214800.0, {"label": "sqli"}); C.store_event(_b, 1794214800.0, {"label": "benign"})
+check("sự kiện tấn công được ghi thêm một bản vào attack-events-* (lưu 1 năm); lành tính thì không",
+      _b.idx == ["web-events", "attack-events", "web-events"], str(_b.idx))
+
+print("== rulegen: áp dụng ngay, gỡ luật, cấm sinh lại, tự gỡ khi khớp nguồn sạch (hướng D)")
+class FakeES2(FakeES):
+    def __init__(self):
+        super().__init__(); self.audits = []; self.err_hits = {}; self.clean = set()
+    def index(self, index, document, id=None):
+        if index.startswith("audit-decisions"): self.audits.append(document)
+        else: self.indexed[id] = document
+    def search(self, **k):
+        if k.get("index") == "apache-errors-*":
+            return {"aggregations": {"r": {"buckets": [
+                {"key": str(rid), "ip": {"buckets": [{"key": ip, "n": {"value": n}} for ip, n in ips.items()]}}
+                for rid, ips in self.err_hits.items()]}}}
+        if "ok" in ((k.get("aggs") or {}).get("ips") or {}).get("aggs", {}):          # clean_sources
+            return {"aggregations": {"ips": {"buckets": [{"key": ip, "doc_count": 50, "ok": {"doc_count": 50},
+                                                         "bad": {"doc_count": 0}} for ip in self.clean]}}}
+        return super().search(**k)
+_gsaved = (G.es, G.SELECTOR, G.APPLY, G.g2r)
+fes2 = FakeES2(); G.es = fes2; G.SELECTOR = "g0"; G.APPLY = "immediate"
+published.clear()
+G.state.clear(); G.state.update({"next_id": G.BASE_ID, "rules": {}})
+fes2.events = attack_events + [web("10.10.10.20", "benign", [("id", "laptop"), ("submit", "submit")])] * 150
+fes.events = fes2.events                 # fake_scan (ở trên) đọc sự kiện từ fes
+G.cycle()
+rules = list(G.state["rules"].values())
+check("áp dụng ngay: luật mới CHẶN luôn, có hạn sống và lệnh gỡ",
+      len(rules) == 1 and rules[0]["state"] == "active" and rules[0]["reason"] == "new_cluster_immediate"
+      and "deny,status:403" in published[-1] and "rule-revoke" in rules[0].get("revoke_cmd", "")
+      and abs(rules[0]["expires"] - G.time.time() - G.RULE_TTL) < 5, str(rules))
+rid = rules[0]["id"]
+check("lệnh gỡ quá cũ bị bỏ", G.control({"cmd": "rule_revoke", "id": "c0", "ts": G.time.time() - 3600, "rule_id": rid}) == "ctl_reject"
+      and rules[0]["state"] == "active")
+check("gỡ mã luật không tồn tại bị từ chối", G.control({"cmd": "rule_revoke", "id": "c0", "ts": G.time.time(), "rule_id": 1}) == "ctl_reject")
+r_ = G.control({"cmd": "rule_revoke", "id": "c1", "ts": G.time.time(), "rule_id": rid})
+check("nsmctl rule-revoke: gỡ ngay, phát lại tệp luật không còn luật đó, có kiểm toán kèm mã lệnh",
+      r_ == "rule_revoke" and rules[0]["state"] == "revoked" and rules[0]["reason"] == "manual" and "deny" not in published[-1]
+      and any(a["decision"] == "rule_revoke" and a.get("ctl_id") == "c1" and a["rule_id"] == rid for a in fes2.audits), str(fes2.audits[-1:]))
+check("lệnh không phải rule_* thì rulegen bỏ qua", G.control({"cmd": "unblock", "id": "c2", "ts": G.time.time(), "ip": "1.2.3.4"}) is None)
+G.cycle()
+check("luật vừa gỡ KHÔNG bị sinh lại trong thời gian cấm", len(G.state["rules"]) == 1, str(list(G.state["rules"])))
+G.state["banned"].clear()
+G.cycle()
+rules = [r for r in G.state["rules"].values() if r["state"] == "active"]
+check("hết thời gian cấm -> sinh lại được", len(rules) == 1 and rules[0]["id"] == rid + 1, str(list(G.state["rules"])))
+r2 = rules[0]
+fes2.err_hits = {r2["id"]: {"10.10.9.9": 7}}; fes2.clean = set()
+G.cycle()
+check("luật chỉ khớp nguồn KHÔNG có lịch sử sạch (kẻ tấn công đổi IP) -> giữ, ghi số lần khớp thật",
+      r2["state"] == "active" and r2.get("hits_real") == 7, str(r2))
+fes2.err_hits = {r2["id"]: {"10.10.9.9": 7, "10.10.10.20": 3}}; fes2.clean = {"10.10.10.20"}
+G.cycle()
+check("luật chặn 3 request của nguồn sạch có tiếng -> TỰ GỠ, có kiểm toán, bị cấm sinh lại",
+      r2["state"] == "revoked" and r2["reason"] == "benign_hit_live" and G.banned(G.ban_key(r2))
+      and any(a["decision"] == "rule_revoke" and a["reason"] == "benign_hit_live" and a["benign_hits"] == 3 for a in fes2.audits), str(r2))
+G.state["banned"].clear(); fes2.err_hits = {}; fes2.clean = set()
+G.cycle()
+r3 = [r for r in G.state["rules"].values() if r["state"] == "active"][0]
+r3["expires"] = G.time.time() - 1; r3["last_hit"] = G.time.time() - 60
+G.cycle()
+check("hết hạn nhưng vừa chặn được tấn công -> tự gia hạn", r3["state"] == "active" and r3["reason"] == "ttl_extended"
+      and r3["expires"] > G.time.time() and r3.get("extended") == 1, str(r3))
+r3["expires"] = G.time.time() - 1; r3["last_hit"] = G.time.time() - G.REVOKE - 60; r3["since"] = r3["last_hit"]
+fes2.events = [web("10.10.10.20", "benign", [("id", "laptop"), ("submit", "submit")])] * 150      # không còn tấn công
+fes.events = fes2.events
+G.cycle()
+check("hết hạn và không còn khớp gì -> hết hiệu lực", r3["state"] in ("expired", "revoked"), str(r3["state"]))
+_cov1 = [{"ip": "10.0.0.1", "weighted": True}] * 5
+_cov2 = [{"ip": f"10.0.0.{i % 2}", "weighted": True} for i in range(5)]
+check("cụm đa số do tầng 2 gắn nhãn: nhận ra đúng", G.is_t2_cluster(_cov1) and not G.is_t2_cluster([{"ip": "x", "weighted": False}] * 5))
+check("cụm tầng 2 từ MỘT IP không sinh được luật", not G.t2_cluster_ok({"op": "contains", "tokens": ["' union"]}, _cov1))
+check("cụm tầng 2 từ 2 IP + token có cú pháp tấn công -> được", G.t2_cluster_ok({"op": "contains", "tokens": ["' union"]}, _cov2))
+check("cụm tầng 2: token toàn chữ thường ('select a laptop') bị loại", not G.t2_cluster_ok({"op": "contains", "tokens": ["select a "]}, _cov2))
+G.es, G.SELECTOR, G.APPLY, G.g2r = _gsaved
+
 print()
 if FAILS:
     print(f"THẤT BẠI {len(FAILS)} mục:"); [print("  -", f) for f in FAILS]; sys.exit(1)

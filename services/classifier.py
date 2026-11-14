@@ -37,7 +37,21 @@ T2_GATE = os.getenv("TIER2_SYNTAX_GATE", "1") != "0"
 #          đồng ý). Đo trên 2000 request thật (parity 12/11): phát hiện 71 % (enforce cũ 74 %), báo nhầm 8,3 % lưu
 #          lượng lành tính (observe 1,5 %, enforce cũ 43,8 %).
 # enforce: nhãn tầng 2 được dùng như trước (kèm cổng: không hỏi model với thân JSON/XML/multipart).
+# weighted (15/11/2026): chế độ TRUNG GIAN giữa corroborate và enforce. Nhãn của model được dùng cả khi Cổng 2 không
+#          chặn, nhưng cảnh báo đó mang cờ weighted=true: responder chỉ tính nửa trọng số (TIER2_WEIGHT) và không tính
+#          vào cửa sổ dài, nên một lần model nhầm không khoá được người dùng. Khi Cổng 2 CŨNG chặn thì tính đủ như
+#          corroborate. Nhờ vậy tấn công mà CRS lẫn regex tầng 1 bỏ lọt vẫn thành cảnh báo và vào được bộ sinh luật.
 T2_MODE = os.getenv("TIER2_MODE", "observe").lower()
+# Độ tin cậy gửi cho responder. Ngưỡng của model (TIER2_THRESHOLD) được chọn trên tập valid để tầng 2 chỉ thêm ≤ 0,1 %
+# báo nhầm; nó KHÔNG cùng thang với θ = 0,90 của responder (model 14/11 dùng ngưỡng 0,67). Điểm model trong [ngưỡng, 1]
+# được đổi tuyến tính sang [0,90; 1,00] — không thì mọi nhãn tầng 2 có điểm dưới 0,90 bị responder bỏ ở bước "độ tin
+# cậy ≥ θ" dù đã vượt ngưỡng của chính model. Điểm gốc vẫn được lưu ở trường t2_conf.
+T2_CONF_FLOOR = float(os.getenv("TIER2_CONF_FLOOR", "0.90"))
+
+def t2_confidence(score):
+    if T2_THRESHOLD >= 1.0: return max(score, T2_CONF_FLOOR)
+    x = min(max((score - T2_THRESHOLD) / (1.0 - T2_THRESHOLD), 0.0), 1.0)
+    return round(T2_CONF_FLOOR + (1.0 - T2_CONF_FLOOR) * x, 4)
 T2_STRUCTURED = os.getenv("TIER2_STRUCTURED_BODY", "0") == "1"
 ANOMALY_CONF = float(os.getenv("ANOMALY_CONFIDENCE", "0.5"))
 # Trần quét. Trước đây chỉ đọc 100 tham số đầu, 2048 ký tự mỗi giá trị, 4096 ký tự thân JSON — đặt payload
@@ -330,9 +344,12 @@ def classify(path, qargs, bargs, ua, ev, headers=None):
     t2 = tier2(ev, " ".join(gate_units)) if gate_units else None
     out = {"label": "benign", "conf": 0.0, "tier": None, "rule": None, "field": None, "evidence": None}
     if t2:
-        if T2_MODE == "enforce" or (T2_MODE == "corroborate" and ev.get("_waf_blocked")):
-            out = {"label": t2[0], "conf": t2[1], "tier": 2, "rule": "model", "field": "ARGS",
-                   "evidence": " | ".join(t2[2])[:120]}
+        corroborated = bool(ev.get("_waf_blocked"))
+        if T2_MODE == "enforce" or (T2_MODE in ("corroborate", "weighted") and corroborated) or T2_MODE == "weighted":
+            out = {"label": t2[0], "conf": t2_confidence(t2[1]), "tier": 2, "rule": "model", "field": "ARGS",
+                   "evidence": " | ".join(t2[2])[:120], "t2_conf": round(t2[1], 4)}
+            if T2_MODE == "weighted" and not corroborated:
+                out["weighted"] = True
         else:
             out.update(t2_label=t2[0], t2_conf=round(t2[1], 4), t2_evidence=" | ".join(t2[2])[:120])
     if out["label"] == "benign" and limits.get("over"):
@@ -410,6 +427,17 @@ def redact_text(t):
 def redact_pairs(pairs):
     return [(n, REDACTED if n and SENSITIVE.search(n) else v) for n, v in pairs]
 
+# Thời gian lưu (quyết định 15/11/2026): sự kiện request giữ 30 ngày, sự kiện TẤN CÔNG giữ 1 năm. Chính sách vòng đời của
+# Elasticsearch đặt theo chỉ mục, nên sự kiện có nhãn tấn công được ghi THÊM một bản vào attack-events-* (lưu dài).
+# web-events-* vẫn có đủ mọi sự kiện như trước -> Grafana, rulegen và các công cụ đo không phải đổi gì.
+ATTACK_ARCHIVE = os.getenv("ATTACK_ARCHIVE", "1") != "0"
+NOT_ATTACK = {"benign", "info", None}
+
+def store_event(buf, ts, doc):
+    buf.add(day_index("web-events", ts), doc)
+    if ATTACK_ARCHIVE and doc.get("label") not in NOT_ATTACK:
+        buf.add(day_index("attack-events", ts), doc)
+
 def emit_alert(p, a):
     p.produce("alerts", key=a["src_ip"].encode(), value=json.dumps(a).encode())
 
@@ -451,7 +479,8 @@ def _classify_web(ev, body, intercepted=None, truncated=False):
         emit_alert(PROD, {"alert_id": str(uuid.uuid4()), "ts": ts, "src_ip": ev["src_ip"], "class": label,
                           "confidence": conf, "tier": c["tier"], "source": "web", "target": target[:512],
                           "status": status, "waf_blocked": waf_blocked, "ua": (ua or "")[:256],
-                          "evidence_field": c["field"], "evidence": c["evidence"]})
+                          "evidence_field": c["field"], "evidence": c["evidence"],
+                          **({"weighted": True} if c.get("weighted") else {})})
     # 2) rồi mới đưa bản ghi vào bộ đệm ES (ghi ở luồng nền)
     args = redact_pairs(qargs + bargs)[:50]
     # ARGS đúng như ModSecurity nhìn thấy (giải mã MỘT lần, giữ hoa thường): luật tự sinh được áp lên
@@ -471,10 +500,10 @@ def _classify_web(ev, body, intercepted=None, truncated=False):
            "cookie_n": [n for n, _ in cookies][:50],                             # chỉ TÊN cookie, không lưu giá trị
            "f_len": len(target), "f_special": sum(not ch.isalnum() for ch in target),
            "f_entropy": round(entropy(target), 3)}
-    for k in ("t2_label", "t2_conf", "t2_evidence"):
+    for k in ("t2_label", "t2_conf", "t2_evidence", "weighted"):
         if k in c: doc[k] = c[k]
     if truncated: doc["body_truncated"] = True
-    ES_BUF.add(day_index("web-events", ts), doc)
+    store_event(ES_BUF, ts, doc)
 
 def handle_web(ev):
     rid = ev.get("req_id"); method = (ev.get("method") or "").upper()
@@ -592,7 +621,7 @@ def handle_net(ev, es_buf, p):
             emit_alert(p, {"alert_id": str(uuid.uuid4()), "ts": ts, "src_ip": attacker, "class": cls,
                            "confidence": conf, "tier": 0, "source": "net", "signature": a.get("signature"),
                            "target": redact_url((ev.get("http") or {}).get("url") or "")[:512]})
-    es_buf.add(day_index("web-events", ts), doc)
+    store_event(es_buf, ts, doc)
 
 def main():
     global ES_BUF, PROD

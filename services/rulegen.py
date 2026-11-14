@@ -42,6 +42,17 @@ RETENTION_DAYS = int(E("RETENTION_DAYS", "30"))                # xoá chỉ mụ
 ATTACKER_MIN_EVENTS = int(E("ATTACKER_MIN_EVENTS", "3"))       # IP bị loại khỏi corpus lành tính khi có >= N sự kiện tấn công
 ATTACKER_MIN_SHARE = E("ATTACKER_MIN_SHARE", "0.1")            # ... và chúng chiếm >= tỷ lệ này lưu lượng của IP
 SELECTOR = os.getenv("RULEGEN_SELECTOR", "g2r").lower()        # g2r | g0
+# ÁP DỤNG NGAY (người dùng chốt 15/11/2026). shadow: luật mới chạy thử SHADOW_S rồi mới chặn (như tài liệu đặc tả).
+# immediate: luật qua kiểm tra tĩnh + kiểm trên kho lành tính là CHẶN NGAY; đổi lại có ba lưới an toàn:
+#   (1) cảnh báo kèm nội dung luật và lệnh gỡ; (2) gỡ một thao tác: nsmctl rule-revoke <mã>; (3) TỰ GỠ khi luật khớp
+#   request của nguồn "sạch có tiếng" (xem live_hits / REVOKE_BENIGN_HITS). Luật sống RULE_TTL_S rồi tự gia hạn nếu còn
+#   chặn được tấn công trong REVOKE_S gần nhất.
+APPLY = os.getenv("RULE_APPLY", "shadow").lower()              # shadow | immediate
+REVOKE_BENIGN_HITS = int(E("REVOKE_BENIGN_HITS", "3"))         # số request của nguồn sạch bị luật chặn -> tự gỡ
+CLEAN_MIN_EVENTS = int(E("CLEAN_MIN_EVENTS", "10"))            # "nguồn sạch có tiếng": >= N sự kiện lành tính trong 24 giờ TRƯỚC khi có luật
+BAN_S = E("RULE_BAN_S", "86400")                               # luật vừa bị gỡ (tay / tự động) không được sinh lại trong ngần này
+T2_MIN_SOURCES = int(E("T2_MIN_SOURCES", "2"))                 # cụm mà đa số mẫu chỉ do tầng 2 gắn nhãn: cần >= N IP nguồn
+CTL_MAX_AGE = E("CTL_MAX_AGE_S", "120")                        # lệnh quản trị cũ hơn ngần này bị bỏ
 RULESEL_MODEL = os.getenv("RULESEL_MODEL", "/models/rulesel_g2r.joblib")
 RULESEL_PRIOR = os.getenv("RULESEL_PRIOR", "/models/rulesel_prior.json.gz")
 RULESEL_MIN_SCORE = E("RULESEL_MIN_SCORE", "0")                # điểm dự đoán tối thiểu (< 0 = model đoán sẽ chặn nhầm)
@@ -82,6 +93,8 @@ def is_specific(g):
 state = load_json(STATE_PATH, {"next_id": BASE_ID, "rules": {}})
 if not isinstance(state, dict): state = {}
 state.setdefault("next_id", BASE_ID); state.setdefault("rules", {})
+if not isinstance(state.get("banned"), dict): state["banned"] = {}   # khoá luật -> hạn (epoch) cấm sinh lại
+ctl_consumer = None
 es = None
 prod = None
 status_consumer = None
@@ -89,7 +102,7 @@ g2r = None                                                     # rulesel_g2r.Sel
 _last_cleanup = 0.0
 
 # ------------------------------------------------------------------ dữ liệu
-FIELDS = ["target", "body", "label", "status", "@timestamp", "src_ip", "arg_n", "arg_v", "marg_n", "marg_v"]
+FIELDS = ["target", "body", "label", "status", "@timestamp", "src_ip", "arg_n", "arg_v", "marg_n", "marg_v", "weighted"]
 def fetch(lookback, labels=None, limit=50000):
     """Sự kiện web trong `lookback` giây, MỚI NHẤT trước. Lọc nhãn ngay trong truy vấn."""
     flt = [{"range": {"@timestamp": {"gte": f"now-{int(lookback)}s"}}}, {"term": {"source.keyword": "web"}}]
@@ -113,7 +126,7 @@ def attacker_ips(lookback):
                                              {"term": {"source.keyword": "web"}}]}},
                   aggs={"ips": {"terms": {"field": "src_ip.keyword", "size": 10000},
                                 "aggs": {"bad": {"filter": {"bool": {"must_not": [
-                                    {"term": {"label.keyword": "benign"}}]}}}}}})
+                                    {"term": {"label.keyword": "benign"}}, {"term": {"weighted": True}}]}}}}}})
     out = set()
     for b in (r.get("aggregations") or {}).get("ips", {}).get("buckets", []):
         bad = (b.get("bad") or {}).get("doc_count", 0)
@@ -148,7 +161,7 @@ def margs_of(e):
     return []
 
 def sample_of(e):
-    return {"arg": args_of(e), "marg": margs_of(e)}
+    return {"arg": args_of(e), "marg": margs_of(e), "ip": e.get("src_ip"), "weighted": bool(e.get("weighted"))}
 
 class Corpus:
     """Tập giá trị tham số lành tính (từ nguồn sạch) + hạt giống. `hits(pred)` = số sự kiện có giá trị thoả pred."""
@@ -304,12 +317,14 @@ def set_state(r, new, reason):
     L.info("rule %s [%s] %s %r → %s (%s)", r["id"], r["class"], r.get("target"), r["token"], new, reason)
 
 def cleanup_indices():
-    """Xoá chỉ mục sự kiện/kiểm toán theo ngày cũ hơn RETENTION_DAYS (không để ES đầy dần)."""
+    """Xoá chỉ mục SỰ KIỆN REQUEST theo ngày cũ hơn RETENTION_DAYS (không để ES đầy dần). Từ 15/11/2026 KHÔNG xoá
+    nhật ký kiểm toán (audit-decisions-*) và bản lưu tấn công (attack-events-*): hai loại này giữ 1 năm, do chính sách
+    vòng đời của Elasticsearch lo (soc/es-init.sh)."""
     global _last_cleanup
     if RETENTION_DAYS <= 0 or time.time() - _last_cleanup < 3600: return
     _last_cleanup = time.time()
     keep_s = max(RETENTION_DAYS * 86400, BENIGN_LOOKBACK + 86400)
-    for prefix in ("web-events", "audit-decisions"):
+    for prefix in ("web-events",):
         try: names = list(es.indices.get(index=f"{prefix}-*", ignore_unavailable=True))
         except Exception as e:
             L.warning("không liệt kê được chỉ mục %s: %s", prefix, e); continue
@@ -318,6 +333,131 @@ def cleanup_indices():
             except ValueError: continue
             if time.time() - day.timestamp() > keep_s + 86400:
                 es.indices.delete(index=name, ignore_unavailable=True); L.info("đã xoá chỉ mục cũ %s", name)
+
+def ban_key(r_or_spec, cls=None):
+    """Khoá nhận diện 'cùng một luật' để cấm sinh lại sau khi bị gỡ (không tính đích: ARGS hay ARGS:<tên> đều là nó)."""
+    sp = r_or_spec.get("spec") if "spec" in r_or_spec else r_or_spec
+    if isinstance(sp, dict) and "tokens" in sp:
+        return json.dumps([sp.get("class") or cls, sp.get("op"), sp.get("tokens")], ensure_ascii=False)
+    return json.dumps([r_or_spec.get("class") or cls, r_or_spec.get("op"), r_or_spec.get("token")], ensure_ascii=False)
+
+def banned(key, now=None):
+    until = state.setdefault("banned", {}).get(key, 0)
+    return until > (time.time() if now is None else now)
+
+def is_t2_cluster(cov):
+    """Cụm mà đa số mẫu CHỈ do tầng 2 gắn nhãn (cờ weighted): bằng chứng yếu hơn regex/CRS."""
+    return sum(1 for x in cov if x.get("weighted")) * 2 > len(cov)
+
+def t2_cluster_ok(spec, cov):
+    """Điều kiện thêm cho luật sinh từ bằng chứng tầng 2: mẫu đến từ >= T2_MIN_SOURCES IP khác nhau (một người gõ
+    lặp một câu không tự tạo được luật) và token phải chứa CÚ PHÁP tấn công (không chấp nhận luật toàn chữ thường —
+    đúng loại mà model hay nhầm: 'select a laptop', 'order by price')."""
+    if len({x.get("ip") for x in cov}) < T2_MIN_SOURCES:
+        return False
+    return spec.get("op") == "rx_fixed" or any(is_specific(t) for t in spec.get("tokens") or [])
+
+def audit(decision, reason, **extra):
+    """Ghi kiểm toán thao tác trên luật (giữ 1 năm cùng các quyết định của responder). Lỗi ES không làm hỏng chu kỳ."""
+    try:
+        es.index(index=day_index("audit-decisions"), document={
+            "@timestamp": iso(), "decision": decision, "reason": reason, "decided_by": "rulegen", **extra})
+    except Exception as e:
+        L.warning("không ghi được kiểm toán %s: %s", decision, e)
+
+def revoke(r, reason, now=None, **extra):
+    """Gỡ một luật đang sống + cấm sinh lại BAN_S giây. Người gọi tự phát lại tệp luật (sync_conf)."""
+    now = time.time() if now is None else now
+    state.setdefault("banned", {})[ban_key(r)] = now + BAN_S
+    set_state(r, "revoked", reason)
+    audit("rule_revoke", reason, rule_id=r["id"], cls=r.get("class"), token=str(r.get("token"))[:300],
+          target=r.get("target"), **extra)
+
+def live_hits(rules, now):
+    """Số lần luật ĐANG CHẶN khớp thật ở ModSecurity, đọc từ apache-errors-* (logsink ghi từng dòng lỗi kèm mã luật và
+    IP). -> {mã luật: {ip: số lần}} tính từ lúc luật có hiệu lực. Lỗi ES -> {} (không tự gỡ gì khi không có dữ liệu)."""
+    act = [r for r in rules if r["state"] == "active"]
+    if not act: return {}
+    since = min(r.get("active_since", r.get("changed", now)) for r in act)
+    out = {}
+    try:
+        res = es.search(index="apache-errors-*", size=0, ignore_unavailable=True,
+                        query={"bool": {"filter": [
+                            {"terms": {"rule_id.keyword": [str(r["id"]) for r in act]}},
+                            {"range": {"@timestamp": {"gte": iso(since - 5)}}}]}},
+                        aggs={"r": {"terms": {"field": "rule_id.keyword", "size": 500},
+                                    "aggs": {"ip": {"terms": {"field": "src_ip.keyword", "size": 500},
+                                                    "aggs": {"n": {"sum": {"field": "count"}}}}}}})
+        for b in (res.get("aggregations") or {}).get("r", {}).get("buckets", []):
+            out[int(b["key"])] = {i["key"]: int(i["n"]["value"]) for i in b["ip"]["buckets"]}
+    except Exception as e:
+        L.warning("không đọc được số lần khớp thật (apache-errors): %s", e)
+    return out
+
+def clean_sources(ips, before_ts):
+    """IP 'sạch có tiếng' trước thời điểm before_ts: >= CLEAN_MIN_EVENTS sự kiện web lành tính trong 24 giờ trước đó và
+    bằng chứng tấn công MẠNH (không tính nhãn nửa trọng số) dưới ngưỡng attacker_ips. Kẻ tấn công xoay IP mới không có
+    lịch sử như vậy; người dùng thật bị một luật sai chặn thì có."""
+    if not ips: return set()
+    res = es.search(index="web-events-*", size=0, ignore_unavailable=True,
+                    query={"bool": {"filter": [{"terms": {"src_ip.keyword": sorted(ips)}}, {"term": {"source.keyword": "web"}},
+                                               {"range": {"@timestamp": {"gte": iso(before_ts - 86400), "lt": iso(before_ts)}}}]}},
+                    aggs={"ips": {"terms": {"field": "src_ip.keyword", "size": len(ips) + 10},
+                                  "aggs": {"ok": {"filter": {"term": {"label.keyword": "benign"}}},
+                                           "bad": {"filter": {"bool": {"must_not": [
+                                               {"term": {"label.keyword": "benign"}}, {"term": {"weighted": True}}]}}}}}})
+    out = set()
+    for b in (res.get("aggregations") or {}).get("ips", {}).get("buckets", []):
+        ok, bad = b["ok"]["doc_count"], b["bad"]["doc_count"]
+        if ok >= CLEAN_MIN_EVENTS and not (bad >= ATTACKER_MIN_EVENTS and bad >= ATTACKER_MIN_SHARE * b["doc_count"]):
+            out.add(b["key"])
+    return out
+
+def sync_conf(new=()):
+    """Phát tệp luật nếu nội dung đổi. new = luật vừa sinh trong chu kỳ này (bị loại nếu apachectl -t từ chối)."""
+    conf = build_conf()
+    sha = hashlib.sha256(conf.encode()).hexdigest()[:16]
+    if sha != state.get("published_sha"):                      # chỉ phát khi tệp luật THAY ĐỔI
+        _, ok = publish(conf)
+        if ok is False:
+            for r in new: set_state(r, "rejected", "apache_configtest")
+            conf = build_conf(); sha = hashlib.sha256(conf.encode()).hexdigest()[:16]
+            _, ok = publish(conf)
+        if ok: state["published_sha"] = sha                   # chưa được xác nhận -> chu kỳ sau phát lại
+    atomic_write(STATE_PATH, json.dumps(state))
+
+def control(c):
+    """Lệnh quản trị từ nsm.control dành cho rulegen: rule_revoke <id> | rule_revoke_all. Trả tên quyết định."""
+    cmd, cid = str(c.get("cmd") or ""), str(c.get("id") or "")[:64]
+    if not cmd.startswith("rule_"): return None                # lệnh của responder
+    now = time.time()
+    try: age = now - float(c.get("ts"))
+    except (TypeError, ValueError): age = float("inf")
+    if abs(age) > CTL_MAX_AGE:
+        audit("ctl_reject", "stale", ctl_id=cid, cmd=cmd); return "ctl_reject"
+    if cmd == "rule_revoke":
+        r = state["rules"].get(str(c.get("rule_id")))
+        if not r or r["state"] not in ("shadow", "active"):
+            audit("ctl_reject", "no_such_live_rule", ctl_id=cid, cmd=cmd, rule_id=c.get("rule_id")); return "ctl_reject"
+        revoke(r, "manual", now, ctl_id=cid)
+        sync_conf(); return "rule_revoke"
+    if cmd == "rule_revoke_all":
+        live = live_rules()
+        for r in live: revoke(r, "manual", now)
+        audit("rule_revoke_all", "manual", ctl_id=cid, revoked=len(live))
+        sync_conf(); return "rule_revoke_all"
+    audit("ctl_reject", "unknown_command", ctl_id=cid, cmd=cmd[:32]); return "ctl_reject"
+
+def poll_control():
+    if ctl_consumer is None: return
+    for _ in range(20):
+        msg = ctl_consumer.poll(0)
+        if msg is None: return
+        if msg.error(): continue
+        try:
+            r_ = control(json.loads(msg.value()))
+            if r_: L.info("lệnh quản trị: %s", r_)
+        except Exception: L.exception("lệnh quản trị hỏng")
 
 def longest_marg(s):
     v = max((v for _, v in s["marg"]), key=len, default="")
@@ -351,6 +491,10 @@ def gen_g2r(cls, samples, live_benign, now):
         if len(vals) < MIN_CLUSTER:
             break
         pick = fixed_rce_pick(samples, live_benign) if cls == "rce" else None
+        if pick and (banned(ban_key(pick[1], cls), now)
+                     or (is_t2_cluster([samples[i] for i in pick[2]])
+                         and not t2_cluster_ok(pick[1], [samples[i] for i in pick[2]]))):
+            pick = None
         for score, cand, spec in ([] if pick else g2r.rank(cls, vals[:RULESEL_SUBSAMPLE])):
             if score < RULESEL_MIN_SCORE:
                 break                                          # đã sắp giảm dần: các ứng viên sau còn thấp hơn
@@ -358,6 +502,11 @@ def gen_g2r(cls, samples, live_benign, now):
                 continue
             idx = [i for i, s in enumerate(samples) if S.matches(spec, s["marg"])]
             if len(idx) < MIN_CLUSTER:
+                continue
+            if banned(ban_key(spec, cls), now):                # vừa bị gỡ (tay hoặc tự động) -> không sinh lại
+                continue
+            cov = [samples[i] for i in idx]
+            if is_t2_cluster(cov) and not t2_cluster_ok(spec, cov):
                 continue
             tgt = M._target(spec, [{"args": s["marg"]} for s in samples], idx)
             spec = dict(spec, target=tgt)                      # dict MỚI: secrule.matches cache theo id(spec)
@@ -375,12 +524,23 @@ def gen_g2r(cls, samples, live_benign, now):
         r = {"id": rid, "class": cls, "kind": "spec", "spec": spec, "token": S.describe(spec), "op": spec["op"],
              "target": spec["target"], "selector": "fixed_rx" if spec["op"] == "rx_fixed" else "g2r",
              "score": None if score is None else round(score, 4),
-             "since": now, "last_hit": now, "cluster_size": len(idx), "state": "new"}
+             "since": now, "last_hit": now, "cluster_size": len(idx), "state": "new",
+             "evidence": "tier2" if is_t2_cluster([samples[i] for i in idx]) else "tier1",
+             "sources": len({samples[i].get("ip") for i in idx})}
         state["rules"][str(rid)] = r
-        set_state(r, "shadow", "new_cluster"); out.append(r)
+        activate_new(r, now); out.append(r)
         covered = set(idx)
         samples = [s for i, s in enumerate(samples) if i not in covered]
     return out
+
+def activate_new(r, now):
+    """Luật vừa sinh: chạy thử (shadow) hoặc chặn ngay (immediate), theo RULE_APPLY."""
+    if APPLY == "immediate":
+        r["expires"] = now + RULE_TTL; r["active_since"] = now
+        r["revoke_cmd"] = f"bash tools/nsmctl.sh rule-revoke {r['id']}"
+        set_state(r, "active", "new_cluster_immediate")
+    else:
+        set_state(r, "shadow", "new_cluster")
 
 def cycle():
     now = time.time()
@@ -397,10 +557,24 @@ def cycle():
         if r["state"] in ("shadow", "active") and "target" not in r:
             set_state(r, "revoked", "upgrade_v2")
 
+    for k in [k for k, t in state.setdefault("banned", {}).items() if t <= now]: del state.setdefault("banned", {})[k]
+    real = live_hits(live_rules(), now)                      # {mã luật: {ip: số lần chặn thật}}
     for r in live_rules():
         if not static_check(r):
             set_state(r, "rejected", "static_check"); continue
         if any(rule_hits(r, s) for s in att_samples): r["last_hit"] = now
+        by_ip = real.get(r["id"]) or {}
+        if by_ip:
+            r["last_hit"] = now; r["hits_real"] = sum(by_ip.values()); r["hit_sources"] = len(by_ip)
+            if r["state"] == "active" and REVOKE_BENIGN_HITS > 0:
+                try: clean = clean_sources(set(by_ip), r.get("active_since", r.get("changed", now)))
+                except Exception as e:
+                    clean = set(); L.warning("không kiểm được nguồn sạch cho luật %s: %s", r["id"], e)
+                n_clean = sum(by_ip[i] for i in clean)
+                if n_clean >= REVOKE_BENIGN_HITS:              # luật đang chặn người dùng thật -> TỰ GỠ
+                    r["benign_hits_live"] = n_clean
+                    revoke(r, "benign_hit_live", now, benign_hits=n_clean, benign_sources=sorted(clean)[:10])
+                    continue
         if is_spec(r):
             bad = spec_benign_rejects(r["spec"], live_benign)
         else:
@@ -409,9 +583,15 @@ def cycle():
         if bad:
             set_state(r, "rejected", "benign_hit")
         elif r["state"] == "shadow" and now - r["since"] >= SHADOW and corpus_ok:
-            r["expires"] = now + RULE_TTL; set_state(r, "active", "shadow_passed")
+            r["expires"] = now + RULE_TTL; r["active_since"] = now
+            r["revoke_cmd"] = f"bash tools/nsmctl.sh rule-revoke {r['id']}"
+            set_state(r, "active", "shadow_passed")
         elif r["state"] == "active" and now >= r["expires"]:
-            set_state(r, "expired", "ttl")
+            if APPLY == "immediate" and now - r.get("last_hit", r["since"]) <= REVOKE:
+                r["expires"] = now + RULE_TTL; r["extended"] = r.get("extended", 0) + 1   # còn chặn được tấn công -> gia hạn
+                set_state(r, "active", "ttl_extended")
+            else:
+                set_state(r, "expired", "ttl")
         elif r["state"] == "active" and now - r.get("last_hit", r["since"]) > REVOKE:
             set_state(r, "revoked", "no_match")
 
@@ -447,24 +627,19 @@ def cycle():
                 if not tok:
                     L.info("cluster %s (%d mẫu): không có bất biến ĐẶC HIỆU an toàn (nhường tầng khác)", cls, len(samples))
                     break
+                if banned(ban_key({"class": cls, "op": op, "token": tok}), now):
+                    L.info("cluster %s: luật %r vừa bị gỡ — không sinh lại trong thời gian cấm", cls, tok)
+                    break
                 m = (lambda v: bool(RCE_RE.search(v))) if op == "rx" else (lambda v, t=tok: t in v)
                 rid = state["next_id"]; state["next_id"] += 1
                 r = {"id": rid, "class": cls, "token": tok, "op": op, "target": narrow_target(m, samples, idx),
                      "since": now, "last_hit": now, "cluster_size": len(idx), "state": "new"}
                 state["rules"][str(rid)] = r
-                set_state(r, "shadow", "new_cluster"); new.append(r); made += 1
+                activate_new(r, now); new.append(r); made += 1
                 covered = set(idx)
                 samples = [s for i, s in enumerate(samples) if i not in covered]
 
-    conf = build_conf()
-    sha = hashlib.sha256(conf.encode()).hexdigest()[:16]
-    if sha != state.get("published_sha"):                      # chỉ phát khi tệp luật THAY ĐỔI
-        _, ok = publish(conf)
-        if ok is False:
-            for r in new: set_state(r, "rejected", "apache_configtest")
-            conf = build_conf(); sha = hashlib.sha256(conf.encode()).hexdigest()[:16]
-            _, ok = publish(conf)
-        if ok: state["published_sha"] = sha                   # chưa được xác nhận -> chu kỳ sau phát lại
+    sync_conf(new)
     for r in live_rules():                                     # 'nhịp tim' để bảng Grafana luôn thấy luật đang sống
         es.index(index="rule-status", id=str(r["id"]),
                  document={**r, "@timestamp": iso(), "changed_at": iso(r.get("changed", now))})
@@ -493,10 +668,14 @@ def main():
     g2r = load_selector()
     es = es_client(); prod = producer()
     status_consumer = consumer("rulegen-status", ["enforce.status"])
+    global ctl_consumer
+    try: ctl_consumer = consumer("rulegen-ctl", ["nsm.control"])   # lệnh gỡ luật (nsmctl rule-revoke)
+    except Exception:
+        ctl_consumer = None; L.exception("không mở được nsm.control — lệnh gỡ luật sẽ không dùng được")
     os.makedirs("/state", exist_ok=True)
     state.pop("published_sha", None)                           # khởi động lại -> phát lại một lần để đồng bộ enforcer
-    L.info("rulegen started: bộ chọn %s, chu kỳ %ss, shadow %ss, corpus tối thiểu %d, ε=%s",
-           SELECTOR, INTERVAL, SHADOW, MIN_BENIGN, EPSILON)
+    L.info("rulegen started: bộ chọn %s, chu kỳ %ss, áp dụng %s (shadow %ss), luật sống %ss, corpus tối thiểu %d, ε=%s",
+           SELECTOR, INTERVAL, APPLY, SHADOW, RULE_TTL, MIN_BENIGN, EPSILON)
     hb = Heartbeat("rulegen"); failed = 0
     while running():
         try: cycle(); hb.inc()
@@ -505,7 +684,8 @@ def main():
         end = time.time() + INTERVAL
         while running() and time.time() < end:
             time.sleep(1)
-            d = hb.tick(cycles_failed=failed, live_rules=len(live_rules()))     # nhịp tim -> nsm-health-*
+            poll_control()                                     # lệnh gỡ luật có hiệu lực ngay, không chờ hết chu kỳ
+            d = hb.tick(cycles_failed=failed, live_rules=len(live_rules()), apply=APPLY)     # nhịp tim -> nsm-health-*
             if d:
                 try: es.index(index=day_index("nsm-health"), document=d)
                 except Exception: pass

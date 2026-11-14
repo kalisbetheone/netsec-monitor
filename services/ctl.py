@@ -5,9 +5,15 @@
   unblock <ip>            gỡ chặn một IP ngay, không đụng tới các IP khác
   exempt-add <cidr>       thêm dải miễn trừ lúc đang chạy (IP đang bị chặn trong dải được gỡ luôn)
   exempt-del <cidr>       bỏ một dải đã thêm bằng exempt-add
+  mode                    xem chế độ của responder: enforce (chặn thật) hay dryrun (chạy thử: chỉ ghi "sẽ chặn")
+  mode dryrun|enforce     đổi chế độ ngay, không khởi động lại; lệnh chặn thật đang có giữ nguyên tới khi hết hạn
+  rules                   liệt kê luật tự sinh đang sống (mã, lớp, trạng thái, đích, nội dung, số lần khớp thật)
+  rule-revoke <mã>        gỡ MỘT luật tự sinh ngay (Cổng 2 áp dụng trong vài giây); luật đó không bị sinh lại trong 24 giờ
+  rule-revoke-all         gỡ mọi luật tự sinh đang sống
 
-Lệnh thay đổi được gửi vào topic nsm.control (chỉ tài khoản 'ctl' được ghi; responder là bên duy nhất đọc),
-rồi chờ responder xác nhận qua nhật ký kiểm toán (audit-decisions). Không lệnh nào xoá trạng thái.
+Lệnh thay đổi được gửi vào topic nsm.control (chỉ tài khoản 'ctl' được ghi; responder đọc các lệnh chặn/miễn trừ/chế
+độ, rulegen đọc các lệnh rule-*), rồi chờ bên thi hành xác nhận qua nhật ký kiểm toán (audit-decisions).
+Không lệnh nào xoá trạng thái.
 """
 import ipaddress, json, logging, sys, time, uuid
 from common import es_client, iso, load_json, producer
@@ -15,6 +21,7 @@ from common import es_client, iso, load_json, producer
 logging.getLogger("elastic_transport").setLevel(logging.WARNING)     # công cụ dòng lệnh: chỉ in kết quả
 
 STATE_PATH = "/state/responder.json"      # volume của responder, gắn CHỈ ĐỌC vào container này
+RULES_PATH = "/rstate/rules.json"         # volume của rulegen, gắn CHỈ ĐỌC
 WAIT_S = 25
 
 def die(msg, code=2):
@@ -44,6 +51,31 @@ def cmd_exempt():
     for c in st.get("exempt_env") or ["(chưa có — responder chưa lưu trạng thái lần nào)"]: print("  " + c)
     print("Miễn trừ thêm lúc chạy (nsmctl exempt-add):")
     for c in st.get("exempt_extra") or ["(không có)"]: print("  " + c)
+
+def cmd_mode():
+    st = load_json(STATE_PATH, None)
+    if st is None: die("!! chưa đọc được trạng thái của responder (responder đã chạy chưa?)", 1)
+    m = st.get("mode")
+    now = time.time()
+    would = [k for k, r in (st.get("would") or {}).items() if r.get("active") and r.get("expires", 0) > now]
+    print(f"Chế độ đặt lúc chạy: {m or '(chưa đặt — theo biến RESPONDER_MODE trong docker-compose.yml)'}")
+    if would:
+        print(f'Đang "sẽ chặn" (chạy thử) {len(would)} nguồn:')
+        for k in sorted(would): print("  " + k)
+
+def cmd_rules():
+    st = load_json(RULES_PATH, None)
+    if st is None: die("!! chưa đọc được trạng thái của rulegen (rulegen đã chạy chưa?)", 1)
+    now = time.time()
+    live = sorted((r for r in (st.get("rules") or {}).values() if r.get("state") in ("shadow", "active")), key=lambda r: r["id"])
+    if not live:
+        print("Không có luật tự sinh nào đang sống."); return
+    print(f"{'mã':<9} {'lớp':<5} {'trạng thái':<10} {'còn lại':>8} {'khớp thật':>9}  đích / nội dung")
+    for r in live:
+        ttl = left(r["expires"] - now) if r.get("expires") else "—"
+        print(f"{r['id']:<9} {r.get('class', ''):<5} {r['state']:<10} {ttl:>8} {r.get('hits_real', 0):>9}  "
+              f"{r.get('target', '')}  {str(r.get('token'))[:90]}")
+    print(f"Tổng: {len(live)} luật. Gỡ một luật: nsmctl rule-revoke <mã>")
 
 def send(cmd, **args):
     cid = uuid.uuid4().hex
@@ -89,7 +121,26 @@ def main(argv):
                  if d.get("reason") == "not_in_runtime_list" else ""), 1)
         print(("Đã thêm miễn trừ " if c == "exempt-add" else "Đã bỏ miễn trừ ") + net + ".")
         return
-    die("!! lệnh không hợp lệ. Dùng: blocks | exempt | unblock <ip> | exempt-add <cidr> | exempt-del <cidr>")
+    if c == "mode" and not rest: return cmd_mode()
+    if c == "mode" and len(rest) == 1 and rest[0] in ("dryrun", "enforce"):
+        d = send("mode", mode=rest[0])
+        if d.get("decision") != "mode": die(f"!! responder từ chối: {d.get('reason')}", 1)
+        print(f"Chế độ responder: {d.get('mode_before')} -> {d.get('mode')}." +
+              (' Từ giờ chỉ ghi "sẽ chặn" (would_block), không gửi lệnh chặn mới.' if rest[0] == "dryrun" else " Từ giờ chặn thật."))
+        return
+    if c == "rules" and not rest: return cmd_rules()
+    if c == "rule-revoke" and len(rest) == 1 and rest[0].isdigit():
+        d = send("rule_revoke", rule_id=int(rest[0]))
+        if d.get("decision") != "rule_revoke": die(f"!! rulegen từ chối: {d.get('reason')}", 1)
+        print(f"Đã gỡ luật {rest[0]} ({d.get('cls')} @ {d.get('target')}). Cổng 2 áp dụng trong vài giây; luật này không bị sinh lại trong 24 giờ.")
+        return
+    if c == "rule-revoke-all" and not rest:
+        d = send("rule_revoke_all")
+        if d.get("decision") != "rule_revoke_all": die(f"!! rulegen từ chối: {d.get('reason')}", 1)
+        print(f"Đã gỡ {d.get('revoked')} luật tự sinh.")
+        return
+    die("!! lệnh không hợp lệ. Dùng: blocks | exempt | unblock <ip> | exempt-add <cidr> | exempt-del <cidr> | "
+        "mode [dryrun|enforce] | rules | rule-revoke <mã> | rule-revoke-all")
 
 if __name__ == "__main__":
     main(sys.argv[1:])
