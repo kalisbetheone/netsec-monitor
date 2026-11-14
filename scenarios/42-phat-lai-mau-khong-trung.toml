@@ -1,0 +1,22 @@
+title = "Phát lại 1 000 request lành tính THẬT, phần mẫu KHÔNG trùng lượt dùng để tinh chỉnh CRS — đo chặn nhầm"
+case = "A1 (dữ liệu thật, A4)"
+notes = """Như kịch bản 32 nhưng bỏ qua 7 000 dòng đầu của tập openappsec Legitimate: lượt 32 (dùng khi tinh chỉnh CRS ngày 14/11) \
+chỉ lấy tới dòng 6 423, nên đây là mẫu Cổng 2 và classifier CHƯA từng được chỉnh theo — con số chặn nhầm không bị lạc quan \
+vì tinh chỉnh trên chính tập đo. Website thuộc tập test_sites (không dùng khi huấn luyện model). IP được miễn trừ để đo hết."""
+max_s = 300
+exempt = ["self"]
+
+[[actor]]
+name = "phát lại (mẫu mới)"
+role = "benign"
+kind = "replay"
+ips = 4
+count = 250
+every = 37
+start = 7000
+interval_s = 0.05
+
+[expect]
+benign_classifier_max_share = 0.01
+benign_gate2_max_share = 0.05
+benign_blocked = false
