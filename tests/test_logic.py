@@ -721,6 +721,27 @@ check("gỡ chặn một IP gỡ cả các dấu vân tay của IP đó", not an
 d = alert("10.10.10.151", target="/a?id=1", ua='bad"ua')
 check("IP không phải dùng chung: vẫn chặn/đếm theo IP như cũ", d.get("scope") is None)
 
+print("== responder: báo 'dùng chung' đến SAU lệnh chặn cả IP (tranh chấp thời gian, kịch bản 13 lượt 15/11)")
+R.prod = FakeProd()
+for i in range(5):
+    d = alert("10.10.10.160", target=f"/a?id={i}", ua="sqlmap/1.8"); clock[0] += 1
+check("chưa biết là IP dùng chung -> chặn cả IP", R.state["blocks"].get("10.10.10.160", {}).get("active"), str(d))
+clock[0] += 1
+R.decide({"kind": "ip_profile", "src_ip": "10.10.10.160", "uas": 4, "ts": clock[0], "confidence": 0})
+snap = R.prod.msgs[-1][2]
+check("báo dùng chung trong SHARED_GRACE -> hạ xuống (IP, User-Agent gây chặn)",
+      "10.10.10.160" not in R.state["blocks"] and R.state["blocks"].get("10.10.10.160|sqlmap/1.8", {}).get("active")
+      and "10.10.10.160" not in snap["ips"] and ["10.10.10.160", "sqlmap/1.8"] in snap["fps"], str(snap))
+d = alert("10.10.10.160", target="/b?id=1", ua="Mozilla/5.0 (người dùng khác)")
+check("sau khi hạ: người dùng khác cùng IP chỉ bị đếm", d["decision"] == "count", str(d))
+for i in range(5):
+    d = alert("10.10.10.161", target=f"/a?id={i}", ua="sqlmap/1.8"); clock[0] += 1
+clock[0] += R.SHARED_GRACE + 5
+R.decide({"kind": "ip_profile", "src_ip": "10.10.10.161", "uas": 4, "ts": clock[0], "confidence": 0})
+check("báo dùng chung QUÁ SHARED_GRACE -> giữ chặn cả IP", R.state["blocks"].get("10.10.10.161", {}).get("active"))
+R.control({"cmd": "unblock", "ip": "10.10.10.160", "id": "u2", "ts": clock[0]})
+R.control({"cmd": "unblock", "ip": "10.10.10.161", "id": "u3", "ts": clock[0]})
+
 print("== enforcer: ghi blockfp.map cho dấu vân tay (D1)")
 written.clear()
 F.last_ts["blocklist"] = 0.0

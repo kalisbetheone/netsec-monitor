@@ -204,3 +204,10 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   bench đi qua Cổng 2; khi có luật: 0.
 - 15/11/2026 — **kịch bản 42 (A4)**: phát lại lưu lượng thật bắt đầu từ dòng 7 000 của tập openappsec Legitimate; kịch bản
   32 (dùng khi tinh chỉnh CRS 14/11) chỉ lấy tới dòng 6 423 với cùng bước 37, nên hai mẫu không trùng.
+- 15/11/2026 — **lượt đo đầy đủ sau nâng cấp** (`eval/results/baseline-sau-nang-cap/`, `scenarios-20261115-044706/`):
+  37/42 đạt, 13 KHÔNG ĐẠT (62/75 request hợp lệ bị chặn lây). Nguyên nhân từ nhật ký kiểm toán: lệnh chặn cả IP ra 9 ms
+  TRƯỚC khi tier3 báo IP dùng chung (cảnh báo nửa trọng số làm đủ ngưỡng sớm hơn: 6,8 s thay vì 12,4 s). Thay đổi HỆ
+  THỐNG sau khi thấy kết quả: báo dùng chung đến trong `SHARED_GRACE_S` (30 s) sau lệnh chặn cả IP do đếm ngưỡng -> hạ
+  xuống chặn (IP, User-Agent gây chặn). Chạy lại 02, 12, 13 (`scenarios-20261115-063137`): 3/3 đạt, nhưng ở lượt này tier3
+  báo trước nên nhánh hạ cấp KHÔNG được kích hoạt trên hệ thống thật — nhánh đó chỉ được kiểm bằng tests/test_logic.py.
+  Lượt đầy đủ giữ nguyên, không chạy lại toàn bộ.

@@ -172,6 +172,7 @@ bash tools/tier1sync.sh                          # đối chiếu luật ModSecu
 | responder | `RESPONDER_MODE` | enforce | `dryrun` = chạy thử, chỉ ghi `would_block`. Đổi lúc chạy: `nsmctl mode ...` (thắng biến này) |
 | responder | `TIER2_WEIGHT` | 0.5 | Trọng số của cảnh báo `weighted` (chỉ do tầng 2) |
 | responder | `T2_SOLO_BLOCK` | 0 | 0 = chỉ toàn cảnh báo `weighted` thì không bao giờ khoá IP; cần ít nhất một cảnh báo đủ trọng số trong cửa sổ ngắn (15/11, kịch bản 02). 1 = cho phép (10 cảnh báo / 60 giây là khoá) |
+| responder | `SHARED_GRACE_S` | 30 | tier3 báo IP dùng chung trong ngần này giây SAU một lệnh chặn cả IP do đếm ngưỡng -> hạ xuống chặn (IP, User-Agent gây chặn), giữ hạn và số lần vi phạm (tranh chấp thời gian, kịch bản 13, 15/11). Chặn tay / `shared_escalate` không bị hạ |
 | responder | `STRONG_WEIGHT` | 1.0 | Trọng số cảnh báo từ luật tầng 1 "rất chắc" (`models/tier1_strong.json`). Mặc định tắt; 2,5 = khoá ở cảnh báo thứ 2 (làm khoá người dùng "mơ hồ" ở kịch bản 02) |
 | responder | `OFFENSE_RESET_S` | 2592000 | Nhớ số lần tái phạm 30 ngày (sau khi áp bản vá; trước đó 7 ngày) |
 | responder | `THRESHOLD` / `WINDOW_S` | 5 / 60 | Ngưỡng chặn k trong cửa sổ ngắn |

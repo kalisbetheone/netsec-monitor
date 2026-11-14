@@ -40,6 +40,10 @@ TTL_STEPS = [int(x) for x in os.getenv("TTL_STEPS_S", "900,3600,86400").split(",
 SHARED_CIDRS = [ipaddress.ip_network(c.strip(), strict=False) for c in os.getenv("SHARED_CIDRS", "").split(",") if c.strip()]
 SHARED_TTL = float(os.getenv("SHARED_TTL_S", "3600"))       # tier3 báo IP dùng chung -> nhớ trong ngần này
 SHARED_ESCALATE = int(os.getenv("SHARED_ESCALATE", "3"))    # số dấu vân tay bị chặn cùng lúc trên một IP -> chặn cả IP
+# Tranh chấp thời gian D1 (lượt đo 15/11/2026, kịch bản 13): responder có thể đủ ngưỡng chặn cả IP vài mili giây TRƯỚC khi
+# tier3 kịp báo IP đó là IP dùng chung. Báo "dùng chung" đến trong SHARED_GRACE_S sau một lệnh chặn cả IP do đếm ngưỡng ->
+# hạ lệnh đó xuống chặn theo (IP, User-Agent của request gây chặn). Lệnh chặn tay / shared_escalate không bao giờ bị hạ.
+SHARED_GRACE = float(os.getenv("SHARED_GRACE_S", "30"))
 # User-Agent ghi được vào khoá map của nginx: ASCII in được, không có " \ $ (không thì chặn cả IP như cũ)
 UA_SAFE = re.compile(r'^[\x20-\x21\x23\x25-\x5b\x5d-\x7e]{0,256}$')
 OFFENSE_RESET = int(os.getenv("OFFENSE_RESET_S", str(7*86400)))
@@ -222,6 +226,8 @@ def block(key, rec, now, reason, a):
     offenses = rec["offenses"]+1 if rec and now - rec.get("last", 0) < OFFENSE_RESET else 1
     ttl = ttl_for(offenses)
     table[key] = {"expires": now+ttl, "offenses": offenses, "last": now, "active": True}
+    if "|" not in key:                     # nhớ lý do + User-Agent gây chặn, để hạ xuống dấu vân tay nếu IP hoá ra dùng chung
+        table[key].update(why=str(reason)[:64], ua=str((a or {}).get("ua") or "")[:256])
     hits.pop(key, None); hits2.pop(key, None); seen.pop(key, None)
     ip, ua = split_key(key)
     if ua is not None:                     # đủ nhiều dấu vân tay của cùng IP bị chặn cùng lúc -> chặn cả IP
@@ -243,6 +249,21 @@ def active_rec(key, now):
         return (w or real), bool(w and w.get("active") and w["expires"] > now)
     return real, False
 
+def downgrade_shared(ip_s, now):
+    """IP vừa được biết là dùng chung: lệnh chặn cả IP ra trong SHARED_GRACE giây trước đó (do đếm ngưỡng) -> chặn theo
+    (IP, User-Agent gây chặn), giữ nguyên hạn và số lần vi phạm. Không có User-Agent dùng được -> giữ chặn cả IP."""
+    for table, verdict in ((state["blocks"], "block"), (state["would"], "would_block")):
+        r = table.get(ip_s)
+        if not (r and r.get("active") and r["expires"] > now and now - r.get("last", 0) <= SHARED_GRACE): continue
+        if not str(r.get("why", "")).startswith(("threshold", "long_window", "immediate")): continue
+        fk = fp_key(ip_s, {"ua": r.get("ua")})
+        if fk is None: continue
+        table.pop(ip_s)
+        table[fk] = {"expires": r["expires"], "offenses": r["offenses"], "last": r["last"], "active": True}
+        if table is state["blocks"]: publish_blocklist()
+        audit("unblock" if verdict == "block" else "would_unblock", ip_s, "shared_downgrade")
+        audit(verdict, fk, "shared_downgrade:" + str(r.get("why")), ttl_s=int(r["expires"] - now), offenses=r["offenses"])
+
 def is_shared(ip_s, now):
     try: a = ipaddress.ip_address(ip_s)
     except ValueError: return False
@@ -263,7 +284,9 @@ def decide(a):
         if exempt(ip): return None
         was = state["shared"].get(key, 0) > now
         state["shared"][key] = now + SHARED_TTL; dirty = True
-        if not was: audit("profile", key, "shared_ip", uas=a.get("uas"))
+        if not was:
+            audit("profile", key, "shared_ip", uas=a.get("uas"))
+            downgrade_shared(key, now)
         return None
     if exempt(ip): return audit("skip", key, "exempt", a)                                   # 1
     if float(a.get("confidence", 0)) < MIN_CONF: return audit("skip", key, "low_confidence", a)   # 2
@@ -304,7 +327,7 @@ def decide(a):
         return audit("count", key, f"{n_short:g}/{THRESHOLD} | {n_long:g}/{LONG_THRESHOLD}@long" + (" | tier2_only" if solo else ""), a,
                      **({"weighted": True} if weighted else {}))
     state.get("strong_ts", {}).pop(key, None)
-    block(key, rec, now, ("threshold" if short_hit else "long_window") + ("+tier2" if q2 else "") + ("+strong" if sts else ""), a)   # 5 + 6
+    block(key, rec, now, ("threshold" if short_hit else "long_window") + ("+tier2" if q2 else "") + ("+strong" if sts and STRONG_WEIGHT != 1.0 else ""), a)   # 5 + 6
 
 def sweep():
     global dirty
