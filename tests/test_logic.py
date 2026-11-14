@@ -772,6 +772,33 @@ _za = open(os.path.join(ROOT, "web", "apache", "zz-autogen.conf"), encoding="utf
 check("luật đồng bộ nạp SAU luật tự sinh",
       0 <= _za.find("autogen/active.conf") < _za.find("nsm-sync/tier1.conf"))
 
+print("== công cụ kịch bản: tổng hợp kết quả GoTestWAF / waf-bypass và ghép ma trận")
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import scenario as SC
+_g = SC.gotestwaf_summary({"score": 60.0, "summary": {
+    "true_positive_tests": {"score": 40.0, "summary": {"total_sent": 10, "resolved_tests": 10, "blocked_tests": 4, "bypassed_tests": 6,
+                                                       "unresolved_tests": 0, "failed_tests": 0},
+                            "test_sets": {"owasp": {"sqli": {"sent": 10, "blocked": 4, "bypassed": 6, "unresolved": 0},
+                                                    "empty": {"sent": 0, "blocked": 0, "bypassed": 0, "unresolved": 0}}}},
+    "true_negative_tests": {"score": 90.0, "summary": {"total_sent": 10, "resolved_tests": 10, "blocked_tests": 1, "bypassed_tests": 9,
+                                                       "unresolved_tests": 0, "failed_tests": 0}, "test_sets": {}}}})
+check("GoTestWAF: lấy đúng số bị chặn / đi qua của hai bộ thử", _g["tp"]["blocked"] == 4 and _g["tn"]["bypassed"] == 9
+      and list(_g["sets"]) == ["tp:owasp/sqli"], str(_g))
+_w = SC.wafbypass_summary({"PASSED": {"SQLi/1.json": {"ARGS": 1, "BODY": 1}, "XSS/2.json": {"ARGS": 1}},
+                           "BYPASSED": {"SQLi/1.json": {"COOKIE": 1}}, "FALSED": {"FP/1.json": {"ARGS": 1}}, "FAILED": {},
+                           "TARGET": "x"})
+check("waf-bypass: đếm theo tệp, theo cặp (payload, vùng) và theo nhóm",
+      _w["files"] == {"PASSED": 2, "BYPASSED": 1, "FALSED": 1, "FAILED": 0} and _w["zones"]["PASSED"] == 3
+      and _w["by_group"]["SQLi"] == {"PASSED": 1, "BYPASSED": 1} and _w["block_share_zones"] == 0.75, str(_w))
+check("bảng Markdown của công cụ có dòng tổng", any("Tấn công (bị chặn là đúng) | 10 | 4" in l for l in SC.tool_md("x", _g))
+      and any("bị chặn 3, lọt 1" in l for l in SC.tool_md("y", _w)))
+_runs = [{"actor": 0, "sent": [{"k": 0, "fam": "sqli", "place": "query", "ev": "-", "gate": "pass"}]},
+         {"actor": 1, "sent": [{"k": 0, "fam": "benign", "place": "query", "ev": "-", "gate": "pass"}]}]
+_obs = {"web": [{"source": "web", "ua": "x nsm-sc/r/s/0/0", "label": "sqli"}, {"source": "web", "ua": "x nsm-sc/r/s/1/0", "label": "benign"}]}
+_m = SC.matrix_table(_runs, _obs)
+check("ma trận ghép theo (tác nhân, số thứ tự): nhãn của tác nhân này không đè tác nhân khác",
+      _m["sqli|query|-"]["clf"] == 1 and _m["benign|query|-"]["clf"] == 0, str(_m))
+
 print()
 if FAILS:
     print(f"THẤT BẠI {len(FAILS)} mục:"); [print("  -", f) for f in FAILS]; sys.exit(1)

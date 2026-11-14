@@ -9,7 +9,11 @@ Một kịch bản = một tệp TOML trong scenarios/ (xem scenarios/README.md)
   report   gộp nhiều kịch bản thành một báo cáo Markdown                                 (không cần mạng)
 Chỉ dùng thư viện chuẩn của Python 3.11+ (tomllib). Đích duy nhất: máy chủ web của lab (10.10.10.10).
 """
-import argparse, base64, http.client, json, os, random, re, socket, ssl, sys, time, tomllib, urllib.parse
+import argparse, base64, http.client, json, os, random, re, socket, ssl, sys, time, urllib.parse
+try:
+    import tomllib
+except ImportError:           # Python < 3.11: chỉ các hàm tổng hợp/báo cáo dùng được (kiểm thử trên host)
+    tomllib = None
 import urllib.request, zipfile
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -624,111 +628,88 @@ def cmd_toolparse(a):
 
 
 def gotestwaf_summary(rep):
-    """Tóm tắt báo cáo JSON của GoTestWAF: theo bộ thử, số bị chặn / lọt / không xác định."""
-    out_ = {"score": rep.get("score"), "groups": {}}
-    def walk(node, path):
-        if isinstance(node, dict):
-            keys = {k.lower(): k for k in node}
-            nums = {k: node[keys[k]] for k in ("blocked", "bypassed", "unresolved", "sent", "failed", "resolved")
-                    if k in keys and isinstance(node[keys[k]], (int, float))}
-            if nums and len(path) >= 1:
-                out_["groups"]["/".join(path[-3:])] = nums
-            for k, v in node.items():
-                walk(v, path + [str(k)])
-        elif isinstance(node, list):
-            for i, v in enumerate(node[:200]):
-                walk(v, path + [str(i)])
-    walk(rep, [])
-    if len(out_["groups"]) > 80:
-        out_["groups"] = dict(list(out_["groups"].items())[:80])
+    """Tóm tắt báo cáo JSON của GoTestWAF. tp = bộ thử tấn công (bị chặn là đúng); tn = bộ thử lành tính (đi qua là
+    đúng). sets: từng bộ thử con có gửi request."""
+    def tot(d):
+        d = d or {}
+        return {"sent": d.get("total_sent", 0), "resolved": d.get("resolved_tests", 0), "blocked": d.get("blocked_tests", 0),
+                "bypassed": d.get("bypassed_tests", 0), "unresolved": d.get("unresolved_tests", 0),
+                "failed": d.get("failed_tests", 0)}
+    sm = rep.get("summary") or {}
+    tp, tn = sm.get("true_positive_tests") or {}, sm.get("true_negative_tests") or {}
+    out_ = {"tool": "gotestwaf", "score": rep.get("score"), "tp": tot(tp.get("summary")), "tn": tot(tn.get("summary")),
+            "tp_score": tp.get("score"), "tn_score": tn.get("score"), "sets": {}}
+    for kind, node in (("tp", tp), ("tn", tn)):
+        for grp, cases in (node.get("test_sets") or {}).items():
+            for name, c in (cases or {}).items():
+                if isinstance(c, dict) and c.get("sent"):
+                    out_["sets"][f"{kind}:{grp}/{name}"] = {k: c.get(k, 0) for k in ("sent", "blocked", "bypassed", "unresolved")}
     return out_
 
 
 def wafbypass_summary(js):
-    out_ = {}
-    for k, v in js.items():
-        if isinstance(v, list):
-            zones = Counter()
-            for it in v:
-                if isinstance(it, dict):
-                    zones[str(it.get("zone") or it.get("ZONE") or it.get("payload_zone") or "?")] += 1
-                    dirn = str(it.get("dir") or it.get("DIR") or it.get("path") or "?").split("/")
-                    zones["dir:" + (dirn[-2] if len(dirn) > 1 else dirn[0])] += 0
-            out_[k] = {"n": len(v)}
-        elif isinstance(v, (int, float, str)):
-            out_[k] = v
-    out_["_raw_keys"] = list(js)[:20]
+    """Tóm tắt kết quả waf-bypass. Mỗi khoá PASSED / BYPASSED / FALSED / FAILED là {"Nhóm/số.json": {vùng: ...}}.
+    files = số tệp payload; zones = số cặp (payload, vùng đặt). Một payload có thể bị chặn ở vùng này, lọt ở vùng khác."""
+    out_ = {"tool": "wafbypass", "files": {}, "zones": {}, "by_group": {}, "by_zone": {}}
+    for k in ("PASSED", "BYPASSED", "FALSED", "FAILED"):
+        v = js.get(k) or {}
+        if not isinstance(v, dict):
+            continue
+        out_["files"][k] = len(v)
+        nz = 0
+        for name, zones in v.items():
+            grp = str(name).split("/")[0]
+            g = out_["by_group"].setdefault(grp, {})
+            g[k] = g.get(k, 0) + 1
+            zs = list(zones) if isinstance(zones, (dict, list)) else []
+            nz += len(zs)
+            if k in ("PASSED", "BYPASSED"):
+                for z in zs:
+                    zz = out_["by_zone"].setdefault(str(z), {})
+                    zz[k] = zz.get(k, 0) + 1
+        out_["zones"][k] = nz
+    p_, b_ = out_["zones"].get("PASSED", 0), out_["zones"].get("BYPASSED", 0)
+    out_["block_share_zones"] = round(p_ / (p_ + b_), 4) if p_ + b_ else None
     return out_
 
 
-def cmd_observe(a):
-    runs = [json.loads(ln) for ln in sys.stdin if ln.strip().startswith("{")]
-    ips = {r["ip"] for r in runs}
-    t0 = min(r["t_start"] for r in runs) - 5
-    t1 = max(r.get("t_end", time.time()) for r in runs) + 120
-    web = search_all("web-events-*", ips, t0, t1,
-                     ["@timestamp", "src_ip", "source", "label", "tier", "status", "ua", "evidence_field", "matched",
-                      "b_shape", "signature", "has_body", "method"])
-    dec = search_all("audit-decisions-*", ips, t0, t1, ["@timestamp", "src_ip", "decision", "reason", "cls",
-                                                        "alert_source", "ttl_s", "offenses"])
-    gate = search_all("gate-events-*", ips, t0, t1, ["@timestamp", "src_ip", "reason", "status", "count"])
-    aerr = search_all("apache-errors-*", ips, t0, t1, ["@timestamp", "src_ip", "module", "level", "count"])
-    o = {"kind": "observe", "t0": t0, "t1": t1, "web": web, "decisions": dec, "gate": gate, "apache_errors": aerr}
-    # luật tự sinh (rule-status: một bản ghi / luật, trạng thái cuối cùng)
-    try:
-        o["rules"] = [h["_source"] for h in es("POST", "/rule-status/_search?ignore_unavailable=true",
-                                               {"size": 1000, "query": {"match_all": {}}})["hits"]["hits"]]
-    except Exception as e:                    # noqa: BLE001
-        o["rules"] = []; note(f"   (không đọc được rule-status: {e})")
-    # nhịp tim mọi dịch vụ trong khoảng thời gian
-    try:
-        o["health"] = [h["_source"] for h in es("POST", "/nsm-health-*/_search?ignore_unavailable=true", {
-            "size": 10000, "_source": ["@timestamp", "service"], "sort": [{"@timestamp": "asc"}],
-            "query": {"range": {"@timestamp": {"gte": iso(t0), "lte": iso(t1)}}}})["hits"]["hits"]]
-    except Exception as e:                    # noqa: BLE001
-        o["health"] = []; note(f"   (không đọc được nsm-health: {e})")
-    # giá trị bí mật mà tác nhân đã gửi (C1): có còn nguyên văn trong bất kỳ bản ghi nào của các IP này không
-    secrets = [x.lower() for r in runs for x in (r.get("extra") or {}).get("secrets", [])]
-    if secrets:
-        docs = []
-        for idx in ("web-events-*", "audit-decisions-*", "gate-events-*", "apache-errors-*"):
-            try:
-                docs += [h["_source"] for h in es("POST", f"/{idx}/_search?ignore_unavailable=true", {
-                    "size": 10000, "query": {"bool": {"filter": [{"terms": {"src_ip.keyword": sorted(ips)}},
-                                                                 {"range": {"@timestamp": {"gte": iso(t0), "lte": iso(t1)}}}]}}})["hits"]["hits"]]
-            except Exception:                 # noqa: BLE001
-                pass
-        hit = [d for d in docs if any(sv in json.dumps(d, ensure_ascii=False).lower() for sv in secrets)]
-        o["secret_check"] = {"secrets": len(secrets), "docs_checked": len(docs), "docs_with_secret": len(hit),
-                             "fields": sorted({k for d in hit for k, v in d.items() if any(sv in json.dumps(v, ensure_ascii=False).lower() for sv in secrets)})}
-    o["alerts"] = grafana_alerts(t0, t1)
-    note(f"   quan sát: {len(web)} sự kiện, {len(dec)} quyết định, {len(gate)} bản ghi Cổng 1, {len(o['rules'])} luật, "
-         f"{len(o['health'])} nhịp tim")
-    out(o)
+def pct1(a, b):
+    return "—" if not b else f"{100 * a / b:.1f} %"
 
 
-def grafana_alerts(t0, t1):
-    """Lịch sử trạng thái cảnh báo của Grafana (chú thích type=alert) trong khoảng thời gian; None nếu không đọc được."""
-    pw = os.getenv("GRAFANA_ADMIN_PASSWORD")
-    if not pw:
-        return None
-    url = (f"{os.getenv('GRAFANA_URL', 'http://grafana:3000')}/api/annotations?type=alert&limit=1000"
-           f"&from={int(t0 * 1000)}&to={int(t1 * 1000)}")
-    rq = urllib.request.Request(url)
-    rq.add_header("Authorization", "Basic " + base64.b64encode(f"admin:{pw}".encode()).decode())
-    try:
-        with urllib.request.urlopen(rq, timeout=20) as r:
-            items = json.loads(r.read())
-        return [{"time": it.get("time"), "newState": it.get("newState"), "alertName": it.get("alertName"),
-                 "text": (it.get("text") or "")[:300]} for it in items]
-    except Exception as e:                    # noqa: BLE001
-        note(f"   (không đọc được cảnh báo Grafana: {e})")
-        return None
+def tool_md(name, t):
+    """Bảng Markdown cho kết quả của một công cụ bên ngoài (thay cho việc in nguyên khối JSON)."""
+    L = []
+    if t.get("error"):
+        return [f"- {name}: LỖI đọc kết quả — {t['error']}"]
+    if t.get("tool") == "gotestwaf":
+        tp, tn = t["tp"], t["tn"]
+        L += [f"**{name}** — điểm tổng {t.get('score')}", "",
+              "| Bộ thử | Đã gửi | Bị chặn | Đi qua | Không xác định | Tỷ lệ đúng |", "|---|---|---|---|---|---|",
+              f"| Tấn công (bị chặn là đúng) | {tp['sent']} | {tp['blocked']} | {tp['bypassed']} | {tp['unresolved']} | "
+              f"{pct1(tp['blocked'], tp['resolved'])} |",
+              f"| Lành tính (đi qua là đúng) | {tn['sent']} | {tn['blocked']} | {tn['bypassed']} | {tn['unresolved']} | "
+              f"{pct1(tn['bypassed'], tn['resolved'])} |", "",
+              "| Bộ thử con | Đã gửi | Bị chặn | Đi qua | Tỷ lệ bị chặn |", "|---|---|---|---|---|"]
+        for k, c in sorted(t["sets"].items()):
+            L.append(f"| {k} | {c['sent']} | {c['blocked']} | {c['bypassed']} | {pct1(c['blocked'], c['blocked'] + c['bypassed'])} |")
+    elif t.get("tool") == "wafbypass":
+        f, z = t["files"], t["zones"]
+        L += [f"**{name}** — theo cặp (payload, vùng đặt): bị chặn {z.get('PASSED', 0)}, lọt {z.get('BYPASSED', 0)} "
+              f"(tỷ lệ chặn {pct1(z.get('PASSED', 0), z.get('PASSED', 0) + z.get('BYPASSED', 0))}); chặn nhầm (FALSED) "
+              f"{f.get('FALSED', 0)} tệp; lỗi (FAILED) {f.get('FAILED', 0)} tệp.", "",
+              "| Nhóm | Tệp bị chặn (PASSED) | Tệp có vùng lọt (BYPASSED) | Chặn nhầm (FALSED) | Lỗi (FAILED) |", "|---|---|---|---|---|"]
+        for g, c in sorted(t["by_group"].items()):
+            L.append(f"| {g} | {c.get('PASSED', 0)} | {c.get('BYPASSED', 0)} | {c.get('FALSED', 0)} | {c.get('FAILED', 0)} |")
+        L += ["", "| Vùng đặt payload | Bị chặn | Lọt | Tỷ lệ chặn |", "|---|---|---|---|"]
+        for zn, c in sorted(t["by_zone"].items()):
+            L.append(f"| {zn} | {c.get('PASSED', 0)} | {c.get('BYPASSED', 0)} | "
+                     f"{pct1(c.get('PASSED', 0), c.get('PASSED', 0) + c.get('BYPASSED', 0))} |")
+    else:
+        L.append(f"- {name}: `{json.dumps(t, ensure_ascii=False)[:400]}`")
+    return L + [""]
 
 
-# =====================================================================
-# judge
-# =====================================================================
 def per_ip_stats(run, obs):
     ip = run["ip"]
     web = [w for w in obs["web"] if w.get("src_ip") == ip]
@@ -1008,19 +989,19 @@ def judge_extra(s, e, runs, obs, roles, m, chk, extra):
 
 
 def matrix_table(runs, obs):
-    rx = re.compile(re.escape(MARK) + r"/[^/]+/[^/]+/\d+/(\d+)")
+    rx = re.compile(re.escape(MARK) + r"/[^/]+/[^/]+/(\d+)/(\d+)")
     by_k = {}
     for w in obs["web"]:
         if w.get("source") == "web":
             mm = rx.search(w.get("ua") or "")
             if mm:
-                by_k[int(mm.group(1))] = w
+                by_k[(int(mm.group(1)), int(mm.group(2)))] = w
     cells = defaultdict(lambda: Counter())
     for r in runs:
         for x in r["sent"]:
             if "k" not in x:
                 continue
-            w = by_k.get(x["k"])
+            w = by_k.get((int(r.get("actor", 0)), x["k"]))
             key = f"{x['fam']}|{x['place']}|{x['ev']}"
             c = cells[key]
             c["n"] += 1
@@ -1070,6 +1051,9 @@ def cmd_report(a):
         L.append("")
         for name, ex in r.get("extra", {}).items():
             if name == "matrix":
+                continue
+            if isinstance(ex, dict) and isinstance(ex.get("tool"), dict):
+                L += tool_md(name, ex["tool"])
                 continue
             L.append(f"- Số liệu thêm ({name}): `{json.dumps(ex, ensure_ascii=False)[:400]}`")
         if "matrix" in r.get("extra", {}):
