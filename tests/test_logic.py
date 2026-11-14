@@ -964,6 +964,27 @@ _d = {"n_req": 60, "frac_404": 0.0, "frac_post": 0.0, "uniq_uri": 5, "uniq_q_rat
 check("mẫu hành vi 'ratelimit': 40/60 request bị 429", T.attack_shape(_d, {"n404": 0, "ndeny": 0, "npost": 0, "n429": 40}) == "ratelimit")
 check("vài request bị 429 (5/60) chưa phải mẫu tấn công", T.attack_shape(_d, {"n404": 0, "ndeny": 0, "npost": 0, "n429": 5}) is None)
 
+print("== tier3: chiến dịch nhồi tài khoản phân tán (nhiều IP, mỗi IP vài lần đăng nhập)")
+def run_campaign(n_ips, per_ip, t0=5_000_000.0, status=302, uri="/login.php", method="POST"):
+    T.st.clear(); T.login_ev.clear(); T.camp.update(last_alert={}, since=0, last_eval=0.0, max_ts=0.0)
+    buf, prod = FakeBuf(), FakeProd()
+    T.time.time = lambda: t0 + 30
+    k = 0
+    for r_ in range(per_ip):
+        for i in range(n_ips):
+            T.add({"src_ip": f"10.10.12.{i + 1}", "ts_ms": (t0 + k * 0.05) * 1000, "uri": uri, "status": status,
+                   "method": method, "query": "", "ua": "curl/8"}, prod, buf); k += 1
+    T.campaign(prod, buf, force=True)
+    return [m_[2] for m_ in prod.msgs if m_[2].get("shape") == "stuffing"]
+al = run_campaign(50, 4)
+check("50 IP × 4 lần POST đăng nhập -> cả 50 IP bị báo (mẫu 'stuffing', khoá ngay)",
+      len({a["src_ip"] for a in al}) == 50 and all(a.get("immediate") for a in al), str(len(al)))
+check("mỗi IP chỉ bị báo một lần trong thời gian chờ", len(al) == 50, str(len(al)))
+check("5 người cùng gõ sai mật khẩu vài lần KHÔNG phải chiến dịch", run_campaign(5, 4) == [])
+check("100 người mỗi người đăng nhập 1–2 lần (cao điểm hợp lệ) KHÔNG bị báo", run_campaign(100, 2) == [])
+al = run_campaign(20, 3, status=401, uri="/api.php")
+check("API trả 401 (sai mật khẩu) cũng được tính là lần thử đăng nhập", len({a["src_ip"] for a in al}) == 20, str(len(al)))
+
 print()
 if FAILS:
     print(f"THẤT BẠI {len(FAILS)} mục:"); [print("  -", f) for f in FAILS]; sys.exit(1)

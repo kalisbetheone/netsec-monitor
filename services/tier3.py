@@ -53,6 +53,18 @@ UQRATIO, MIN_ENUM = E("TIER3_UQRATIO", "0.9"), E("TIER3_MIN_ENUM", "30")       #
 # gate1.logs để vẫn thấy TOÀN BỘ lượng request một nguồn gửi (flood, dò mật khẩu vẫn được nhận ra đúng lúc như trước
 # khi có giới hạn tốc độ), và có mẫu riêng 'ratelimit': nguồn vẫn dội request dù đang bị 429 liên tục.
 MIN_429, F429 = E("TIER3_MIN_429", "40"), E("TIER3_FRAC_429", "0.3")
+# CHIẾN DỊCH NHỒI TÀI KHOẢN PHÂN TÁN (15/11/2026). Mỗi IP chỉ thử vài lần nên các mẫu theo-từng-IP ở trên không thấy
+# (kịch bản 10: 50 IP × 4 lần, 0 IP bị chặn). Bộ đếm này nhìn TOÀN HỆ THỐNG: trong một cửa sổ, nếu có >= STUFF_MIN_IPS
+# địa chỉ mà MỖI địa chỉ thử đăng nhập >= STUFF_PER_IP lần, và tổng số lần thử của chúng >= STUFF_MIN_TOTAL, thì từng địa
+# chỉ đó bị báo (mẫu 'stuffing'). Một người gõ sai mật khẩu vài lần KHÔNG bị báo trừ khi đang có cả chiến dịch.
+# "Thử đăng nhập" = POST tới đường dẫn khớp TIER3_LOGIN_RE, hoặc bất kỳ phản hồi 401 nào (API trả 401 khi sai mật khẩu).
+import re
+LOGIN_RE = re.compile(os.getenv("TIER3_LOGIN_RE", r"/login"), re.I)
+STUFF_PER_IP = int(E("TIER3_STUFF_PER_IP", "3"))
+STUFF_MIN_IPS = int(E("TIER3_STUFF_MIN_IPS", "8"))
+STUFF_MIN_TOTAL = int(E("TIER3_STUFF_MIN_TOTAL", "40"))
+login_ev = deque(maxlen=200000)      # (ts, ip, ua) của mọi lần thử đăng nhập, toàn hệ thống
+camp = {"last_alert": {}, "since": 0, "last_eval": 0.0, "max_ts": 0.0}
 
 def attack_shape(d, c):
     """Trả tên mẫu hình tấn công mà cửa sổ thoả, hoặc None."""
@@ -156,11 +168,49 @@ def gate_event(ev):
     return {"src_ip": ev.get("src_ip"), "ts_ms": ts_ms, "uri": uri, "query": q, "status": 429,
             "method": ev.get("method"), "ua": ev.get("ua")}
 
+def campaign(prod, es_buf, force=False):
+    """Chấm bộ đếm toàn hệ thống. Trả số địa chỉ vừa bị báo."""
+    ref = camp["max_ts"]
+    if not login_ev or (not force and camp["since"] < 10 and ref - camp["last_eval"] < HOP): return 0
+    camp["since"], camp["last_eval"] = 0, ref
+    while login_ev and login_ev[0][0] <= ref - WINDOW: login_ev.popleft()
+    per, ua_of = Counter(), {}
+    for ts, ip, ua in login_ev:
+        per[ip] += 1; ua_of[ip] = ua
+    cand = {ip: n for ip, n in per.items() if n >= STUFF_PER_IP}
+    if len(cand) < STUFF_MIN_IPS or sum(cand.values()) < STUFF_MIN_TOTAL: return 0
+    fired = 0
+    for ip, n in cand.items():
+        if ref - camp["last_alert"].get(ip, 0.0) < COOLDOWN: continue
+        camp["last_alert"][ip] = ref; fired += 1
+        doc = {"@timestamp": iso(ref), "source": "behaviour", "src_ip": ip, "label": "behaviour", "confidence": 0.9,
+               "tier": 3, "b_shape": "stuffing", "b_n_req": n, "b_campaign_ips": len(cand),
+               "b_campaign_attempts": sum(cand.values())}
+        es_buf.add(day_index("web-events", ref), doc)
+        if os.getenv("ATTACK_ARCHIVE", "1") != "0": es_buf.add(day_index("attack-events", ref), doc)
+        prod.produce("alerts", key=ip.encode(), value=json.dumps({
+            "alert_id": str(uuid.uuid4()), "ts": ref, "src_ip": ip, "class": "behaviour", "confidence": 0.9, "tier": 3,
+            "source": "behaviour", "immediate": True, "shape": "stuffing", "ua": ua_of.get(ip, ""),
+            "detail": f"stuffing: {n} lần thử đăng nhập; chiến dịch {len(cand)} IP, {sum(cand.values())} lần / {int(WINDOW)} s"}).encode())
+    if fired:
+        L.info("chiến dịch nhồi tài khoản: %d IP (mỗi IP >= %d lần), %d lần thử -> báo %d IP",
+               len(cand), STUFF_PER_IP, sum(cand.values()), fired)
+    for ip in [i for i, t in camp["last_alert"].items() if ref - t > COOLDOWN * 2]: del camp["last_alert"][ip]
+    return fired
+
 def add(ev, prod, es_buf):
     ip = ev.get("src_ip")
     if not ip or is_internal(ip): return
     now = time.time()
     ts = float(ev.get("ts_ms") or now * 1000) / 1000.0
+    try: st_ = int(ev.get("status") or 0)
+    except (TypeError, ValueError): st_ = 0
+    if st_ == 401 or ((ev.get("method") or "").upper() == "POST" and LOGIN_RE.search(ev.get("uri") or "")):
+        ua_ = ev.get("ua") or ""
+        login_ev.append((ts, ip, "" if ua_ == "-" else ua_[:256]))
+        camp["since"] += 1
+        if ts > camp["max_ts"]: camp["max_ts"] = ts
+        campaign(prod, es_buf)
     s = st.get(ip)
     if s is None: s = st[ip] = new_state(now)
     q = ev.get("query") or ""
@@ -184,6 +234,7 @@ def sweep(prod, es_buf):
             del st[ip]; continue
         if s["since"] and idle >= 2.0:
             evaluate(ip, s, s["max_ts"], prod, es_buf)
+    if camp["since"]: campaign(prod, es_buf, force=True)
 
 def main():
     install_stop()
