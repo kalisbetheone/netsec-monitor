@@ -945,6 +945,25 @@ check("cụm tầng 2 từ 2 IP + token có cú pháp tấn công -> được", 
 check("cụm tầng 2: token toàn chữ thường ('select a laptop') bị loại", not G.t2_cluster_ok({"op": "contains", "tokens": ["select a "]}, _cov2))
 G.es, G.SELECTOR, G.APPLY, G.g2r = _gsaved
 
+print("== giới hạn tốc độ ở Cổng 1: miễn trừ đi tới nginx, tầng 3 thấy request bị 429")
+R.publish_blocklist()
+check("responder gửi kèm danh sách miễn trừ trong enforce.blocklist",
+      "10.10.30.0/24" in R.prod.msgs[-1][2].get("exempt", []) and "172.16.0.0/12" in R.prod.msgs[-1][2]["exempt"], str(R.prod.msgs[-1][2].get("exempt")))
+_written = {}
+_fa = F.atomic_write; F.atomic_write = lambda path, body: _written.__setitem__(path, body)
+F.last_ts["blocklist"] = 0.0
+F.write_blocklist({"ips": ["10.10.10.66"], "fps": [], "exempt": ["10.10.30.0/24", "10.10.10.240/29", "x; include /etc/passwd"], "ts": 5e9}, FakeProd())
+check("enforcer ghi exempt.geo đúng dạng '<dải> 1;' và bỏ mục không hợp lệ",
+      _written.get(F.EXEMPT_PATH, "").splitlines()[1:] == ["10.10.10.240/29 1;", "10.10.30.0/24 1;"], repr(_written.get(F.EXEMPT_PATH)))
+F.atomic_write = _fa
+g = T.gate_event({"ts": 1794214800.5, "src_ip": "10.10.10.77", "method": "POST", "uri": "/login.php?x=1", "status": 429, "ua": "curl"})
+check("dòng 429 của gate1.logs đổi đúng sang dạng sự kiện web", g and g["status"] == 429 and g["uri"] == "/login.php"
+      and g["query"] == "x=1" and abs(g["ts_ms"] - 1794214800500.0) < 1, str(g))
+check("403 của Cổng 1 (IP đã bị chặn) không đưa vào tầng 3", T.gate_event({"ts": 1.0, "src_ip": "1.2.3.4", "status": 403}) is None)
+_d = {"n_req": 60, "frac_404": 0.0, "frac_post": 0.0, "uniq_uri": 5, "uniq_q_ratio": 0.1}
+check("mẫu hành vi 'ratelimit': 40/60 request bị 429", T.attack_shape(_d, {"n404": 0, "ndeny": 0, "npost": 0, "n429": 40}) == "ratelimit")
+check("vài request bị 429 (5/60) chưa phải mẫu tấn công", T.attack_shape(_d, {"n404": 0, "ndeny": 0, "npost": 0, "n429": 5}) is None)
+
 print()
 if FAILS:
     print(f"THẤT BẠI {len(FAILS)} mục:"); [print("  -", f) for f in FAILS]; sys.exit(1)

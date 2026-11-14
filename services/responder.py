@@ -112,7 +112,10 @@ def publish_blocklist():
     ips = [k for k in active if "|" not in k]
     fps = [list(split_key(k)) for k in active if "|" in k]
     # key cố định -> mọi snapshot vào CÙNG partition -> enforcer nhận đúng thứ tự phát
-    prod.produce("enforce.blocklist", key=b"blocklist", value=json.dumps({"ips": ips, "fps": fps, "ts": now}).encode())
+    # exempt: dải miễn trừ (cấu hình + thêm lúc chạy) -> enforcer ghi exempt.geo; nginx KHÔNG giới hạn tốc độ các nguồn này
+    ex = sorted({str(n) for n in EXEMPT} | {str(n) for n in EXTRA})
+    prod.produce("enforce.blocklist", key=b"blocklist",
+                 value=json.dumps({"ips": ips, "fps": fps, "exempt": ex, "ts": now}).encode())
     prod.flush(5)
     save_state()
     L.info("enforce.blocklist gửi: %d IP, %d dấu vân tay", len(ips), len(fps))

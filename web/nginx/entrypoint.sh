@@ -3,7 +3,12 @@ DIR=/etc/nginx/blocklist
 MAP="$DIR/blocklist.map"
 FPMAP="$DIR/blockfp.map"                 # D1: khoá "<ip>|<User-Agent>"
 MIN="${RELOAD_MIN_INTERVAL_S:-5}"     # E5: tối đa 1 lần nạp lại mỗi MIN giây (gom các thay đổi dồn dập)
-mkdir -p "$DIR"; [ -f "$MAP" ] || : > "$MAP"; [ -f "$FPMAP" ] || : > "$FPMAP"
+EXGEO="$DIR/exempt.geo"                 # dải miễn trừ (không giới hạn tốc độ), do enforcer ghi
+mkdir -p "$DIR"; [ -f "$MAP" ] || : > "$MAP"; [ -f "$FPMAP" ] || : > "$FPMAP"; [ -f "$EXGEO" ] || : > "$EXGEO"
+if grep -qvE '^(#.*|[0-9A-Fa-f:.]+(/[0-9]{1,3})? 1;|[[:space:]]*)$' "$EXGEO"; then
+  echo "[boot] exempt.geo có dòng sai định dạng — cất sang exempt.geo.bad, khởi động với danh sách rỗng"
+  cp "$EXGEO" "$EXGEO.bad"; : > "$EXGEO"
+fi
 GLOG=/var/log/nginx-json/gate1.json      # nhật ký request bị Cổng 1 từ chối (Filebeat đọc)
 mkdir -p "$(dirname "$GLOG")"; [ -f "$GLOG" ] || : > "$GLOG"
 
@@ -28,10 +33,10 @@ mkdir -p "$CERT"
 # Theo dõi blocklist.map. So sánh NỘI DUNG (md5) với bản đang áp, nên không bỏ sót thay đổi nào
 # dù sự kiện inotify đến lúc đang nạp lại; inotifywait chỉ để phản ứng nhanh (hết 2 giây thì tự kiểm).
 (
-  applied=$(cat "$MAP" "$FPMAP" 2>/dev/null | md5sum); last=0
+  applied=$(cat "$MAP" "$FPMAP" "$EXGEO" 2>/dev/null | md5sum); last=0
   while :; do
     inotifywait -q -t 2 -e close_write,moved_to "$DIR" >/dev/null 2>&1
-    cur=$(cat "$MAP" "$FPMAP" 2>/dev/null | md5sum) || continue
+    cur=$(cat "$MAP" "$FPMAP" "$EXGEO" 2>/dev/null | md5sum) || continue
     [ "$cur" = "$applied" ] && continue
     now=$(date +%s)
     if [ $((now - last)) -lt "$MIN" ]; then sleep 1; continue; fi

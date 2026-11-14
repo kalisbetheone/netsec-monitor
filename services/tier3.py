@@ -49,11 +49,16 @@ SHARED_MIN_UA = int(E("TIER3_SHARED_MIN_UA", "4"))     # số User-Agent khác n
 SHARED_EVERY = E("TIER3_SHARED_EVERY_S", "300")         # báo lại tối đa mỗi ngần này giây / IP
 FPOST, MIN_POST = E("TIER3_FRAC_POST", "0.8"), E("TIER3_MIN_POST", "30")       # bruteforce qua form POST
 UQRATIO, MIN_ENUM = E("TIER3_UQRATIO", "0.9"), E("TIER3_MIN_ENUM", "30")       # enum: nhiều query khác nhau trên ít URI
+# Request bị Cổng 1 GIỚI HẠN TỐC ĐỘ (429, 15/11/2026) không tới Apache nên không có trong web.logs. tier3 đọc thêm
+# gate1.logs để vẫn thấy TOÀN BỘ lượng request một nguồn gửi (flood, dò mật khẩu vẫn được nhận ra đúng lúc như trước
+# khi có giới hạn tốc độ), và có mẫu riêng 'ratelimit': nguồn vẫn dội request dù đang bị 429 liên tục.
+MIN_429, F429 = E("TIER3_MIN_429", "40"), E("TIER3_FRAC_429", "0.3")
 
 def attack_shape(d, c):
     """Trả tên mẫu hình tấn công mà cửa sổ thoả, hoặc None."""
     n = d["n_req"]
     if n >= N_HI: return "flood"
+    if c.get("n429", 0) >= MIN_429 and c["n429"] / n >= F429: return "ratelimit"
     if c["n404"] >= MIN_404 and d["frac_404"] >= F404: return "recon"
     if c["ndeny"] >= MIN_DENY and c["ndeny"] / n >= FDENY and (
             c.get("deny_uri", MIN_DENY_URI) >= MIN_DENY_URI or c.get("n401", 0) * 2 >= c["ndeny"]
@@ -90,6 +95,7 @@ def features(win):
     n = len(win)
     uri = {e[1] for e in win}; q = {e[4] for e in win}
     c = {"n404": sum(e[2] == 404 for e in win), "ndeny": sum(e[2] in (401, 403) for e in win),
+         "n429": sum(e[2] == 429 for e in win),
          "npost": sum(e[3] for e in win), "n401": sum(e[2] == 401 for e in win),
          "deny_uri": len({e[1] for e in win if e[2] in (401, 403)})}
     d = {"n_req": n, "uniq_uri": len(uri), "uniq_ratio": len(uri) / n, "frac_404": c["n404"] / n,
@@ -138,6 +144,18 @@ def evaluate(ip, s, ref, prod, es_buf):
         L.info("behaviour anomaly ip=%s shape=%s score=%.3f n=%d uri=%d 404=%.2f -> alert(immediate)",
                ip, shape, sc, d["n_req"], d["uniq_uri"], d["frac_404"])
 
+def gate_event(ev):
+    """Dòng gate1.json của nginx -> sự kiện cùng dạng web.logs, CHỈ cho request bị giới hạn tốc độ (429).
+    403 của Cổng 1 là IP đã bị chặn (không cần chấm lại); 4xx khác là request dị dạng (nhánh khác lo)."""
+    try:
+        if int(ev.get("status") or 0) != 429: return None
+    except (TypeError, ValueError): return None
+    uri, _, q = str(ev.get("uri") or "").partition("?")
+    try: ts_ms = float(ev.get("ts")) * 1000.0
+    except (TypeError, ValueError): ts_ms = None
+    return {"src_ip": ev.get("src_ip"), "ts_ms": ts_ms, "uri": uri, "query": q, "status": 429,
+            "method": ev.get("method"), "ua": ev.get("ua")}
+
 def add(ev, prod, es_buf):
     ip = ev.get("src_ip")
     if not ip or is_internal(ip): return
@@ -170,7 +188,7 @@ def sweep(prod, es_buf):
 def main():
     install_stop()
     es_buf = EsBuffer(es_client(required=False)); prod = producer()
-    c = consumer("tier3", ["web.logs"])
+    c = consumer("tier3", ["web.logs", "gate1.logs"])
     hb = Heartbeat("tier3", es_buf)
     L.info("tier3 started: cửa sổ trượt %ss, hop %ss, min_req=%d, cooldown=%ss", WINDOW, HOP, MIN_REQ, COOLDOWN)
     last = time.time()
@@ -180,6 +198,8 @@ def main():
             L.warning("kafka: %s", msg.error())
         elif msg is not None:
             ev = parse_json_line(msg.value()); hb.inc()
+            if isinstance(ev, dict) and msg.topic() == "gate1.logs":
+                ev = gate_event(ev)
             if isinstance(ev, dict):
                 try: add(ev, prod, es_buf)
                 except Exception: L.exception("tier3 add failed")
