@@ -170,7 +170,9 @@ bash tools/tier1sync.sh                          # đối chiếu luật ModSecu
 | classifier | `REFERER_CONFIDENCE` | 0.6 | Tấn công chỉ thấy trong Referer được ghi nhận dưới θ (nạn nhân XSS phản xạ không bị chặn) |
 | responder | `MIN_CONFIDENCE` / `MAX_AGE_S` | 0.90 / 600 | θ và tuổi cảnh báo tối đa (giây) |
 | responder | `RESPONDER_MODE` | enforce | `dryrun` = chạy thử, chỉ ghi `would_block`. Đổi lúc chạy: `nsmctl mode ...` (thắng biến này) |
-| responder | `TIER2_WEIGHT` | 0.5 | Trọng số của cảnh báo `weighted` (chỉ do tầng 2): 0,5 → cần 10 cảnh báo / 60 giây |
+| responder | `TIER2_WEIGHT` | 0.5 | Trọng số của cảnh báo `weighted` (chỉ do tầng 2) |
+| responder | `T2_SOLO_BLOCK` | 0 | 0 = chỉ toàn cảnh báo `weighted` thì không bao giờ khoá IP; cần ít nhất một cảnh báo đủ trọng số trong cửa sổ ngắn (15/11, kịch bản 02). 1 = cho phép (10 cảnh báo / 60 giây là khoá) |
+| responder | `STRONG_WEIGHT` | 1.0 | Trọng số cảnh báo từ luật tầng 1 "rất chắc" (`models/tier1_strong.json`). Mặc định tắt; 2,5 = khoá ở cảnh báo thứ 2 (làm khoá người dùng "mơ hồ" ở kịch bản 02) |
 | responder | `OFFENSE_RESET_S` | 2592000 | Nhớ số lần tái phạm 30 ngày (sau khi áp bản vá; trước đó 7 ngày) |
 | responder | `THRESHOLD` / `WINDOW_S` | 5 / 60 | Ngưỡng chặn k trong cửa sổ ngắn |
 | responder | `LONG_THRESHOLD` / `LONG_WINDOW_S` | 12 / 86400 | Cửa sổ dài 24 giờ cho tấn công rải rác. **Phải lớn hơn `THRESHOLD`** |

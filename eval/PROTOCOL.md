@@ -180,7 +180,7 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   chặn (để chứng tỏ bộ thử có nghĩa) và số payload còn khai thác được ở từng cấu hình bảo vệ. Ứng dụng đặt chỗ giả lập
   (`booking.local`) KHÔNG có lỗ hổng cài sẵn nên không dùng cho phép đo này.
 - 15/11/2026 — **kiểu tác nhân `botnet`** (sau khi áp bản vá `p_scenario2.py`): một container thêm địa chỉ IP phụ cho giao
-  diện mạng (dải 10.10.8.1–10.10.9.254, ngoài dải cấp IP của kịch bản; cần NET_ADMIN) và gửi từ hàng trăm IP nguồn, mỗi IP
+  diện mạng (dải 10.10.6.1–10.10.9.254 từ 15/11 04:00, trước đó 10.10.8–9.x; ngoài dải cấp IP của kịch bản; cần NET_ADMIN) và gửi từ hàng trăm IP nguồn, mỗi IP
   một luồng. Dùng cho flood phân tán và nhồi tài khoản quy mô lớn, nơi MỖI IP ở dưới ngưỡng theo từng IP. Kết quả theo IP
   của kiểu này không so trực tiếp được với các kịch bản mỗi IP một container (thời điểm gửi của các IP trùng nhau hơn).
 - 15/11/2026 — **ĐÍNH CHÍNH số đo waf-bypass ngày 13/11:** tỷ lệ chặn là **74,2 %** tính theo cặp (payload, vùng đặt) —
@@ -188,3 +188,19 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   TỆP payload (trường `files`), trong đó một tệp bị chặn ở vùng này nhưng lọt ở vùng khác nằm trong CẢ danh sách bị chặn
   lẫn danh sách lọt — nên đó không phải tỷ lệ request bị chặn. Từ ngày này chỉ báo tỷ lệ theo cặp; tỷ lệ theo tệp nếu cần
   thì ghi rõ là theo tệp.
+- 15/11/2026 03:29–04:30 — **thay đổi SAU KHI đã thấy kết quả kịch bản** (ghi để người đọc biết các con số "sau nâng cấp"
+  không phải lượt đầu tiên của cấu hình mới). Lượt đầu `eval/results/scenarios-20261115-032854/` (2/9 đạt) được giữ nguyên.
+  Thay đổi HỆ THỐNG: (1) cảnh báo chỉ do tầng 2 không tự khoá IP (`T2_SOLO_BLOCK=0`) — do kịch bản 02 khoá 4/5 người dùng;
+  (2) `STRONG_WEIGHT` mặc định 1 (tắt) — do kịch bản 02 khoá người dùng "mơ hồ"; (3) rulegen có mốc `/state/not_before` —
+  do rulegen học từ dữ liệu của kịch bản trước. Thay đổi CÔNG CỤ ĐO (không đổi hệ thống): thời gian chặn lấy từ quyết định
+  chặn khi tác nhân không kịp thấy 403; botnet tính IP bị chặn theo quyết định của responder; dải IP bot riêng cho từng
+  kịch bản (ARP cũ của nginx). Thay đổi KỊCH BẢN: 37 (flood kéo dài thay vì 1,2 giây), 39 (người dùng hợp lệ 1 request/giây
+  thay vì 2 — kịch bản cũ tự vượt ngưỡng flood; kỳ vọng theo điều được đo: mẫu 'enum' bắt flood phá bộ đệm), 42 mới.
+  Rủi ro lạc quan: (1) và (2) được chọn theo chính kịch bản 02 — cần một kịch bản người dùng hợp lệ KHÁC để kiểm lại (42 là
+  lưu lượng thật không trùng, nhưng là lưu lượng 404 trên DVWA, không phải phiên người dùng).
+- 15/11/2026 — **A3, chi phí luật tầng 1 đồng bộ** (`bench.sh perf`, cùng máy, cách nhau 2 phút): có luật p50 5,4 ms, 537
+  req/s ở 8 kết nối, 472 req/s ở 32; bỏ luật (tệp rỗng tạm thời) p50 5,1 ms, 504 / 447 req/s. Chênh lệch nằm trong dao động
+  giữa hai lượt (lượt có luật còn nhanh hơn) -> chi phí không đo được ở mức này. Khi bỏ luật, 198 / 3 370 request SQLi của
+  bench đi qua Cổng 2; khi có luật: 0.
+- 15/11/2026 — **kịch bản 42 (A4)**: phát lại lưu lượng thật bắt đầu từ dòng 7 000 của tập openappsec Legitimate; kịch bản
+  32 (dùng khi tinh chỉnh CRS 14/11) chỉ lấy tới dòng 6 423 với cùng bước 37, nên hai mẫu không trùng.
