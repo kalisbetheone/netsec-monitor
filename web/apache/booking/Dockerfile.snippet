@@ -1,0 +1,27 @@
+# ---- Cổng đặt chỗ (booking.local) — thêm vào web/apache/Dockerfile (nền php:8.3-apache-bookworm), TRƯỚC dòng ENTRYPOINT ----
+# Ngữ cảnh build là web/apache/, nên thư mục nguồn là booking/. Không cần cài thêm gì: PDO SQLite có sẵn trong image.
+#
+# 1) Chép mã nguồn (lib.php, seed.php nằm ngoài DocumentRoot /var/www/booking/public) và bỏ ký tự CR nếu có.
+# 2) Sinh CSDL lúc build vào /var/lib/booking (khoảng 10-20 giây; seed.php thoát khác 0 nếu sai số dòng -> build dừng).
+# 3) Quyền: mã nguồn thuộc root, chỉ đọc; THƯ MỤC /var/lib/booking và tệp booking.db thuộc www-data và ghi được,
+#    vì SQLite tạo tệp nhật ký (booking.db-journal) ngay trong thư mục đó mỗi khi hold.php ghi bảng holds.
+COPY booking/ /var/www/booking/
+RUN find /var/www/booking -type f \( -name '*.php' -o -name '*.conf' -o -name '*.txt' -o -name '*.css' \) -exec sed -i 's/\r$//' {} + \
+ && mkdir -p /var/lib/booking \
+ && BOOKING_DB=/var/lib/booking/booking.db php /var/www/booking/seed.php \
+ && ( cmp -s /var/lib/booking/benign_pairs.txt /var/www/booking/benign_pairs.txt \
+      || echo "CANH BAO: benign_pairs.txt vua sinh KHAC ban luu trong kho ma - cap nhat booking/benign_pairs.txt va tools/benign_booking.sh" ) \
+ && chown -R root:root /var/www/booking \
+ && chmod -R a+rX,go-w /var/www/booking \
+ && chown -R www-data:www-data /var/lib/booking \
+ && chmod 750 /var/lib/booking \
+ && chmod 640 /var/lib/booking/booking.db
+
+# Vhost: tên tệp xếp sau 000-default.conf để vhost DVWA vẫn là mặc định.
+COPY booking/booking-vhost.conf /etc/apache2/sites-available/010-booking.conf
+RUN sed -i 's/\r$//' /etc/apache2/sites-available/010-booking.conf && a2ensite 010-booking
+
+# Lưu ý khi nối vào docker-compose:
+#  - KHÔNG gắn volume đè lên /var/lib/booking (sẽ che mất CSDL sinh lúc build). Nếu cần giữ dữ liệu giữa các lần tạo
+#    lại container thì dùng named volume (Docker tự chép nội dung và quyền từ image ở lần đầu), không dùng bind mount.
+#  - nginx phải chuyển nguyên tiêu đề Host (proxy_set_header Host $host — cấu hình NSM hiện tại đã làm vậy).

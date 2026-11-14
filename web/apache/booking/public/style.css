@@ -1,0 +1,21 @@
+/* style.css — giao diện tối giản của cổng đặt chỗ (tệp tĩnh nội bộ, không dùng tài nguyên bên ngoài) */
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, "Segoe UI", Arial, sans-serif; color: #1c2733; background: #f4f6f8; line-height: 1.5; }
+header.top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 24px; background: #12406b; color: #fff; }
+header.top a { color: #fff; text-decoration: none; margin-right: 14px; }
+header.top a.brand { font-weight: 700; font-size: 1.1rem; }
+main { max-width: 960px; margin: 24px auto; padding: 0 16px; }
+footer { max-width: 960px; margin: 32px auto; padding: 0 16px; color: #5b6875; font-size: 0.85rem; }
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.15rem; margin-top: 0; }
+form.card { background: #fff; border: 1px solid #d8dee4; border-radius: 6px; padding: 16px; margin: 16px 0; }
+form.card label { display: block; margin-bottom: 10px; }
+form.card input, form.card select { display: block; width: 100%; max-width: 360px; padding: 6px 8px; margin-top: 4px; border: 1px solid #b6c0ca; border-radius: 4px; font: inherit; }
+form.inline { display: inline; }
+button { padding: 6px 14px; border: 0; border-radius: 4px; background: #1769aa; color: #fff; font: inherit; cursor: pointer; }
+table { width: 100%; border-collapse: collapse; background: #fff; margin: 12px 0; }
+th, td { padding: 6px 10px; border: 1px solid #d8dee4; text-align: left; }
+table.kv th { width: 180px; background: #eef2f5; }
+td.num { text-align: right; white-space: nowrap; }
+p.error { color: #a12020; font-weight: 600; }
+p.note { color: #8a5a00; }
