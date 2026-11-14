@@ -1,0 +1,286 @@
+name: nsm-soc
+# Máy SOC của bản 3 máy ảo. Mọi bí mật đọc từ .env ở thư mục gốc (tools/init-env.sh sinh):
+#   docker compose --env-file .env -f soc/docker-compose.yml up -d --build
+# Kafka và Elasticsearch bắt buộc xác thực; mỗi dịch vụ có tài khoản Kafka riêng (kafka-init.sh).
+
+# Mỗi vai trò một tài khoản Elasticsearch với quyền tối thiểu (es-init.sh) — giống bản một máy.
+x-es: &es          # classifier, tier3, responder, logsink: chỉ THÊM bản ghi
+  ES_URL: http://elasticsearch:9200
+  ES_USER: nsm_writer
+  ES_PASSWORD: ${ES_WRITER_PASSWORD:?thiếu biến trong .env — hãy chạy lại bash tools/init-env.sh}
+x-es-rulegen: &es_rulegen
+  ES_URL: http://elasticsearch:9200
+  ES_USER: nsm_rulegen
+  ES_PASSWORD: ${ES_RULEGEN_PASSWORD:?thiếu biến trong .env — hãy chạy lại bash tools/init-env.sh}
+x-es-ctl: &es_ctl
+  ES_URL: http://elasticsearch:9200
+  ES_USER: nsm_ctl
+  ES_PASSWORD: ${ES_CTL_PASSWORD:?thiếu biến trong .env — hãy chạy lại bash tools/init-env.sh}
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
+x-alive: &alive
+  test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time()-os.path.getmtime('/tmp/alive')<90 else 1)"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 60s
+
+x-jaas: &jaas >-
+  org.apache.kafka.common.security.plain.PlainLoginModule required
+  username="admin" password="${KAFKA_ADMIN_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+  user_admin="${KAFKA_ADMIN_PASSWORD}"
+  user_classifier="${KAFKA_CLASSIFIER_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+  user_tier3="${KAFKA_TIER3_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+  user_responder="${KAFKA_RESPONDER_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+  user_rulegen="${KAFKA_RULEGEN_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+  user_logsink="${KAFKA_LOGSINK_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+  user_ctl="${KAFKA_CTL_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+  user_filebeat="${KAFKA_FILEBEAT_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+  user_enforcer="${KAFKA_ENFORCER_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}";
+
+x-svc: &svc
+  build:
+    context: ..
+    dockerfile: services/Dockerfile
+  restart: unless-stopped
+  logging: *logging
+  depends_on:
+    kafka-init: {condition: service_completed_successfully}
+    elasticsearch: {condition: service_healthy}
+  networks: [soc]
+
+services:
+  kafka:
+    logging: *logging
+    image: apache/kafka:3.7.2
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # INTERNAL (29092) cho container SOC, EXTERNAL (9092) cho máy WEB: cả hai bắt buộc SASL/PLAIN.
+      # CONTROLLER (9093) chỉ nghe trên loopback của container nên không cần xác thực.
+      # LƯU Ý: SASL_PLAINTEXT không mã hoá — mật khẩu của filebeat/enforcer đi dạng rõ trên mạng nội bộ
+      # SOC↔WEB. Hai tài khoản đó chỉ có quyền tối thiểu; muốn chống nghe lén thì bật TLS (SASL_SSL).
+      KAFKA_LISTENERS: INTERNAL://:29092,CONTROLLER://localhost:9093,EXTERNAL://:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://${SOC_IP}:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:SASL_PLAINTEXT,EXTERNAL:SASL_PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      KAFKA_LISTENER_NAME_INTERNAL_PLAIN_SASL_JAAS_CONFIG: *jaas
+      KAFKA_LISTENER_NAME_EXTERNAL_PLAIN_SASL_JAAS_CONFIG: *jaas
+      KAFKA_AUTHORIZER_CLASS_NAME: org.apache.kafka.metadata.authorizer.StandardAuthorizer
+      KAFKA_SUPER_USERS: User:admin;User:ANONYMOUS      # ANONYMOUS = chính broker trên listener CONTROLLER (loopback)
+      KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      ADMIN_PASSWORD: ${KAFKA_ADMIN_PASSWORD}           # cho healthcheck (không phải cấu hình broker)
+    volumes: [kafka_data:/var/lib/kafka/data]   # giữ topic + offset khi container bị tạo lại
+    ports:
+      - "${SOC_IP}:9092:9092"           # chỉ mở trên card int, cho máy WEB kết nối
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="%s";\n' "$$ADMIN_PASSWORD" > /tmp/hc.properties
+          && /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 --command-config /tmp/hc.properties >/dev/null 2>&1
+      interval: 10s
+      timeout: 10s
+      retries: 12
+    networks: [soc]
+
+  kafka-init:                           # tạo topic + cấp quyền từng vai trò (kafka-init.sh)
+    logging: *logging
+    image: apache/kafka:3.7.2
+    depends_on:
+      kafka: {condition: service_healthy}
+    environment:
+      BOOT: kafka:29092
+      ADMIN_PASSWORD: ${KAFKA_ADMIN_PASSWORD}
+    volumes: ["./kafka-init.sh:/kafka-init.sh:ro"]
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /kafka-init.sh | sh"]
+    networks: [soc]
+
+  elasticsearch:
+    logging: *logging
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      # Bắt buộc đăng nhập (basic auth); HTTP thường trong mạng Docker của máy SOC, chưa bật TLS.
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.security.transport.ssl.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ELASTIC_PASSWORD: ${ES_PASSWORD}
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    volumes: [es_data:/usr/share/elasticsearch/data]
+    ports: ["127.0.0.1:9200:9200"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs -u \"elastic:$$ELASTIC_PASSWORD\" 'http://localhost:9200/_cluster/health?wait_for_status=yellow' >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+    networks: [soc]
+
+  es-init:                              # tài khoản theo vai trò + chính sách xoá chỉ mục cũ (es-init.sh)
+    logging: *logging
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    depends_on:
+      elasticsearch: {condition: service_healthy}
+    environment:
+      ES_URL: http://elasticsearch:9200
+      ELASTIC_PASSWORD: ${ES_PASSWORD}
+      GRAFANA_ES_PASSWORD: ${GRAFANA_ES_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}
+      ES_WRITER_PASSWORD: ${ES_WRITER_PASSWORD}
+      ES_RULEGEN_PASSWORD: ${ES_RULEGEN_PASSWORD}
+      ES_CTL_PASSWORD: ${ES_CTL_PASSWORD}
+    volumes: ["./es-init.sh:/es-init.sh:ro"]
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /es-init.sh | sh"]
+    networks: [soc]
+
+  grafana:
+    logging: *logging
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}
+      GRAFANA_ES_PASSWORD: ${GRAFANA_ES_PASSWORD}       # datasource đọc ES bằng tài khoản chỉ đọc grafana_ro
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}         # để trống = cảnh báo chỉ hiện trong Grafana
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /nsm-start.sh > /tmp/nsm-start.sh && exec /bin/sh /tmp/nsm-start.sh"]
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning-src:ro
+      - ./grafana/start.sh:/nsm-start.sh:ro
+      - grafana_data:/var/lib/grafana
+    # Mặc định chỉ mở trên loopback của máy SOC. Muốn xem từ máy khác trong mạng giám sát: đặt GRAFANA_BIND=<SOC_IP>
+    # trong .env (KHÔNG mở ra mọi card mạng như trước).
+    ports: ["${GRAFANA_BIND:-127.0.0.1}:3000:3000"]
+    depends_on:
+      es-init: {condition: service_completed_successfully}
+    networks: [soc]
+
+  classifier:
+    logging: *logging
+    <<: *svc
+    command: ["python", "classifier.py"]
+    environment:
+      <<: *es
+      KAFKA_BOOTSTRAP: kafka:29092        # dịch vụ SOC nối listener nội bộ
+      KAFKA_USER: classifier
+      KAFKA_PASSWORD: ${KAFKA_CLASSIFIER_PASSWORD}
+      INTERNAL_CIDRS: 10.10.30.0/24,10.10.10.10/32,172.16.0.0/12
+      MODEL_PATH: /models/tier2.joblib
+      TIER2_THRESHOLD: "0.87"              # model tầng 2 huấn luyện lại 12/11/2026 — xem bản một máy
+      TIER2_SYNTAX_GATE: "0"
+      TIER2_DECISION: "mass"
+      TIER2_MODE: ${TIER2_MODE:-corroborate}   # enforce khoá người dùng gõ văn bản tự do — xem bản một máy
+      SCAN_MAX_BYTES: "524288"
+    healthcheck: *alive
+    volumes: ["../models:/models:ro"]
+
+  tier3:
+    logging: *logging
+    <<: *svc
+    command: ["python", "tier3.py"]
+    environment:
+      <<: *es
+      KAFKA_BOOTSTRAP: kafka:29092
+      KAFKA_USER: tier3
+      KAFKA_PASSWORD: ${KAFKA_TIER3_PASSWORD}
+      INTERNAL_CIDRS: 10.10.30.0/24,10.10.10.10/32,172.16.0.0/12
+      TIER3_MIN_REQ: "15"
+      TIER3_COOLDOWN_S: "120"
+    healthcheck: *alive
+    volumes: ["../models:/models:ro"]
+
+  responder:
+    logging: *logging
+    <<: *svc
+    command: ["python", "responder.py"]
+    environment:
+      <<: *es
+      KAFKA_BOOTSTRAP: kafka:29092
+      KAFKA_USER: responder
+      KAFKA_PASSWORD: ${KAFKA_RESPONDER_PASSWORD}
+      EXEMPT_CIDRS: 127.0.0.0/8,10.10.30.0/24,10.10.10.10/32,10.10.10.20/32
+      MIN_CONFIDENCE: "0.90"
+      # Bộ lọc tuổi so đồng hồ máy WEB (thời điểm sự kiện) với đồng hồ máy SOC:
+      # hai máy PHẢI đồng bộ giờ (chrony/NTP), lệch quá MAX_AGE_S thì mọi cảnh báo bị coi là cũ.
+      MAX_AGE_S: "600"
+      WINDOW_S: "60"
+      THRESHOLD: "5"
+      LONG_WINDOW_S: "86400"
+      LONG_THRESHOLD: "12"          # phải lớn hơn THRESHOLD
+      TTL_STEPS_S: "900,3600,86400" # 15 phút → 1 giờ → 24 giờ (E4)
+      MAX_TTL_S: "86400"
+      SHARED_CIDRS: ${SHARED_CIDRS:-}  # IP dùng chung đã biết (NAT, proxy) — D1
+    healthcheck: *alive
+    volumes: [responder_state:/state]
+
+  rulegen:
+    logging: *logging
+    <<: *svc
+    command: ["python", "rulegen.py"]
+    environment:
+      <<: *es_rulegen
+      KAFKA_BOOTSTRAP: kafka:29092
+      KAFKA_USER: rulegen
+      KAFKA_PASSWORD: ${KAFKA_RULEGEN_PASSWORD}
+      # giá trị rút ngắn cho lab — xem ghi chú trong docker-compose.yml của bản một máy
+      INTERVAL_S: "300"
+      SHADOW_S: "900"
+      RULE_TTL_S: "86400"
+      REVOKE_S: "21600"
+      MIN_CLUSTER: "5"
+      BENIGN_LOOKBACK_S: "604800"
+      MIN_BENIGN: "100"
+      RULEGEN_SELECTOR: "g2r"       # g2r = học máy (mặc định), g0 = thuật toán cũ — xem bản một máy
+      RULESEL_MODEL: /models/rulesel_g2r.joblib
+      RULESEL_PRIOR: /models/rulesel_prior.json.gz
+      RULESEL_MIN_SCORE: "0"
+    volumes: [rulegen_state:/state, "../models:/models:ro"]
+
+  logsink:                              # nhật ký phụ: request bị Cổng 1 từ chối, error.log của Apache, nhịp tim enforcer
+    logging: *logging
+    <<: *svc
+    command: ["python", "logsink.py"]
+    environment:
+      <<: *es
+      KAFKA_BOOTSTRAP: kafka:29092
+      KAFKA_USER: logsink
+      KAFKA_PASSWORD: ${KAFKA_LOGSINK_PASSWORD}
+    healthcheck: *alive
+
+  nsmctl:                               # công cụ quản trị, KHÔNG tự chạy:
+    logging: *logging
+    image: nsm-soc-responder            #   docker compose --env-file .env -f soc/docker-compose.yml run --rm --no-deps -T nsmctl blocks
+    pull_policy: never
+    profiles: ["tools"]
+    entrypoint: ["python", "ctl.py"]
+    environment:
+      <<: *es_ctl
+      KAFKA_BOOTSTRAP: kafka:29092
+      KAFKA_USER: ctl                   # tài khoản duy nhất được ghi topic nsm.control
+      KAFKA_PASSWORD: ${KAFKA_CTL_PASSWORD}
+    volumes: [responder_state:/state:ro]
+    networks: [soc]
+
+networks:
+  soc:
+
+volumes:
+  kafka_data: {}
+  es_data: {}
+  grafana_data: {}
+  responder_state: {}
+  rulegen_state: {}

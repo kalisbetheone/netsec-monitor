@@ -1,0 +1,137 @@
+name: nsm-web
+# Máy WEB của bản 3 máy ảo. Bí mật đọc từ .env ở thư mục gốc — PHẢI là bản chép từ máy SOC (cùng mật khẩu
+# Kafka của hai tài khoản filebeat và enforcer):
+#   docker compose --env-file .env -f web/docker-compose.yml up -d --build
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
+services:
+  # ---- Cổng chặn 1 ----
+  nginx:
+    logging: *logging
+    build: ./nginx
+    restart: unless-stopped
+    network_mode: host                 # nghe trực tiếp card ext → thấy IP thật của Kali
+    environment:
+      RELOAD_MIN_INTERVAL_S: "5"       # gom các thay đổi blocklist, tối đa 1 lần nạp lại / 5 giây
+      LOG_MAX_MB: "50"                 # xoay gate1.json (request bị Cổng 1 từ chối) khi vượt kích thước này (giữ 1 bản cũ)
+    volumes:
+      - blocklist:/etc/nginx/blocklist
+      - nginx_logs:/var/log/nginx-json # gate1.json -> Filebeat -> topic gate1.logs
+
+  # ---- Cổng chặn 2 + ứng dụng (DVWA) ----
+  apache:
+    logging: *logging
+    build: ./apache
+    restart: unless-stopped
+    environment:
+      DVWA_DB_PASS: ${DVWA_DB_PASS:?chưa có .env — hãy chạy bash tools/init-env.sh rồi chép .env từ máy SOC}
+      DB_SERVER: db                     # DVWA đọc trực tiếp các biến này
+      DB_DATABASE: dvwa
+      DB_USERNAME: dvwa
+      DB_PASSWORD: ${DVWA_DB_PASS}
+      DB_PORT: "3306"
+      DB_USER: dvwa                     # tên biến mà DVWA hiện đọc (DB_USERNAME giữ lại cho bản cũ)
+      # Giống bản một máy: mặc định AN TOÀN; chế độ lab chỉ khi .env có (tools/init-env.sh --lab).
+      # Ở bản 3 máy, apache cần cổng publish nên mạng appnet KHÔNG đặt internal được — khi bật lab, chặn đường ra
+      # Internet của container bằng tường lửa máy WEB (xem web/README.md, mục "Chế độ lab").
+      DISABLE_AUTHENTICATION: ${DVWA_DISABLE_AUTH:-}
+      DEFAULT_SECURITY_LEVEL: ${DVWA_SECURITY_LEVEL:-impossible}
+      LOG_MAX_MB: "200"                 # xoay access.json / modsec_audit.json / error.log khi vượt kích thước này (giữ 1 bản cũ)
+    volumes:
+      - apache_logs:/var/log/apache-json
+      - modsec_rules:/rules
+    depends_on: [db]
+    networks: [appnet]
+    ports:
+      - "127.0.0.1:8080:80"            # chỉ localhost máy WEB, để nginx (host) proxy vào
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  db:
+    logging: *logging
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+      MYSQL_DATABASE: dvwa
+      MYSQL_USER: dvwa
+      MYSQL_PASSWORD: ${DVWA_DB_PASS}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks: [appnet]
+
+  # ---- Cảm biến ----
+  suricata:
+    logging: *logging
+    image: jasonish/suricata:7.0
+    restart: unless-stopped
+    network_mode: host
+    cap_add: [NET_ADMIN, NET_RAW, SYS_NICE]
+    # entrypoint bọc ngoài: thêm vòng xoay nhật ký (eve.json không còn lớn mãi) rồi gọi entrypoint gốc của image
+    entrypoint: ["/bin/bash", "-c", "tr -d '\\r' < /nsm-entrypoint.sh > /tmp/nsm-entrypoint.sh && exec /bin/bash /tmp/nsm-entrypoint.sh \"$$@\"", "--"]
+    command: ["-i", "${SURICATA_IFACE}", "--set", "vars.address-groups.HOME_NET=${HOME_NET}"]
+    environment:
+      LOG_MAX_MB: "200"                # eve.json / stats.log / fast.log vượt ngần này thì xoay (giữ 1 bản cũ)
+    volumes:
+      - suricata_logs:/var/log/suricata
+      - suricata_rules:/var/lib/suricata
+      - ./suricata/entrypoint.sh:/nsm-entrypoint.sh:ro
+
+  filebeat:
+    logging: *logging
+    image: docker.elastic.co/beats/filebeat:8.19.25   # 8.15.3 có lúc giữ kết nối Kafka cũ (CLOSE_WAIT) ~50 s sau khi Kafka khởi động lại (đo 13/11/2026)
+    restart: unless-stopped
+    user: root
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - apache_logs:/logs/apache:ro
+      - suricata_logs:/logs/suricata:ro
+      - nginx_logs:/logs/nginx:ro
+      - filebeat_data:/usr/share/filebeat/data
+    environment:
+      KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP}
+      KAFKA_USER: filebeat             # chỉ được GHI các topic nhật ký
+      KAFKA_PASSWORD: ${KAFKA_FILEBEAT_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh rồi chép .env từ máy SOC}
+    networks: [shipnet]                # mạng riêng ra Kafka trên máy SOC — tách khỏi mạng của ứng dụng
+
+  # ---- Agent cưỡng chế (MỚI): Kafka -> ghi cấu hình 2 cổng ----
+  enforcer:
+    logging: *logging
+    build:
+      context: ..
+      dockerfile: web/enforcer/Dockerfile
+    restart: unless-stopped
+    command: ["python", "enforcer.py"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time()-os.path.getmtime('/tmp/alive')<90 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    environment:
+      KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP}
+      KAFKA_USER: enforcer             # chỉ được ĐỌC enforce.blocklist/enforce.rules và ghi enforce.status
+      KAFKA_PASSWORD: ${KAFKA_ENFORCER_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh rồi chép .env từ máy SOC}
+    volumes:
+      - blocklist:/blocklist          # enforcer ghi blocklist.map; nginx tự inotify + reload
+      - modsec_rules:/rules           # enforcer ghi luật; apache tự inotify + apachectl -t
+    networks: [shipnet]
+    depends_on: [nginx, apache]
+
+networks:
+  appnet:                              # apache + db
+  shipnet:                             # filebeat + enforcer -> Kafka trên máy SOC
+
+volumes:
+  blocklist: {}
+  nginx_logs: {}
+  apache_logs: {}
+  modsec_rules: {}
+  suricata_logs: {}
+  suricata_rules: {}
+  filebeat_data: {}
+  db_data: {}

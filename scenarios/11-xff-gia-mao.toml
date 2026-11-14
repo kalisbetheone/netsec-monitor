@@ -1,0 +1,15 @@
+title = "Giả IP qua X-Forwarded-For / X-Real-IP (giả làm client sạch 10.10.10.20)"
+case = "D3, bảo mật"
+notes = "nginx lấy IP thật từ PROXY protocol nên header giả phải bị bỏ qua: kẻ tấn công vẫn bị chặn."
+max_s = 90
+
+[[actor]]
+name = "giả XFF"
+family = "sqli"
+xff = "10.10.10.20"
+count = 40
+interval_s = 0.5
+
+[expect]
+attack_blocked = true
+block_within_s = 15

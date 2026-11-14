@@ -1,0 +1,32 @@
+title = "Tấn công cơ bản 4 họ, mỗi họ một IP"
+case = "B1, B2"
+max_s = 120
+
+[[actor]]
+name = "sqli"
+family = "sqli"
+count = 40
+interval_s = 0.5
+
+[[actor]]
+name = "xss"
+family = "xss"
+count = 40
+interval_s = 0.5
+
+[[actor]]
+name = "lfi"
+family = "lfi"
+count = 40
+interval_s = 0.5
+
+[[actor]]
+name = "rce"
+family = "rce"
+count = 40
+interval_s = 0.5
+
+[expect]
+attack_blocked = true
+block_within_s = 15
+detected_min_share = 0.8

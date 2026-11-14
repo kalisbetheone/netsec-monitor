@@ -1,0 +1,32 @@
+title = "C1: mật khẩu và token người dùng gửi lên không được lưu nguyên văn trong Elasticsearch"
+case = "mở rộng (C1)"
+notes = """Lỗi C1 của bản rà soát (đã sửa 12/11): classifier từng chép nguyên thân request (kể cả mật khẩu) vào web-events-*. \
+Người dùng đăng nhập (mật khẩu trong thân form) và gọi API với token trong query; mỗi giá trị là chuỗi ngẫu nhiên duy nhất. \
+Sau kịch bản, tìm các giá trị đó trong MỌI bản ghi Elasticsearch của các IP này."""
+max_s = 90
+
+[[actor]]
+name = "đăng nhập"
+role = "benign"
+family = "secret"
+placement = "form"
+path = "/login.php"
+param = "password"
+count = 6
+interval_s = 1
+stop_on_block = false
+
+[[actor]]
+name = "gọi API với token"
+role = "benign"
+family = "secret"
+placement = "query"
+path = "/index.php"
+param = "api_token"
+count = 6
+interval_s = 1
+stop_on_block = false
+
+[expect]
+secrets_absent = true
+benign_blocked = false

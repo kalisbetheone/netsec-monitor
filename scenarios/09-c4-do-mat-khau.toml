@@ -1,0 +1,16 @@
+title = "Dò mật khẩu: 60 lần POST đăng nhập từ một IP"
+case = "C4"
+notes = "Không có payload đặc thù; chỉ tầng 3 (mẫu hình bruteforce: ≥ 30 POST, ≥ 80 %, ≤ 2 URI) chặn được."
+max_s = 120
+
+[[actor]]
+name = "dò mật khẩu"
+family = "login"
+placement = "query"
+count = 60
+interval_s = 0.2
+
+[expect]
+attack_blocked = true
+block_within_s = 40
+block_reason = "behaviour"

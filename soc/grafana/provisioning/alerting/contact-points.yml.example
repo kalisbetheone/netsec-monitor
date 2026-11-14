@@ -1,0 +1,21 @@
+# Ví dụ: gửi mọi cảnh báo NSM tới một webhook (Slack/Teams/Telegram bot hoặc dịch vụ của bạn).
+# Cách dùng: chép tệp này thành contact-points.yml (cùng thư mục), sửa url, rồi
+#   docker compose restart grafana
+# Tệp có đuôi .example KHÔNG được Grafana nạp.
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: nsm-webhook
+    receivers:
+      - uid: nsm-webhook
+        type: webhook
+        settings:
+          url: https://example.invalid/hook      # <- địa chỉ nhận thông báo của bạn
+          httpMethod: POST
+policies:
+  - orgId: 1
+    receiver: nsm-webhook
+    group_by: [alertname]
+    group_wait: 10s
+    group_interval: 1m
+    repeat_interval: 4h

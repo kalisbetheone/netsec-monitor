@@ -1,0 +1,20 @@
+title = "Tái phạm sau khi hết hạn chặn: 3 vòng, thời hạn chặn phải tăng dần"
+case = "E4"
+notes = "Thời gian nén: TTL_STEPS_S = 20,40,80 thay vì 900,3600,86400 (15 phút → 1 giờ → 24 giờ). Kỳ vọng thời hạn khoảng 20 → 40 → 80 s (cộng độ trễ quét hết hạn của responder, 10 s)."
+max_s = 420
+
+[override.responder]
+TTL_STEPS_S = "20,40,80"
+MAX_TTL_S = "600"
+
+[[actor]]
+name = "tái phạm"
+kind = "recidivist"
+family = "sqli"
+rounds = 3
+interval_s = 0.5
+max_s = 400
+
+[expect]
+attack_blocked = true
+recidivism_growth = true

@@ -1,0 +1,28 @@
+title = "Người dùng hợp lệ (thường và 'khó') duyệt và tìm kiếm"
+case = "A1, D4"
+notes = "5 IP, mỗi IP 60 request tìm kiếm, nửa văn bản thường, nửa văn bản có dấu nháy, ký tự so sánh, từ khoá SQL/HTML. Thêm 1 IP thỉnh thoảng gửi văn bản MƠ HỒ (chứa nguyên cú pháp tấn công, vd 'how does the <script> tag work'): Cổng 2 được phép chặn từng request, nhưng IP không được bị khoá. Tiêu chí tách đôi (12/11): không IP hợp lệ nào bị khoá; Cổng 2 chặn ≤ 1 % request hợp lệ."
+max_s = 120
+
+[[actor]]
+name = "người dùng"
+role = "benign"
+ips = 5
+families = ["benign", "benign_hard"]
+placement = "query"
+count = 60
+interval_s = 0.5
+stop_on_block = false
+
+[[actor]]
+name = "văn bản mơ hồ"
+role = "ambiguous"
+families = ["benign", "benign", "benign", "benign", "benign", "ambiguous"]
+placement = "query"
+count = 24
+interval_s = 2.0
+stop_on_block = false
+
+[expect]
+benign_blocked = false
+benign_gate2_max_share = 0.01
+ambiguous_blocked = false

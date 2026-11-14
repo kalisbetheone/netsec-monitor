@@ -1,0 +1,56 @@
+title = "D4: ô nhập hợp lệ có dấu nháy đơn trùng cú pháp SQLi — luật tự sinh không được chặn người dùng"
+case = "D4"
+notes = """Ứng dụng cho phép nhập dấu nháy đơn (O'Brien, don't stop me now...) vào CÙNG tham số mà kẻ tấn công dùng cho SQLi dựa \
+trên dấu nháy. Pha 1 (CRS DetectionOnly 70 s): người dùng hợp lệ (IP sạch) gõ các câu có dấu nháy -> vào corpus lành tính; \
+cùng lúc 2 IP gửi SQLi. Pha 2 (giây 150): 3 người dùng MỚI gõ các câu có dấu nháy -> không được bị Cổng 2 chặn hay khoá IP. \
+Luật quá rộng (vd chỉ "'") phải bị loại ở bước kiểm chứng corpus hoặc trong giai đoạn chạy thử."""
+max_s = 240
+rulegen = true
+modsec_detection_only_s = 70
+
+[override.rulegen]
+INTERVAL_S = "15"
+SHADOW_S = "20"
+LOOKBACK_S = "900"
+
+[[actor]]
+name = "người dùng gõ dấu nháy (pha 1)"
+role = "benign"
+ips = 2
+family = "benign_quote"
+path = "/vulnerabilities/sqli/"
+param = "id"
+method = "GET"
+count = 25
+interval_s = 1
+stop_on_block = false
+
+[[actor]]
+name = "SQLi dựa trên dấu nháy"
+ips = 2
+family = "sqli_quote"
+path = "/vulnerabilities/sqli/"
+param = "id"
+method = "GET"
+count = 8
+interval_s = 0.5
+
+[[actor]]
+name = "người dùng mới gõ dấu nháy (pha 2)"
+role = "nguoi_dung_moi"
+ips = 3
+start_s = 150
+family = "benign_quote"
+shuffle = true
+path = "/vulnerabilities/sqli/"
+param = "id"
+method = "GET"
+count = 8
+interval_s = 1
+stop_on_block = false
+
+[expect]
+benign_blocked = false
+benign_gate2_max_share = 0.0
+nguoi_dung_moi_blocked = false
+nguoi_dung_moi_gate2_max_share = 0.0

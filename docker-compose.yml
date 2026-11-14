@@ -1,0 +1,469 @@
+# ======================================================================
+# Hệ thống giám sát & tự động ứng phó — bản MỘT MÁY (Docker, 2 dải mạng)
+# Mô phỏng lại topo máy ảo: external_net 10.10.0.0/20 (các máy cố định ở 10.10.10.x), monitor_net 10.10.30.0/24
+# attacker/client là container nội bộ → nginx thấy IP THẬT (không gộp IP).
+# Chạy:  bash tools/init-env.sh        (một lần: sinh tệp .env chứa mật khẩu ngẫu nhiên)
+#        docker compose up -d --build
+# Mọi bí mật đọc từ .env (không có mật khẩu nào viết trong tệp này). Elasticsearch và Kafka đều
+# bắt buộc xác thực; mỗi dịch vụ có tài khoản Kafka riêng với quyền tối thiểu (soc/kafka-init.sh), và mỗi vai trò
+# một tài khoản Elasticsearch riêng (soc/es-init.sh).
+# DVWA mặc định ở chế độ AN TOÀN (đòi đăng nhập, mức impossible). Chế độ lab (DVWA không cần đăng nhập, mức low —
+# tấn công chạm tới mã dễ tổn thương thật) chỉ bật bằng  bash tools/init-env.sh --lab.
+# ======================================================================
+name: nsm
+
+# Mỗi vai trò một tài khoản Elasticsearch với quyền tối thiểu (soc/es-init.sh). Tài khoản quản trị elastic chỉ còn
+# dùng cho es-init và healthcheck của chính Elasticsearch.
+x-es: &es          # classifier, tier3, responder, logsink: chỉ THÊM bản ghi
+  ES_URL: "http://elasticsearch:9200"
+  ES_USER: nsm_writer
+  ES_PASSWORD: ${ES_WRITER_PASSWORD:?thiếu biến trong .env — hãy chạy lại bash tools/init-env.sh}
+x-es-rulegen: &es_rulegen
+  ES_URL: "http://elasticsearch:9200"
+  ES_USER: nsm_rulegen
+  ES_PASSWORD: ${ES_RULEGEN_PASSWORD:?thiếu biến trong .env — hãy chạy lại bash tools/init-env.sh}
+x-es-ctl: &es_ctl
+  ES_URL: "http://elasticsearch:9200"
+  ES_USER: nsm_ctl
+  ES_PASSWORD: ${ES_CTL_PASSWORD:?thiếu biến trong .env — hãy chạy lại bash tools/init-env.sh}
+
+# Giới hạn nhật ký của container (T10): mặc định của Docker trên Linux (json-file) không giới hạn dung lượng,
+# trong khi nginx in mọi request ra stdout.
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
+# Dịch vụ Python tự ghi /tmp/alive mỗi vài giây khi vòng lặp chính còn quay (common.Heartbeat). Treo -> unhealthy
+# (xem bằng docker compose ps).
+x-alive: &alive
+  test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(0 if time.time()-os.path.getmtime('/tmp/alive')<90 else 1)"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 60s
+
+services:
+  # ================= VÙNG NGOÀI (giả lập Kali) =================
+  attacker:
+    logging: *logging
+    image: curlimages/curl:8.10.1
+    command: ["sleep", "infinity"]
+    volumes: ["./tools:/tools:ro"]
+    networks: {external_net: {ipv4_address: 10.10.10.66}}
+
+  client:
+    logging: *logging
+    image: curlimages/curl:8.10.1
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /tools/benign.sh | sh"]
+    volumes: ["./tools:/tools:ro"]
+    networks: {external_net: {ipv4_address: 10.10.10.20}}
+
+  # ================= CỔNG CHẶN 1 =================
+  nginx:
+    logging: *logging
+    build: ./web/nginx
+    restart: unless-stopped
+    environment:
+      RELOAD_MIN_INTERVAL_S: "5"                # E5: gom các thay đổi blocklist, tối đa 1 lần nạp lại / 5 giây
+      LOG_MAX_MB: "50"                          # xoay gate1.json (request bị Cổng 1 từ chối) khi vượt kích thước này (giữ 1 bản cũ)
+    volumes:
+      - blocklist:/etc/nginx/blocklist
+      - nginx_logs:/var/log/nginx-json          # gate1.json -> Filebeat -> topic gate1.logs
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro   # đè config: nghe :80/:443, proxy apache:80
+    networks:
+      external_net: {ipv4_address: 10.10.10.10}          # mặt ngoài, đối diện attacker
+      app_net: {}                                         # mặt trong, tới apache
+    depends_on:
+      apache: {condition: service_started, restart: true}  # apache tạo lại (IP mới) -> nginx khởi động lại để phân giải lại
+
+  # ================= CỔNG CHẶN 2 + ỨNG DỤNG =================
+  apache:
+    logging: *logging
+    build: ./web/apache
+    restart: unless-stopped
+    environment:
+      DVWA_DB_PASS: ${DVWA_DB_PASS:?chưa có .env — hãy chạy bash tools/init-env.sh}
+      DB_SERVER: db
+      DB_DATABASE: dvwa
+      DB_USER: dvwa                 # tên biến mà DVWA hiện đọc (DB_USERNAME giữ lại cho bản cũ)
+      DB_USERNAME: dvwa
+      DB_PASSWORD: ${DVWA_DB_PASS}
+      DB_PORT: "3306"
+      # Mặc định DVWA đòi đăng nhập nên request của các script nhận 302 (payload vẫn đi qua 2 cổng và
+      # được phát hiện, nhưng lỗ hổng không bị khai thác thật). Muốn tấn công chạm tới mã dễ tổn
+      # thương (CHỈ trong lab cô lập): đặt DVWA_DISABLE_AUTH=true và DVWA_SECURITY_LEVEL=low.
+      DISABLE_AUTHENTICATION: ${DVWA_DISABLE_AUTH:-}
+      DEFAULT_SECURITY_LEVEL: ${DVWA_SECURITY_LEVEL:-impossible}
+      LOG_MAX_MB: "200"             # xoay access.json / modsec_audit.json / error.log khi vượt kích thước này (giữ 1 bản cũ)
+    volumes:
+      - apache_logs:/var/log/apache-json
+      - modsec_rules:/rules
+    networks: [app_net]
+    depends_on: [db]
+
+  db:
+    logging: *logging
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+      MYSQL_DATABASE: dvwa
+      MYSQL_USER: dvwa
+      MYSQL_PASSWORD: ${DVWA_DB_PASS}
+    volumes: [db_data:/var/lib/mysql]
+    networks: [app_net]
+
+  # ================= CẢM BIẾN =================
+  suricata:
+    logging: *logging
+    image: jasonish/suricata:7.0
+    restart: unless-stopped
+    network_mode: "service:nginx"        # chung netns nginx → thấy lưu lượng external_net
+    cap_add: [NET_ADMIN, NET_RAW, SYS_NICE]
+    # Nghe CẢ HAI card của nginx: Docker không bảo đảm card nào là eth0/eth1 (tuỳ thứ tự gắn mạng),
+    # nên không đoán tên card của external_net. Lưu lượng phía app_net (nginx→apache) có hai đầu đều
+    # là địa chỉ nội bộ nên classifier tự bỏ qua. ('any' không dùng được trong container.)
+    # entrypoint bọc ngoài: thêm vòng xoay nhật ký (eve.json không còn lớn mãi) rồi gọi entrypoint gốc của image
+    entrypoint: ["/bin/bash", "-c", "tr -d '\\r' < /nsm-entrypoint.sh > /tmp/nsm-entrypoint.sh && exec /bin/bash /tmp/nsm-entrypoint.sh \"$$@\"", "--"]
+    command: ["-i", "eth0", "-i", "eth1", "--set", "vars.address-groups.HOME_NET=[10.10.10.10/32]"]
+    environment:
+      LOG_MAX_MB: "200"                    # eve.json / stats.log / fast.log vượt ngần này thì xoay (giữ 1 bản cũ)
+    volumes:
+      - suricata_logs:/var/log/suricata
+      - suricata_rules:/var/lib/suricata
+      - ./web/suricata/entrypoint.sh:/nsm-entrypoint.sh:ro
+    depends_on:
+      nginx: {condition: service_started, restart: true}   # nginx bị tạo lại -> suricata phải vào lại netns mới
+
+  filebeat:
+    logging: *logging
+    image: docker.elastic.co/beats/filebeat:8.19.25   # 8.15.3 có lúc giữ kết nối Kafka cũ (CLOSE_WAIT) ~50 s sau khi Kafka khởi động lại (đo 13/11/2026)
+    restart: unless-stopped
+    user: root
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    environment:
+      KAFKA_BOOTSTRAP: "kafka:9092"
+      KAFKA_USER: filebeat
+      KAFKA_PASSWORD: ${KAFKA_FILEBEAT_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}
+    volumes:
+      - ./web/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - apache_logs:/logs/apache:ro
+      - suricata_logs:/logs/suricata:ro
+      - nginx_logs:/logs/nginx:ro
+      - filebeat_data:/usr/share/filebeat/data
+    networks: [monitor_net]
+    depends_on:
+      kafka-init: {condition: service_completed_successfully}   # topic phải có trước khi ghi
+
+  enforcer:
+    logging: *logging
+    build: {context: ., dockerfile: web/enforcer/Dockerfile}
+    restart: unless-stopped
+    command: ["python", "enforcer.py"]
+    healthcheck: *alive
+    environment:
+      KAFKA_BOOTSTRAP: "kafka:9092"
+      KAFKA_USER: enforcer
+      KAFKA_PASSWORD: ${KAFKA_ENFORCER_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}
+    volumes:
+      - blocklist:/blocklist
+      - modsec_rules:/rules
+    networks: [monitor_net]
+    depends_on:
+      kafka-init: {condition: service_completed_successfully}   # topic phải có trước khi subscribe
+
+  # ================= HÀNG ĐỢI =================
+  kafka:
+    logging: *logging
+    image: apache/kafka:3.7.2
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # CLIENT (9092): mọi dịch vụ phải đăng nhập SASL/PLAIN. CONTROLLER (9093) chỉ nghe trên loopback
+      # của chính container nên không ai ngoài broker chạm tới được (vì vậy được phép không xác thực).
+      KAFKA_LISTENERS: CLIENT://:9092,CONTROLLER://localhost:9093
+      KAFKA_ADVERTISED_LISTENERS: CLIENT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: CLIENT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,CLIENT:SASL_PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      # danh sách tài khoản (user_<tên>="<mật khẩu>"); quyền của từng tài khoản do soc/kafka-init.sh cấp
+      KAFKA_LISTENER_NAME_CLIENT_PLAIN_SASL_JAAS_CONFIG: >-
+        org.apache.kafka.common.security.plain.PlainLoginModule required
+        username="admin" password="${KAFKA_ADMIN_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+        user_admin="${KAFKA_ADMIN_PASSWORD}"
+        user_classifier="${KAFKA_CLASSIFIER_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+        user_tier3="${KAFKA_TIER3_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+        user_responder="${KAFKA_RESPONDER_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+        user_rulegen="${KAFKA_RULEGEN_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+        user_logsink="${KAFKA_LOGSINK_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+        user_ctl="${KAFKA_CTL_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}"
+        user_filebeat="${KAFKA_FILEBEAT_PASSWORD}"
+        user_enforcer="${KAFKA_ENFORCER_PASSWORD}";
+      KAFKA_AUTHORIZER_CLASS_NAME: org.apache.kafka.metadata.authorizer.StandardAuthorizer
+      KAFKA_SUPER_USERS: User:admin;User:ANONYMOUS      # ANONYMOUS = chính broker trên listener CONTROLLER (loopback)
+      KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "false"
+      ADMIN_PASSWORD: ${KAFKA_ADMIN_PASSWORD}           # cho healthcheck bên dưới (không phải cấu hình broker)
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes: [kafka_data:/var/lib/kafka/data]   # giữ topic + offset qua `docker compose down` / tạo lại container
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="%s";\n' "$$ADMIN_PASSWORD" > /tmp/hc.properties
+          && /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 --command-config /tmp/hc.properties >/dev/null 2>&1
+      interval: 10s
+      timeout: 10s
+      retries: 12
+    # IP và MAC CỐ ĐỊNH: Docker (đo trên 29.8) cấp MAC NGẪU NHIÊN mỗi lần container khởi động lại, cùng IP. Các dịch vụ
+    # khác giữ MAC cũ trong bảng ARP tới ~60 s (gc_stale_time) -> sau khi Kafka trở lại, Filebeat có lúc mất 50–100 s mới
+    # gửi được (kịch bản 15, ca E1, 13/11/2026). Giữ nguyên MAC thì ARP luôn đúng. IP .250 nằm xa dải cấp động (.2–.20).
+    networks:
+      monitor_net:
+        ipv4_address: 10.10.30.250
+        mac_address: "02:42:0a:0a:1e:fa"
+
+  kafka-init:                         # tạo topic + cấp quyền từng vai trò (soc/kafka-init.sh)
+    logging: *logging
+    image: apache/kafka:3.7.2
+    depends_on:
+      kafka: {condition: service_healthy}
+    environment:
+      BOOT: "kafka:9092"
+      ADMIN_PASSWORD: ${KAFKA_ADMIN_PASSWORD}
+    volumes: ["./soc/kafka-init.sh:/kafka-init.sh:ro"]
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /kafka-init.sh | sh"]
+    networks: [monitor_net]
+
+  # ================= PHÂN TÍCH & ỨNG PHÓ =================
+  classifier:
+    logging: *logging
+    build: {context: ., dockerfile: services/Dockerfile}
+    restart: unless-stopped
+    command: ["python", "classifier.py"]
+    healthcheck: *alive
+    environment:
+      <<: *es
+      KAFKA_BOOTSTRAP: "kafka:9092"
+      KAFKA_USER: classifier
+      KAFKA_PASSWORD: ${KAFKA_CLASSIFIER_PASSWORD}
+      INTERNAL_CIDRS: "10.10.30.0/24,10.10.10.10/32,172.16.0.0/12"
+      # Model tầng 2 huấn luyện lại 12/11/2026 (train/notebooks_src/01, chọn trên valid: phát hiện cao nhất khi tầng 2
+      # thêm <= 0,1 % báo nhầm). 3 giá trị dưới lấy từ output/tier2/docker-compose-env.txt của notebook.
+      # Model cũ (run_4) giữ ở models/tier2_run4.joblib; muốn quay lại: chép đè models/tier2.joblib và đặt lại
+      # θ=0.90, gate=1, argmax, TIER2_MODE=observe.
+      TIER2_THRESHOLD: "0.87"
+      TIER2_SYNTAX_GATE: "0"
+      TIER2_DECISION: "mass"        # 1 - P(benign)
+      # enforce = nhãn tầng 2 dẫn tới cảnh báo/chặn; observe = chỉ ghi nhận (t2_label); corroborate = chỉ tính khi
+      # ModSecurity cũng chặn request đó. Model mới báo nhầm < 1 % trên lưu lượng website thật, NHƯNG gắn nhãn tấn công
+      # cho văn bản người dùng gõ tay ("rock 'n' roll", "select a laptop for school", "bàn phím cơ"...): ở enforce, kịch
+      # bản 02 khoá 5/5 người dùng hợp lệ (12/11/2026). Vì vậy mặc định corroborate cho tới khi huấn luyện lại với văn
+      # bản tự do lành tính.
+      TIER2_MODE: ${TIER2_MODE:-corroborate}
+      SCAN_MAX_BYTES: "524288"      # quét tới 512 KB tham số/thân mỗi request; vượt -> nhãn 'uninspected'
+
+    volumes: ["./models:/models:ro"]
+    networks: [monitor_net]
+    depends_on:
+      kafka-init: {condition: service_completed_successfully}
+      elasticsearch: {condition: service_healthy}
+
+  tier3:
+    logging: *logging
+    build: {context: ., dockerfile: services/Dockerfile}
+    restart: unless-stopped
+    command: ["python", "tier3.py"]
+    healthcheck: *alive
+    environment:
+      <<: *es
+      KAFKA_BOOTSTRAP: "kafka:9092"
+      KAFKA_USER: tier3
+      KAFKA_PASSWORD: ${KAFKA_TIER3_PASSWORD}
+      INTERNAL_CIDRS: "10.10.30.0/24,10.10.10.10/32,172.16.0.0/12"
+      TIER3_MIN_REQ: "15"
+      TIER3_COOLDOWN_S: "120"
+    volumes: ["./models:/models:ro"]
+    networks: [monitor_net]
+    depends_on:
+      kafka-init: {condition: service_completed_successfully}
+      elasticsearch: {condition: service_healthy}
+
+  responder:
+    logging: *logging
+    build: {context: ., dockerfile: services/Dockerfile}
+    restart: unless-stopped
+    command: ["python", "responder.py"]
+    healthcheck: *alive
+    environment:
+      <<: *es
+      KAFKA_BOOTSTRAP: "kafka:9092"
+      KAFKA_USER: responder
+      KAFKA_PASSWORD: ${KAFKA_RESPONDER_PASSWORD}
+      EXEMPT_CIDRS: "127.0.0.0/8,10.10.30.0/24,10.10.10.10/32,10.10.10.20/32,172.16.0.0/12"
+      MIN_CONFIDENCE: "0.90"        # θ
+      MAX_AGE_S: "600"              # bỏ cảnh báo cũ hơn 10 phút (sau sự cố Kafka)
+      THRESHOLD: "5"                # cửa sổ ngắn: k cảnh báo / WINDOW_S
+      WINDOW_S: "60"
+      LONG_WINDOW_S: "86400"        # B5: cửa sổ dài 24 giờ cho tấn công rải rác
+      LONG_THRESHOLD: "12"          # PHẢI lớn hơn THRESHOLD, nếu không ngưỡng dài luôn đạt trước
+      TTL_STEPS_S: "900,3600,86400" # thời hạn chặn lần 1 / 2 / 3+: 15 phút → 1 giờ → 24 giờ (E4)
+      MAX_TTL_S: "86400"
+      SHARED_CIDRS: ${SHARED_CIDRS:-}  # IP dùng chung đã biết (NAT, proxy): chặn theo (IP, User-Agent) — D1
+    volumes: [responder_state:/state]
+    networks: [monitor_net]
+    depends_on:
+      kafka-init: {condition: service_completed_successfully}
+      elasticsearch: {condition: service_healthy}
+
+  rulegen:
+    logging: *logging
+    build: {context: ., dockerfile: services/Dockerfile}
+    restart: unless-stopped
+    command: ["python", "rulegen.py"]
+    environment:
+      <<: *es_rulegen
+      KAFKA_BOOTSTRAP: "kafka:9092"
+      KAFKA_USER: rulegen
+      KAFKA_PASSWORD: ${KAFKA_RULEGEN_PASSWORD}
+      # Giá trị rút ngắn cho LAB. Triển khai thật theo tài liệu mô tả: SHADOW_S=86400 (24 giờ),
+      # RULE_TTL_S=2592000 (30 ngày), REVOKE_S=1209600 (14 ngày), MIN_BENIGN lớn hơn nhiều.
+      INTERVAL_S: "300"
+      SHADOW_S: "900"
+      RULE_TTL_S: "86400"
+      REVOKE_S: "21600"
+      BENIGN_LOOKBACK_S: "604800"   # corpus lành tính 7 ngày
+      MIN_BENIGN: "100"             # chưa đủ ngần này sự kiện lành tính từ nguồn sạch -> không sinh/ban hành luật
+      # Bộ chọn luật: g2r = học máy (mặc định; model + kho nền đóng băng trong ./models), g0 = thuật toán cũ.
+      # LLM không được dùng (Bao-cao-ly-do-khong-dung-LLM-NSM.md).
+      RULEGEN_SELECTOR: "g2r"
+      RULESEL_MODEL: /models/rulesel_g2r.joblib
+      RULESEL_PRIOR: /models/rulesel_prior.json.gz
+      RULESEL_MIN_SCORE: "0"        # điểm dự đoán tối thiểu của ứng viên (< 0 = model đoán sẽ chặn nhầm)
+    volumes: [rulegen_state:/state, "./models:/models:ro"]
+    networks: [monitor_net]
+    depends_on:
+      kafka-init: {condition: service_completed_successfully}
+      elasticsearch: {condition: service_healthy}
+
+  logsink:                            # nhật ký phụ: request bị Cổng 1 từ chối, error.log của Apache, nhịp tim enforcer
+    logging: *logging
+    build: {context: ., dockerfile: services/Dockerfile}
+    restart: unless-stopped
+    command: ["python", "logsink.py"]
+    healthcheck: *alive
+    environment:
+      <<: *es
+      KAFKA_BOOTSTRAP: "kafka:9092"
+      KAFKA_USER: logsink
+      KAFKA_PASSWORD: ${KAFKA_LOGSINK_PASSWORD}
+    networks: [monitor_net]
+    depends_on:
+      kafka-init: {condition: service_completed_successfully}
+      elasticsearch: {condition: service_healthy}
+
+  nsmctl:                             # công cụ quản trị, KHÔNG tự chạy: gọi qua  bash tools/nsmctl.sh <lệnh>
+    logging: *logging
+    image: nsm-responder              # dùng lại image của responder (đã dựng bởi `docker compose up --build`)
+    pull_policy: never
+    profiles: ["tools"]
+    entrypoint: ["python", "ctl.py"]
+    environment:
+      <<: *es_ctl
+      KAFKA_BOOTSTRAP: "kafka:9092"
+      KAFKA_USER: ctl                 # tài khoản duy nhất được ghi topic nsm.control
+      KAFKA_PASSWORD: ${KAFKA_CTL_PASSWORD}
+    volumes: [responder_state:/state:ro]
+    networks: [monitor_net]
+
+  # ================= LƯU TRỮ & TRỰC QUAN =================
+  elasticsearch:
+    logging: *logging
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      # Bắt buộc đăng nhập (basic auth). Lab một máy: HTTP thường bên trong mạng Docker, chưa bật TLS.
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.security.transport.ssl.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ELASTIC_PASSWORD: ${ES_PASSWORD}
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    volumes: [es_data:/usr/share/elasticsearch/data]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs -u \"elastic:$$ELASTIC_PASSWORD\" 'http://localhost:9200/_cluster/health?wait_for_status=yellow' >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+    networks: [monitor_net]
+
+  es-init:                            # tài khoản theo vai trò + chính sách xoá chỉ mục cũ (soc/es-init.sh)
+    logging: *logging
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    depends_on:
+      elasticsearch: {condition: service_healthy}
+    environment:
+      ES_URL: "http://elasticsearch:9200"
+      ELASTIC_PASSWORD: ${ES_PASSWORD}
+      GRAFANA_ES_PASSWORD: ${GRAFANA_ES_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}
+      ES_WRITER_PASSWORD: ${ES_WRITER_PASSWORD}
+      ES_RULEGEN_PASSWORD: ${ES_RULEGEN_PASSWORD}
+      ES_CTL_PASSWORD: ${ES_CTL_PASSWORD}
+    volumes: ["./soc/es-init.sh:/es-init.sh:ro"]
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /es-init.sh | sh"]
+    networks: [monitor_net]
+
+  grafana:
+    logging: *logging
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?chưa có .env — hãy chạy bash tools/init-env.sh}   # không còn mật khẩu mặc định admin/admin
+      GRAFANA_ES_PASSWORD: ${GRAFANA_ES_PASSWORD}                   # datasource đọc ES bằng tài khoản chỉ đọc grafana_ro
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}                     # để trống = cảnh báo chỉ hiện trong Grafana
+    entrypoint: ["/bin/sh", "-c", "tr -d '\\r' < /nsm-start.sh > /tmp/nsm-start.sh && exec /bin/sh /tmp/nsm-start.sh"]
+    volumes:
+      - ./soc/grafana/provisioning:/etc/grafana/provisioning-src:ro
+      - ./soc/grafana/start.sh:/nsm-start.sh:ro
+      - grafana_data:/var/lib/grafana
+    ports: ["127.0.0.1:3000:3000"]    # chỉ mở cho chính máy host (http://localhost:3000), không mở ra mạng LAN
+    networks: [monitor_net]
+    depends_on:
+      es-init: {condition: service_completed_successfully}
+
+networks:
+  external_net:                       # = VMnet2 (vùng ngoài)
+    # /20 (10.10.0.0–10.10.15.255, không trùng monitor_net 10.10.30.0/24) để kịch bản giả lập có hàng nghìn IP
+    # nguồn (xoay vòng IP, nhồi tài khoản phân tán, bão chặn E5). Máy cố định vẫn ở 10.10.10.x (nginx .10,
+    # client .20, attacker .66); kịch bản dùng 10.10.11.1–10.10.15.254 (tools/scenario.sh).
+    ipam: {config: [{subnet: 10.10.0.0/20}]}
+  monitor_net:                        # = VMnet3 (vùng giám sát)
+    ipam: {config: [{subnet: 10.10.30.0/24}]}
+  app_net:                            # nội bộ nginx↔apache↔db (không ra ngoài)
+    internal: true
+    ipam: {config: [{subnet: 172.31.0.0/24}]}
+
+volumes:
+  blocklist: {}
+  nginx_logs: {}
+  apache_logs: {}
+  modsec_rules: {}
+  suricata_logs: {}
+  suricata_rules: {}
+  filebeat_data: {}
+  kafka_data: {}
+  db_data: {}
+  responder_state: {}
+  rulegen_state: {}
+  es_data: {}
+  grafana_data: {}

@@ -1,0 +1,15 @@
+title = "Nhồi tài khoản phân tán: 50 IP, mỗi IP 4 lần đăng nhập"
+case = "C4"
+notes = "Mỗi IP quá ít request để tầng 3 nhận ra, không có payload để CRS/classifier bắt. Kỳ vọng ghi là lọt (giới hạn đã biết)."
+max_s = 120
+
+[[actor]]
+name = "nhồi tài khoản"
+ips = 50
+family = "login"
+count = 4
+interval_s = 2
+
+[expect]
+attack_blocked = false
+known_gap = true

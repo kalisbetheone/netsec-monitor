@@ -1,0 +1,36 @@
+title = "Vòng đời luật tự sinh: chạy thử -> ban hành -> hết hạn"
+case = "mở rộng (rulegen)"
+notes = """Thời gian nén: chạy thử 20 s, thời hạn luật (RULE_TTL_S) 60 s. Pha gieo như B3 (CRS DetectionOnly 60 s). Luật phải \
+đi shadow -> active (shadow_passed) -> expired (ttl) trong kịch bản. Thu hồi khi khớp lưu lượng lành tính được kiểm bằng \
+kiểm thử đơn vị (tests/test_logic.py)."""
+max_s = 240
+rulegen = true
+modsec_detection_only_s = 60
+
+[override.rulegen]
+INTERVAL_S = "15"
+SHADOW_S = "20"
+RULE_TTL_S = "60"
+LOOKBACK_S = "900"
+
+[[actor]]
+name = "gieo tấn công"
+ips = 2
+family = "rce_seed"
+path = "/vulnerabilities/exec/"
+param = "ip"
+method = "POST"
+count = 8
+interval_s = 0.5
+
+[[actor]]
+name = "giữ kịch bản chạy đủ lâu"
+role = "benign"
+family = "benign"
+count = 40
+interval_s = 5
+stop_on_block = false
+
+[expect]
+rule_classes_active = ["rce"]
+rule_final_state = "expired"

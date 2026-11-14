@@ -1,0 +1,41 @@
+title = "N3: né classifier bằng cách đệm (120 tham số, 2 100 ký tự trong một giá trị, thân JSON 4 200 ký tự)"
+case = "mở rộng (N3)"
+notes = """Lỗi N3 của bản rà soát (đã sửa 12/11): classifier từng chỉ đọc 100 tham số / 2 048 ký tự / 4 096 ký tự thân JSON. \
+Ba tác nhân đặt SQLi SAU phần đệm. IP được miễn trừ để mọi request đều tới được hệ thống; chấm theo nhãn của classifier \
+(Cổng 2 chặn không thay thế được: classifier mới là nguồn chặn IP và nguồn mẫu cho rulegen)."""
+max_s = 120
+exempt = ["self"]
+
+[[actor]]
+name = "sau 120 tham số đệm"
+family = "sqli"
+placement = "pad_params"
+path = "/vulnerabilities/sqli/"
+param = "id"
+count = 8
+interval_s = 0.3
+stop_on_block = false
+
+[[actor]]
+name = "sau 2 100 ký tự đệm"
+family = "sqli"
+placement = "pad_value"
+path = "/vulnerabilities/sqli/"
+param = "id"
+count = 8
+interval_s = 0.3
+stop_on_block = false
+
+[[actor]]
+name = "thân JSON sau 4 200 ký tự đệm"
+family = "sqli"
+placement = "pad_json"
+path = "/index.php"
+param = "id"
+count = 8
+interval_s = 0.3
+stop_on_block = false
+
+[expect]
+attack_classifier_min_share = 0.9
+each_actor_detected = true

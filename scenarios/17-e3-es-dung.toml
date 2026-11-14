@@ -1,0 +1,21 @@
+title = "Elasticsearch dừng: phát hiện và chặn vẫn chạy"
+case = "E3"
+notes = "Chặn IP không phụ thuộc Elasticsearch. Số liệu trong Elasticsearch chỉ có sau khi nó trở lại, nhờ bộ đệm ghi."
+max_s = 180
+settle_s = 40
+
+[[fault]]
+service = "elasticsearch"
+stop_at_s = 0
+start_at_s = 70
+
+[[actor]]
+name = "tấn công trong lúc ES dừng"
+family = "sqli"
+start_s = 10
+count = 60
+interval_s = 0.5
+
+[expect]
+attack_blocked = true
+block_within_s = 20

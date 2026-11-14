@@ -1,0 +1,26 @@
+# Chạy bộ kiểm thử logic (không cần Docker) mỗi lần đẩy mã hoặc mở PR, và kiểm cú pháp các tệp compose / shell.
+name: tests
+on: [push, pull_request]
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -r services/requirements.txt
+      - run: python -X utf8 -B tests/test_logic.py
+      - run: python -X utf8 -B tests/test_secrule.py
+  config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: cú pháp shell
+        run: for f in tools/*.sh soc/*.sh web/*/entrypoint.sh soc/grafana/start.sh; do bash -n "$f" || exit 1; done
+      - name: tệp compose hợp lệ
+        run: |
+          cp .env.example .env
+          sed -i 's/^\([A-Z0-9_]*PASSWORD\|DVWA_DB_PASS\)=.*/\1=ci/' .env
+          docker compose config -q
+          docker compose --env-file .env -f soc/docker-compose.yml config -q
+          SOC_IP=10.10.30.20 KAFKA_BOOTSTRAP=x SURICATA_IFACE=eth0 HOME_NET=x docker compose --env-file .env -f web/docker-compose.yml config -q

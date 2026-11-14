@@ -1,0 +1,64 @@
+FROM php:8.3-apache-bookworm
+
+# ModSecurity 2.9.7 (Debian) + tiện ích + ext PHP cho DVWA. CRS cài riêng bên dưới (bản 4.25.0, không dùng gói 3.3.4)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      libapache2-mod-security2 inotify-tools git \
+      libpng-dev default-mysql-client \
+ && docker-php-ext-install mysqli pdo pdo_mysql gd \
+ && rm -rf /var/lib/apt/lists/* \
+ && a2enmod security2 remoteip unique_id headers rewrite \
+ && cp /etc/modsecurity/modsecurity.conf-recommended /etc/modsecurity/modsecurity.conf \
+ && sed -i 's/^SecRuleEngine DetectionOnly/SecRuleEngine On/' /etc/modsecurity/modsecurity.conf \
+ && sed -i 's#^SecResponseBodyAccess On#SecResponseBodyAccess Off#' /etc/modsecurity/modsecurity.conf \
+ && mkdir -p /etc/modsecurity/autogen /var/log/apache-json /rules/published \
+ && touch /etc/modsecurity/autogen/active.conf
+
+# DVWA — giữ nguyên config.inc.php gốc. Bản DVWA hiện tại tự đọc cấu hình CSDL
+# từ biến môi trường (DB_SERVER, DB_PASSWORD...), các biến này được đặt trong docker-compose.yml.
+# DVWA_REF: nhánh/tag DVWA để build lặp lại được (vd --build-arg DVWA_REF=2.5). Mặc định nhánh master.
+ARG DVWA_REF=master
+RUN git clone --depth 1 --branch "${DVWA_REF}" https://github.com/digininja/DVWA.git /var/www/html \
+ && cp /var/www/html/config/config.inc.php.dist /var/www/html/config/config.inc.php \
+ && chown -R www-data:www-data /var/www/html \
+ && chmod -R 777 /var/www/html/hackable/uploads /var/www/html/config
+
+# OWASP CRS 4.25.0 (LTS) từ tệp phát hành lưu sẵn trong web/apache/crs/ (build không cần mạng, phiên bản cố định).
+# Nạp qua /usr/share/modsecurity-crs/*.load như gói Debian cũ, nên thứ tự giữ nguyên: modsecurity.conf -> CRS ->
+# conf-enabled/zz-autogen.conf (luật tự sinh của rulegen, /etc/modsecurity/autogen/active.conf).
+COPY crs/coreruleset-4.25.0-minimal.tar.gz /tmp/crs.tar.gz
+COPY crs/owasp-crs4.load /usr/share/modsecurity-crs/owasp-crs4.load
+RUN echo "409a0da1f4daed0719150fcee5173c351e08ffa33b5b2f8936f30968b3ad4ff0  /tmp/crs.tar.gz" | sha256sum -c - \
+ && mkdir -p /etc/modsecurity/crs4 \
+ && tar -xzf /tmp/crs.tar.gz -C /etc/modsecurity/crs4 --strip-components=1 \
+ && rm -f /tmp/crs.tar.gz \
+ && cp /etc/modsecurity/crs4/crs-setup.conf.example /etc/modsecurity/crs4/crs-setup.conf \
+ && tr -d "\r" < /usr/share/modsecurity-crs/owasp-crs4.load > /tmp/x && cat /tmp/x > /usr/share/modsecurity-crs/owasp-crs4.load
+# Tinh chỉnh CRS của NSM (14/11/2026): text/plain được phép, ngoại lệ hẹp cho GraphQL — lý do và số đo trong từng tệp
+COPY crs/nsm-tuning-config.conf crs/nsm-tuning-before.conf /etc/modsecurity/crs4/plugins/
+RUN sed -i 's/\r$//' /etc/modsecurity/crs4/plugins/nsm-tuning-config.conf /etc/modsecurity/crs4/plugins/nsm-tuning-before.conf
+# Tầng 1 của classifier chạy ĐỒNG BỘ ở Cổng 2 (14/11/2026): request tấn công đầu tiên mà CRS bỏ lọt bị 403 ngay, không
+# chờ đường ống phát hiện. Sinh từ services/classifier.py bằng tools/gen_tier1_modsec.py; nạp trong zz-autogen.conf, SAU
+# luật tự sinh. KHÔNG đặt trong /etc/modsecurity/*.conf (thư mục đó nạp TRƯỚC CRS).
+COPY nsm-tier1.conf /etc/modsecurity/nsm-sync/tier1.conf
+RUN sed -i 's/\r$//' /etc/modsecurity/nsm-sync/tier1.conf
+
+COPY logjson.conf zz-autogen.conf /etc/apache2/conf-available/
+COPY 000-default.conf /etc/apache2/sites-available/000-default.conf
+RUN a2enconf logjson zz-autogen
+
+# ModSec audit log sang JSON (có request body) + ghi vào volume để filebeat đọc
+RUN sed -i 's#^SecAuditLog .*#SecAuditLog /var/log/apache-json/modsec_audit.json#' /etc/modsecurity/modsecurity.conf \
+ && sed -i 's/^SecAuditLogType .*/SecAuditLogType Serial/' /etc/modsecurity/modsecurity.conf \
+ && sed -i 's/^SecAuditLogParts .*/SecAuditLogParts ABCEFHJKZ/' /etc/modsecurity/modsecurity.conf \
+ && ( grep -q '^SecAuditLogFormat' /etc/modsecurity/modsecurity.conf \
+      && sed -i 's/^SecAuditLogFormat .*/SecAuditLogFormat JSON/' /etc/modsecurity/modsecurity.conf \
+      || printf '\nSecAuditLogFormat JSON\n' >> /etc/modsecurity/modsecurity.conf )
+
+COPY watch-rules.sh entrypoint.sh /usr/local/bin/
+RUN for f in /usr/local/bin/watch-rules.sh /usr/local/bin/entrypoint.sh \
+             /etc/apache2/conf-available/logjson.conf /etc/apache2/conf-available/zz-autogen.conf \
+             /etc/apache2/sites-available/000-default.conf; do \
+      tr -d "\r" < "$f" > /tmp/x && cat /tmp/x > "$f"; done \
+ && chmod +x /usr/local/bin/watch-rules.sh /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

@@ -1,0 +1,8 @@
+confluent-kafka==2.5.3
+elasticsearch==8.15.1
+joblib==1.4.2
+# models/tier2.joblib và tier3.joblib được lưu bằng scikit-learn 1.6.1 — phải nạp bằng ĐÚNG bản này
+# (nạp model của bản mới hơn vào bản cũ hơn không được scikit-learn hỗ trợ).
+scikit-learn==1.6.1
+numpy==2.0.2
+scipy==1.13.1

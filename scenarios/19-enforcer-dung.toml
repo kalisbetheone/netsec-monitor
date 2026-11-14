@@ -1,0 +1,20 @@
+title = "Enforcer dừng: lệnh chặn dồn lại, áp khi enforcer trở lại"
+case = "E2 mở rộng"
+max_s = 180
+settle_s = 20
+
+[[fault]]
+service = "enforcer"
+stop_at_s = 0
+start_at_s = 45
+
+[[actor]]
+name = "tấn công trong lúc enforcer dừng"
+family = "sqli"
+start_s = 5
+count = 200
+interval_s = 0.5
+
+[expect]
+attack_blocked = true
+attack_block_after_s = 35

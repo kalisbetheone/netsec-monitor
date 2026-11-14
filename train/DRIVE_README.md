@@ -1,0 +1,59 @@
+# NSM-train — huấn luyện trên Google Colab
+
+Thư mục này được dựng từ `nsm/train/make_notebooks.py`. Đặt nó ở `MyDrive/NSM-train` (đúng đường dẫn notebook mặc định).
+
+```
+NSM-train/
+  notebooks/01_tier2_classifier.ipynb          huấn luyện lại tầng 2 của classifier
+  notebooks/02_rule_selection_ranker_llm.ipynb  bộ chọn luật: ML ranker + 3 LLM (zero-shot, LoRA, GGUF)
+  data/tier2_*.jsonl.gz      dữ liệu tầng 2 (train/valid + 3 tập test độc lập)
+  data/rulesel_*.jsonl.gz    dữ liệu chọn luật (cụm tấn công + ứng viên đã chấm điểm)
+  code/feats.py, secrule.py, rulegen_ml.py     đúng mã của hệ thống (không sửa)
+  code/tier2_current.joblib  model tầng 2 đang chạy (để so sánh)
+  output/                    notebook tự tạo, kết quả ghi vào đây
+```
+
+## Thứ tự chạy
+
+| Notebook | Runtime nên chọn | Thời gian ước tính | Kết quả |
+|---|---|---|---|
+| 01 | CPU **High-RAM** (không cần GPU; scikit-learn chạy CPU) | 2–3 giờ (bản chạy thử 1/12 dữ liệu mất ~12 phút trên máy 16 luồng) | `output/tier2/tier2_new.joblib`, `metrics.json`, `docker-compose-env.txt` |
+| 02 | GPU **L4** (High-RAM) | 1,5–2,5 giờ | `output/rulesel/results.json`, `ranker_g2r.joblib`, `lora_*`, `gguf_*/…gguf` + `Modelfile` |
+| 03 | GPU **A100 40 GB** (hoặc A100 80 GB / H100 nếu có). **Không dùng L4** — thiếu VRAM | 3–4 giờ (A100), ~2 giờ (H100) | `output/rulesel_large/results_large.json`, `lora_qwen3.8-27b/` |
+
+Notebook 03 so model Qwen lớn (`Qwen/Qwen3.8-27B`, ~18 GB tải về máy Colab ở dạng 4 bit) với hai model nhỏ của
+notebook 02 về chất lượng chọn luật và mức ảo giác. Chạy sau notebook 02 (đọc `results.json` của nó). Nếu runtime
+bị ngắt, chạy lại từ đầu: phần đã xong được đọc lại từ `results_large.json` và bỏ qua.
+
+1. Mở notebook trong Colab (chuột phải → Open with → Google Colaboratory).
+2. Runtime → Change runtime type → chọn như bảng trên.
+3. Runtime → Run all. Ô đầu tiên hỏi quyền truy cập Drive: chấp nhận.
+4. Notebook 01 cài đúng scikit-learn 1.6.1 (bản hệ thống dùng) rồi **tự khởi động lại runtime**; khi đó chỉ cần
+   Run all thêm một lần nữa.
+5. Notebook 02 tải 3 model từ Hugging Face về **máy Colab** (`Qwen/Qwen3-4B`, `microsoft/Phi-4-mini-instruct`,
+   `Qwen/Qwen2.5-Coder-3B-Instruct`, tổng ~20 GB ở dạng bf16), không tải gì về máy cá nhân.
+
+Nếu runtime bị ngắt giữa chừng ở notebook 02, chạy lại từ đầu: phần ML chỉ mất vài phút; muốn bỏ qua phần đã xong,
+xoá model đó khỏi `MODELS` / `FT` ở ô tương ứng.
+
+## Đưa kết quả về hệ thống
+
+**Tầng 2 (notebook 01)**
+1. Chép `output/tier2/tier2_new.joblib` thành `nsm/models/tier2.joblib` (giữ bản cũ để quay lại).
+2. Đặt 3 biến trong `output/tier2/docker-compose-env.txt` (`TIER2_THRESHOLD`, `TIER2_DECISION`,
+   `TIER2_SYNTAX_GATE`) cho dịch vụ `classifier` trong `docker-compose.yml`.
+3. `docker compose up -d --build classifier`, rồi chạy `tools/demo.sh` và `tools/bench.sh` để so trước/sau.
+
+**Bộ chọn luật (notebook 02)** — chưa tích hợp vào `rulegen` đang chạy; kết quả dùng cho báo cáo và quyết định:
+- `results.json`: bảng so sánh Oracle / G2n / G1 / G2r / G3-0 / G3-FT trên valid, SR-BH, HttpParams.
+- `gguf_<model>/`: chép cả thư mục về máy chạy Ollama, rồi `ollama create nsm-<model> -f Modelfile`.
+
+## Lưu ý
+
+- Không sửa các tập `test_*`; chúng chỉ dùng để báo cáo. Ngưỡng và model được chọn trên `valid`.
+- Phần "bình thường" của SR-BH 2020 có nhãn nhầm (khoảng 10 % là tấn công), nên khi đọc tỷ lệ báo nhầm trên
+  `test_srbh` hãy xem cột "tầng 2 thêm báo nhầm" thay vì tỷ lệ hệ thống; với bộ chọn luật, lành tính của `test_srbh`
+  lấy từ website openappsec chưa thấy.
+- 79 % tấn công của SR-BH chỉ nằm ở đường dẫn URL, chỗ tầng 2 không đọc. Muốn đánh giá tầng 2 trên SR-BH, xem các chỉ
+  số có hậu tố `_args` (ví dụ `det_sqli_args`) trong `metrics.json`; hậu tố `_path_only` phản ánh regex tầng 1.
+- Chi tiết giao thức dữ liệu: `nsm/eval/PROTOCOL.md` trong mã nguồn.

@@ -1,0 +1,20 @@
+title = "NAT dùng chung: ba người dùng thật và một kẻ tấn công chung một IP, mỗi người một trình duyệt"
+case = "D1"
+notes = "Một IP xen kẽ 3 request hợp lệ (3 trình duyệt khác nhau), 1 request tấn công (sqlmap). tier3 nhận ra IP có nhiều User-Agent và báo responder đây là IP dùng chung; responder chặn theo (IP, User-Agent) nên chỉ kẻ tấn công bị chặn. Trước khi có D1 (lượt chạy thử 12/11): 57/75 request hợp lệ bị chặn theo. Nếu kẻ tấn công dùng ĐÚNG User-Agent của người dùng thì vẫn chặn lây — giới hạn của dấu vân tay chỉ dựa trên User-Agent."
+max_s = 120
+
+[[actor]]
+name = "NAT"
+role = "nat"
+families = ["benign", "benign", "benign", "sqli"]
+user_agents = ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+               "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+               "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+               "sqlmap/1.8.11#stable (https://sqlmap.org)"]
+count = 100
+interval_s = 0.4
+stop_on_block = false
+
+[expect]
+nat_blocked = true
+collateral = false

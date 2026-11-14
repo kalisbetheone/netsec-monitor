@@ -1,0 +1,26 @@
+title = "Bão chặn: 150 IP tấn công gần như cùng lúc"
+case = "E5"
+notes = "nginx gom thay đổi danh sách chặn, nạp lại tối đa một lần mỗi 5 giây. Đo thời gian chặn trung vị và việc người dùng hợp lệ có bị ảnh hưởng."
+max_s = 300
+
+[[actor]]
+name = "bão"
+ips = 150
+family = "sqli"
+count = 60                 # tối đa 18 s mỗi IP (dừng ngay khi bị chặn): "chặn khi còn đang tấn công" khớp
+interval_s = 0.3           # yêu cầu ≤ 20 s của spec E5 (trước 13/11: 12 request = 3,3 s, chặt hơn spec)
+
+[[actor]]
+name = "người dùng"
+role = "benign"
+family = "benign"
+count = 120
+interval_s = 1
+stop_on_block = false
+
+[expect]
+attack_blocked = true
+attack_blocked_min_share = 0.95
+block_within_s = 20
+benign_blocked = false
+nginx_reload_max_per_min = 13      # RELOAD_MIN_INTERVAL_S = 5 -> tối đa 12 lần/phút

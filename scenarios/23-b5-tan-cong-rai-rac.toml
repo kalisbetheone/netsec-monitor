@@ -1,0 +1,17 @@
+title = "B5: tấn công rải rác 1 request / 16 giây — cửa sổ ngắn không đủ ngưỡng, cửa sổ dài phải chặn"
+case = "B5"
+notes = """Ngưỡng ngắn 5 lần / 60 s không bao giờ đạt (tối đa 4 lần / 60 s). Cửa sổ dài (LONG_WINDOW_S 24 giờ, LONG_THRESHOLD 12) \
+phải chặn sau khoảng 12 request (~3 phút). Spec mô tả 1 request / 10 phút; ở đây nén thời gian để chạy trong vài phút \
+(cơ chế giống hệt, chỉ khác khoảng cách giữa hai request)."""
+max_s = 360
+
+[[actor]]
+name = "rải rác"
+family = "sqli"
+count = 20
+interval_s = 16
+max_s = 340
+
+[expect]
+attack_blocked = true
+block_reason = "long_window"

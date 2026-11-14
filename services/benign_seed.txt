@@ -1,0 +1,24 @@
+/
+/index.php
+/login.php
+/setup.php
+/favicon.ico
+/robots.txt
+/dvwa/css/main.css
+/dvwa/js/dvwaPage.js
+/dvwa/images/logo.png
+/vulnerabilities/
+/vulnerabilities/sqli/
+/vulnerabilities/xss_r/
+/security.php
+/instructions.php
+/index.php?q=laptop
+/index.php?q=order by price
+/vulnerabilities/sqli/?id=1&submit=submit
+/vulnerabilities/sqli/?id=3&submit=submit
+/vulnerabilities/xss_r/?name=alice
+/vulnerabilities/fi/?page=include.php
+/vulnerabilities/fi/?page=file1.php
+/vulnerabilities/brute/?username=admin&password=password&login=login
+/about.php
+/vulnerabilities/csrf/

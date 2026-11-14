@@ -1,0 +1,35 @@
+title = "Ma trận họ tấn công × vị trí đặt payload × kỹ thuật né"
+case = "B1, mở rộng"
+notes = "Ba tác nhân, IP được miễn trừ tạm để không bị chặn giữa chừng: (1) 16 họ × 12 vị trí, không né; (2) 16 họ × 3 vị trí × 8 kỹ thuật né; (3) văn bản hợp lệ và hợp lệ 'khó' qua mọi vị trí. Mỗi request mang mã riêng trong User-Agent để ghép với Elasticsearch."
+exempt = ["self"]
+max_s = 900
+settle_s = 25
+
+[[actor]]
+name = "lưới vị trí"
+role = "attack"
+kind = "matrix"
+families = ["sqli", "xss", "lfi", "rce", "ssrf", "ssti", "xxe", "nosqli", "ldap", "crlf", "redirect", "log4shell", "shellshock", "deser", "rfi", "upload"]
+evasions = [[]]
+per_cell = 2
+
+[[actor]]
+name = "lưới né tránh"
+role = "attack"
+kind = "matrix"
+families = ["sqli", "xss", "lfi", "rce", "ssrf", "ssti", "xxe", "nosqli", "ldap", "crlf", "redirect", "log4shell", "shellshock", "deser", "rfi", "upload"]
+placements = ["query", "form", "json"]
+evasions = [["case", "comment"], ["ws"], ["double_url"], ["uni"], ["html"], ["fullwidth"], ["hpp"], ["chunked"]]
+per_cell = 2
+
+[[actor]]
+name = "hợp lệ qua mọi vị trí"
+role = "benign"
+kind = "matrix"
+families = ["benign", "benign_hard"]
+evasions = [[]]
+per_cell = 6
+
+[expect]
+benign_blocked = false
+benign_gate2_max_share = 0.01

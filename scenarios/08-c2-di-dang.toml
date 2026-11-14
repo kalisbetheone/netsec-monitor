@@ -1,0 +1,12 @@
+title = "Request dị dạng: dòng/header quá dài, header hỏng, Content-Length sai, request smuggling, phương thức/giao thức lạ"
+case = "C2"
+notes = "Ghi lại mã trả về của từng kiểu. Spec C2: request bị máy chủ từ chối (400/414/431/505...) phải được ghi nhận — qua nhật ký Cổng 1 (gate-events-*) hoặc error.log của Apache (apache-errors-*), vì chúng không vào nhật ký truy cập."
+max_s = 60
+
+[[actor]]
+name = "dị dạng"
+role = "attack"
+kind = "malformed"
+
+[expect]
+malformed_recorded_min_share = 0.7

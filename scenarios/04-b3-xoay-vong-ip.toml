@@ -1,0 +1,17 @@
+title = "Xoay vòng IP: 40 IP, mỗi IP chỉ 2 SQLi"
+case = "B4"
+notes = "Mỗi IP ở dưới ngưỡng chặn (5 cảnh báo / 60 s) nên chặn theo IP không có tác dụng; chỉ CRS hoặc luật tự sinh chặn được nội dung. Kỳ vọng ghi là lọt chặn IP (giới hạn đã biết của chặn theo địa chỉ)."
+max_s = 120
+
+[[actor]]
+name = "botnet"
+ips = 40
+family = "sqli"
+source = "openappsec"
+count = 2
+interval_s = 1
+
+[expect]
+attack_blocked = false
+detected_min_share = 0.8
+known_gap = true

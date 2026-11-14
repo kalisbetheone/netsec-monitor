@@ -1,0 +1,80 @@
+title = "Các họ tấn công mới, mỗi họ một IP, đặt đúng vị trí điển hình"
+case = "mở rộng"
+notes = "SSRF, SSTI, NoSQLi, LDAP, CRLF, open redirect, RFI, deserialization ở query; XXE ở thân XML; Log4Shell ở User-Agent; Shellshock ở header; tải tệp PHP qua multipart. 15 request mỗi họ."
+max_s = 180
+
+[[actor]]
+name = "ssrf"
+family = "ssrf"
+param = "url"
+count = 15
+
+[[actor]]
+name = "ssti"
+family = "ssti"
+param = "name"
+count = 15
+
+[[actor]]
+name = "nosqli"
+family = "nosqli"
+param = "user"
+count = 15
+
+[[actor]]
+name = "ldap"
+family = "ldap"
+param = "uid"
+count = 15
+
+[[actor]]
+name = "crlf"
+family = "crlf"
+param = "lang"
+count = 15
+
+[[actor]]
+name = "redirect"
+family = "redirect"
+param = "next"
+count = 15
+
+[[actor]]
+name = "rfi"
+family = "rfi"
+count = 15
+
+[[actor]]
+name = "deser"
+family = "deser"
+param = "data"
+count = 15
+
+[[actor]]
+name = "xxe"
+family = "xxe"
+placement = "xml"
+count = 15
+
+[[actor]]
+name = "log4shell"
+family = "log4shell"
+placement = "ua"
+count = 15
+
+[[actor]]
+name = "shellshock"
+family = "shellshock"
+placement = "header"
+count = 15
+
+[[actor]]
+name = "upload"
+family = "upload"
+placement = "upload"
+path = "/vulnerabilities/upload/"
+count = 15
+
+[expect]
+detected_min_share = 0.8          # theo TỪNG request: Cổng 2 chặn hoặc classifier gắn nhãn (hoặc IP đã bị chặn)
+each_actor_detected = true       # mỗi họ phải có ít nhất một lớp phát hiện

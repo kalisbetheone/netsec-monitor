@@ -1,0 +1,1485 @@
+{
+ "title": "NSM — Giám sát an ninh mạng",
+ "uid": "nsm-overview",
+ "tags": [
+  "nsm",
+  "security"
+ ],
+ "timezone": "browser",
+ "schemaVersion": 39,
+ "version": 7,
+ "refresh": "10s",
+ "time": {
+  "from": "now-15m",
+  "to": "now"
+ },
+ "editable": true,
+ "panels": [
+  {
+   "type": "stat",
+   "title": "Tấn công (phát hiện)",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "webevents"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 0,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "NOT label:benign AND NOT label:info",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "red"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value_and_name",
+    "justifyMode": "auto"
+   },
+   "id": 1
+  },
+  {
+   "type": "stat",
+   "title": "Lệnh chặn IP",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "auditdec"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 4,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "auditdec"
+     },
+     "query": "decision:block",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "orange"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value_and_name",
+    "justifyMode": "auto"
+   },
+   "id": 2
+  },
+  {
+   "type": "stat",
+   "title": "Luật tự sinh (ban hành)",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "rulestatus"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 8,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "rulestatus"
+     },
+     "query": "state:active",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "purple"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value_and_name",
+    "justifyMode": "auto"
+   },
+   "id": 3
+  },
+  {
+   "type": "timeseries",
+   "title": "Tấn công theo lớp",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "webevents"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "NOT label:benign AND NOT label:info",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "3",
+       "type": "terms",
+       "field": "label.keyword",
+       "settings": {
+        "size": "10",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      },
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "drawStyle": "bars",
+      "fillOpacity": 70,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      },
+      "lineWidth": 1,
+      "pointSize": 5
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "sum"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "id": 4
+  },
+  {
+   "type": "timeseries",
+   "title": "Lưu lượng theo nguồn cảm biến",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "webevents"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "*",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "3",
+       "type": "terms",
+       "field": "source.keyword",
+       "settings": {
+        "size": "10",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      },
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "drawStyle": "bars",
+      "fillOpacity": 70,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      },
+      "lineWidth": 1,
+      "pointSize": 5
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "sum"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "id": 5
+  },
+  {
+   "type": "table",
+   "title": "IP đã bị chặn",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "auditdec"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 12,
+    "x": 0,
+    "y": 12
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "auditdec"
+     },
+     "query": "decision:block",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "raw_data",
+       "settings": {
+        "size": "50"
+       }
+      }
+     ],
+     "bucketAggs": [],
+     "timeField": "@timestamp"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "_id": true,
+       "_index": true,
+       "_type": true,
+       "highlight": true,
+       "decision": true,
+       "alert_id": true,
+       "alert_source": true,
+       "confidence": true,
+       "expires": true
+      },
+      "indexByName": {
+       "@timestamp": 0,
+       "src_ip": 1,
+       "ttl_s": 2,
+       "offenses": 3,
+       "cls": 4,
+       "reason": 5
+      },
+      "renameByName": {
+       "@timestamp": "Thời gian chặn",
+       "src_ip": "IP",
+       "ttl_s": "TTL (giây)",
+       "offenses": "Lần vi phạm",
+       "cls": "Lớp",
+       "reason": "Lý do"
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "sortBy": [
+     {
+      "displayName": "Thời gian chặn",
+      "desc": true
+     }
+    ]
+   },
+   "id": 6
+  },
+  {
+   "id": 7,
+   "type": "table",
+   "title": "Quyết định của responder",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "auditdec"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 12,
+    "x": 12,
+    "y": 12
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "auditdec"
+     },
+     "query": "decision:block OR decision:unblock OR decision:count",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "raw_data",
+       "settings": {
+        "size": "50"
+       }
+      }
+     ],
+     "bucketAggs": [],
+     "timeField": "@timestamp"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "_id": true,
+       "_index": true,
+       "_type": true,
+       "highlight": true,
+       "alert_id": true,
+       "alert_source": true,
+       "confidence": true,
+       "expires": true
+      },
+      "indexByName": {
+       "@timestamp": 0,
+       "src_ip": 1,
+       "decision": 2,
+       "reason": 3,
+       "ttl_s": 4,
+       "offenses": 5,
+       "cls": 6
+      },
+      "renameByName": {
+       "@timestamp": "Thời gian",
+       "src_ip": "IP nguồn",
+       "decision": "Quyết định",
+       "reason": "Lý do",
+       "ttl_s": "TTL (giây)",
+       "offenses": "Lần vi phạm",
+       "cls": "Lớp"
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "sortBy": [
+     {
+      "displayName": "Thời gian",
+      "desc": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 9,
+   "type": "table",
+   "title": "Trạng thái IP nguồn (sạch / đã tấn công)",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "webevents"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 21
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "*",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "terms",
+       "field": "src_ip.keyword",
+       "settings": {
+        "size": "100",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      },
+      {
+       "id": "3",
+       "type": "terms",
+       "field": "label.keyword",
+       "settings": {
+        "size": "10",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {},
+      "indexByName": {},
+      "renameByName": {
+       "src_ip.keyword": "IP nguồn",
+       "label.keyword": "Nhãn",
+       "Count": "Số request"
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true
+   }
+  },
+  {
+   "id": 8,
+   "type": "table",
+   "title": "Vòng đời luật tự sinh",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "rulestatus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 24,
+    "x": 0,
+    "y": 30
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "rulestatus"
+     },
+     "query": "*",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "raw_data",
+       "settings": {
+        "size": "50"
+       }
+      }
+     ],
+     "bucketAggs": [],
+     "timeField": "@timestamp"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "_id": true,
+       "_index": true,
+       "_type": true,
+       "highlight": true,
+       "op": true,
+       "since": true,
+       "last_hit": true,
+       "changed": true,
+       "expires": true,
+       "@timestamp": true
+      },
+      "indexByName": {
+       "changed_at": 0,
+       "id": 1,
+       "class": 2,
+       "target": 3,
+       "token": 4,
+       "state": 5,
+       "reason": 6,
+       "cluster_size": 7
+      },
+      "renameByName": {
+       "changed_at": "Đổi trạng thái lúc",
+       "id": "ID",
+       "class": "Lớp",
+       "target": "Đích luật",
+       "token": "Bất biến",
+       "state": "Trạng thái",
+       "reason": "Lý do",
+       "cluster_size": "Cỡ cụm"
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "sortBy": [
+     {
+      "displayName": "Đổi trạng thái lúc",
+      "desc": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 10,
+   "type": "stat",
+   "title": "Tấn công LỌT (chưa bị chặn)",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "webevents"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 12,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "source:web AND NOT label:benign AND NOT status:403",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "red"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value_and_name",
+    "justifyMode": "auto"
+   }
+  },
+  {
+   "id": 11,
+   "type": "stat",
+   "title": "Chặn tại Cổng 2 (ModSec 403)",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "webevents"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 16,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "source:web AND status:403",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "orange"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value_and_name",
+    "justifyMode": "auto"
+   }
+  },
+  {
+   "id": 12,
+   "type": "stat",
+   "title": "Bỏ qua vì IP đã bị chặn",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "auditdec"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 20,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "auditdec"
+     },
+     "query": "decision:skip AND reason:already_blocked",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "blue"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value_and_name",
+    "justifyMode": "auto"
+   }
+  },
+  {
+   "id": 20,
+   "type": "row",
+   "title": "Cổng 1 — IP đang bị chặn vẫn làm gì (nhật ký nginx, gom mỗi 10 giây)",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 38
+   },
+   "collapsed": false,
+   "panels": []
+  },
+  {
+   "id": 13,
+   "type": "timeseries",
+   "title": "Request bị Cổng 1 từ chối, theo IP",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "gateevents"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 10,
+    "x": 0,
+    "y": 39
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "gateevents"
+     },
+     "query": "*",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "sum",
+       "field": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "3",
+       "type": "terms",
+       "field": "src_ip.keyword",
+       "settings": {
+        "size": "10",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      },
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "drawStyle": "bars",
+      "fillOpacity": 70,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      },
+      "lineWidth": 1,
+      "pointSize": 5
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "sum"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 14,
+   "type": "table",
+   "title": "IP bị chặn đang gửi gì",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "gateevents"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 14,
+    "x": 10,
+    "y": 39
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "gateevents"
+     },
+     "query": "*",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "raw_data",
+       "settings": {
+        "size": "50"
+       }
+      }
+     ],
+     "bucketAggs": [],
+     "timeField": "@timestamp"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "_id": true,
+       "_index": true,
+       "_type": true,
+       "highlight": true,
+       "sort": true,
+       "targets": true,
+       "status": true,
+       "window_s": true
+      },
+      "indexByName": {
+       "@timestamp": 0,
+       "src_ip": 1,
+       "reason": 2,
+       "count": 3,
+       "uniq_targets": 4,
+       "top_target": 5,
+       "ua": 6
+      },
+      "renameByName": {
+       "@timestamp": "Thời gian",
+       "src_ip": "IP",
+       "reason": "Lý do",
+       "count": "Số request",
+       "uniq_targets": "Số URL khác nhau",
+       "top_target": "URL nhiều nhất",
+       "ua": "User-Agent"
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "sortBy": [
+     {
+      "displayName": "Thời gian",
+      "desc": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 21,
+   "type": "row",
+   "title": "Nhật ký lỗi của Apache (error.log: ModSecurity, PHP, máy chủ — gom mỗi 10 giây)",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 47
+   },
+   "collapsed": false,
+   "panels": []
+  },
+  {
+   "id": 15,
+   "type": "timeseries",
+   "title": "Dòng error.log theo mã luật ModSecurity",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "apacheerr"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 10,
+    "x": 0,
+    "y": 48
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "apacheerr"
+     },
+     "query": "module:security2",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "sum",
+       "field": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "3",
+       "type": "terms",
+       "field": "rule_id.keyword",
+       "settings": {
+        "size": "10",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      },
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "drawStyle": "bars",
+      "fillOpacity": 70,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      },
+      "lineWidth": 1,
+      "pointSize": 5
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "sum"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 16,
+   "type": "table",
+   "title": "Dòng error.log gần nhất",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "apacheerr"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 14,
+    "x": 10,
+    "y": 48
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "apacheerr"
+     },
+     "query": "*",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "raw_data",
+       "settings": {
+        "size": "50"
+       }
+      }
+     ],
+     "bucketAggs": [],
+     "timeField": "@timestamp"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "_id": true,
+       "_index": true,
+       "_type": true,
+       "highlight": true,
+       "sort": true
+      },
+      "indexByName": {
+       "@timestamp": 0,
+       "module": 1,
+       "level": 2,
+       "src_ip": 3,
+       "rule_id": 4,
+       "count": 5,
+       "message": 6
+      },
+      "renameByName": {
+       "@timestamp": "Thời gian",
+       "module": "Module",
+       "level": "Mức",
+       "src_ip": "IP",
+       "rule_id": "Mã luật",
+       "message": "Nội dung",
+       "count": "Số lần"
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "sortBy": [
+     {
+      "displayName": "Thời gian",
+      "desc": true
+     }
+    ]
+   }
+  },
+  {
+   "id": 22,
+   "type": "row",
+   "title": "Sức khoẻ đường ống (mỗi dịch vụ tự ghi nhịp tim 30 giây một lần)",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 57
+   },
+   "collapsed": false,
+   "panels": []
+  },
+  {
+   "id": 17,
+   "type": "table",
+   "title": "Nhịp tim gần nhất của từng dịch vụ",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "nsmhealth"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 14,
+    "x": 0,
+    "y": 58
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "nsmhealth"
+     },
+     "query": "*",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "max",
+       "field": "@timestamp"
+      },
+      {
+       "id": "4",
+       "type": "max",
+       "field": "uptime_s"
+      },
+      {
+       "id": "5",
+       "type": "max",
+       "field": "processed"
+      },
+      {
+       "id": "6",
+       "type": "max",
+       "field": "kafka_lag"
+      },
+      {
+       "id": "7",
+       "type": "max",
+       "field": "bad_lines"
+      },
+      {
+       "id": "8",
+       "type": "max",
+       "field": "es_failures"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "3",
+       "type": "terms",
+       "field": "service.keyword",
+       "settings": {
+        "size": "20",
+        "order": "asc",
+        "orderBy": "_term",
+        "min_doc_count": "1"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {},
+      "indexByName": {},
+      "renameByName": {
+       "service.keyword": "Dịch vụ",
+       "Max @timestamp": "Nhịp tim cuối",
+       "Max uptime_s": "Đã chạy (giây)",
+       "Max processed": "Đã xử lý",
+       "Max kafka_lag": "Kafka chưa đọc (cao nhất)",
+       "Max bad_lines": "Dòng log hỏng",
+       "Max es_failures": "Lỗi ghi ES"
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Nhịp tim cuối"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "dateTimeFromNow"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Đã chạy (giây)"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "s"
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true
+   }
+  },
+  {
+   "id": 18,
+   "type": "timeseries",
+   "title": "Thông điệp Kafka chưa đọc, theo dịch vụ",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "nsmhealth"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 10,
+    "x": 14,
+    "y": 58
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "nsmhealth"
+     },
+     "query": "*",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "max",
+       "field": "kafka_lag"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "3",
+       "type": "terms",
+       "field": "service.keyword",
+       "settings": {
+        "size": "10",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      },
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "drawStyle": "line",
+      "fillOpacity": 10,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "lineWidth": 1,
+      "pointSize": 5
+     },
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
+     "calcs": [
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  }
+ ]
+}

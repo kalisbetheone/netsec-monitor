@@ -1,0 +1,29 @@
+title = "Classifier dừng: chặn cũ vẫn hiệu lực, kẻ tấn công mới vẫn bị tier3 chặn nhờ hành vi (403 dồn dập)"
+notes = "Kỳ vọng cũ (kẻ tấn công mới chỉ bị chặn sau khi classifier trở lại) sai: tier3 độc lập với classifier và chặn IP gửi ≥ 30 request bị Cổng 2 từ chối trong 60 giây (mẫu 'denied'). Lượt chạy thử 12/11 đo được: chặn sau 8,6 s."
+case = "E2"
+max_s = 240
+settle_s = 20
+
+[[fault]]
+service = "classifier"
+stop_at_s = 25
+start_at_s = 85
+
+[[actor]]
+name = "tấn công trước sự cố"
+family = "sqli"
+count = 30
+interval_s = 0.5
+
+[[actor]]
+name = "tấn công trong sự cố"
+role = "late"
+family = "sqli"
+start_s = 35
+count = 200
+interval_s = 0.5
+
+[expect]
+attack_blocked = true
+block_within_s = 15
+late_blocked = true

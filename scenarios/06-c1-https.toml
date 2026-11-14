@@ -1,0 +1,22 @@
+title = "Tấn công qua HTTPS (cổng 443)"
+case = "C1"
+notes = "So với kịch bản 03: Suricata chỉ thấy byte đã mã hoá nên cột cảnh báo Suricata phải bằng 0; classifier vẫn thấy vì đọc nhật ký Apache sau khi nginx giải mã."
+max_s = 120
+
+[[actor]]
+name = "sqli qua https"
+family = "sqli"
+https = true
+count = 40
+interval_s = 0.5
+
+[[actor]]
+name = "xss qua https"
+family = "xss"
+https = true
+count = 40
+interval_s = 0.5
+
+[expect]
+attack_blocked = true
+block_within_s = 15

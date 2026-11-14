@@ -1,0 +1,29 @@
+title = "B2: IP đã bị chặn — mọi request sau đó trả 403 ngay tại Cổng 1, nhanh, không chạm tới ứng dụng"
+case = "B2"
+notes = """Kẻ tấn công KHÔNG dừng khi bị chặn: 40 request. Sau request đầu tiên nhận 403 của nginx, mọi request còn lại phải \
+bị Cổng 1 trả 403 (không tới Apache). Thời gian phản hồi đo từ phía khách trong mạng Docker (gồm cả kết nối TCP), nên chỉ \
+so tương đối với request đi tới Apache; spec nêu ~0,2 ms phía máy chủ."""
+max_s = 120
+
+[[actor]]
+name = "tiếp tục sau khi bị chặn"
+ips = 3
+family = "sqli"
+count = 40
+interval_s = 0.2
+stop_on_block = false
+
+[[actor]]
+name = "người dùng"
+role = "benign"
+family = "benign"
+count = 30
+interval_s = 0.5
+stop_on_block = false
+
+[expect]
+attack_blocked = true
+block_within_s = 15
+gate1_after_block_min_share = 0.95
+gate1_latency_ms_max = 50
+benign_blocked = false

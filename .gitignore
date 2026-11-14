@@ -1,0 +1,12 @@
+# bí mật — không bao giờ đưa lên kho mã
+.env
+.scenario.override.yml
+# dữ liệu lớn tải về / sinh ra (xem eval/README.md, train/DRIVE_README.md để tải lại)
+eval/data/
+eval/results/
+train/data/
+train/drive_stage/
+train/*.log
+bench-results/
+__pycache__/
+*.pyc

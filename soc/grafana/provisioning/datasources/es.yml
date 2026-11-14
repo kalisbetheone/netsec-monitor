@@ -1,0 +1,56 @@
+apiVersion: 1
+datasources:
+  - name: web-events
+    uid: webevents
+    type: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    basicAuth: true
+    basicAuthUser: grafana_ro                       # tài khoản chỉ đọc, tạo bởi soc/es-init.sh
+    secureJsonData: {basicAuthPassword: "${GRAFANA_ES_PASSWORD}"}
+    jsonData: {index: "web-events-*", timeField: "@timestamp"}
+  - name: audit-decisions
+    uid: auditdec
+    type: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    basicAuth: true
+    basicAuthUser: grafana_ro                       # tài khoản chỉ đọc, tạo bởi soc/es-init.sh
+    secureJsonData: {basicAuthPassword: "${GRAFANA_ES_PASSWORD}"}
+    jsonData: {index: "audit-decisions-*", timeField: "@timestamp"}
+  - name: rule-status
+    uid: rulestatus
+    type: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    basicAuth: true
+    basicAuthUser: grafana_ro                       # tài khoản chỉ đọc, tạo bởi soc/es-init.sh
+    secureJsonData: {basicAuthPassword: "${GRAFANA_ES_PASSWORD}"}
+    jsonData: {index: "rule-status", timeField: "@timestamp"}
+  - name: gate-events
+    uid: gateevents
+    type: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    basicAuth: true
+    basicAuthUser: grafana_ro                       # tài khoản chỉ đọc, tạo bởi soc/es-init.sh
+    secureJsonData: {basicAuthPassword: "${GRAFANA_ES_PASSWORD}"}
+    jsonData: {index: "gate-events-*", timeField: "@timestamp"}
+  - name: apache-errors
+    uid: apacheerr
+    type: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    basicAuth: true
+    basicAuthUser: grafana_ro                       # tài khoản chỉ đọc, tạo bởi soc/es-init.sh
+    secureJsonData: {basicAuthPassword: "${GRAFANA_ES_PASSWORD}"}
+    jsonData: {index: "apache-errors-*", timeField: "@timestamp"}
+  - name: nsm-health
+    uid: nsmhealth
+    type: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    basicAuth: true
+    basicAuthUser: grafana_ro                       # tài khoản chỉ đọc, tạo bởi soc/es-init.sh
+    secureJsonData: {basicAuthPassword: "${GRAFANA_ES_PASSWORD}"}
+    jsonData: {index: "nsm-health-*", timeField: "@timestamp"}

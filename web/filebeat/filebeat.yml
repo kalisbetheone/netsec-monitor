@@ -1,0 +1,74 @@
+# Xoay nhật ký không được làm mất dòng (đã đo: cắt tệp về 0 làm classifier mất thân của 34 request POST):
+#  - paths gồm cả tệp đang ghi lẫn bản đã xoay <tên>.1: Filebeat nhận ra cùng một tệp theo inode và đọc nốt;
+#  - check_interval 1s: thấy tệp mới ngay sau khi xoay (mặc định 10 s làm dòng đến muộn);
+#  - close.on_state_change.removed false: bản .1 bị ghi đè ở lần xoay sau thì vẫn đọc nốt tới cuối rồi mới đóng
+#    (mặc định đóng ngay khi thấy tệp bị xoá, mất phần chưa đọc).
+filebeat.inputs:
+  - type: filestream
+    id: apache-access
+    paths: [/logs/apache/access.json, /logs/apache/access.json.1]
+    fields: {topic: web.logs}
+    prospector.scanner.check_interval: 1s
+    close.on_state_change.removed: false
+  - type: filestream
+    id: suricata-eve
+    paths: [/logs/suricata/eve.json, /logs/suricata/eve.json.1]
+    fields: {topic: net.events}
+    prospector.scanner.check_interval: 1s
+    close.on_state_change.removed: false
+  - type: filestream
+    id: modsec-audit
+    paths: [/logs/apache/modsec_audit.json, /logs/apache/modsec_audit.json.1]
+    fields: {topic: web.audit}
+    prospector.scanner.check_interval: 1s
+    close.on_state_change.removed: false
+  - type: filestream
+    id: nginx-gate1                  # request bị Cổng 1 từ chối (403 do chặn IP, 429 do giới hạn kết nối)
+    paths: [/logs/nginx/gate1.json, /logs/nginx/gate1.json.1]
+    fields: {topic: gate1.logs}
+    prospector.scanner.check_interval: 1s
+    close.on_state_change.removed: false
+  - type: filestream
+    id: apache-error                 # error.log của Apache (ModSecurity, PHP, máy chủ) — dòng văn bản thường
+    paths: [/logs/apache/error.log, /logs/apache/error.log.1]
+    fields: {topic: web.errors}
+    prospector.scanner.check_interval: 1s
+    close.on_state_change.removed: false
+
+queue.disk:
+  max_size: 1GB
+
+# Khoá Kafka = IP máy khách của dòng nhật ký (T11). Mọi dòng của CÙNG một IP vào cùng partition (giữ thứ tự theo
+# IP — đủ cho responder và tier3, vốn tính theo thời điểm sự kiện), còn các IP khác nhau được rải ra 3 partition nên
+# có thể chạy nhiều bản classifier/tier3 song song (docker compose up --scale classifier=3). web.logs và web.audit
+# cùng số partition và cùng khoá -> nhật ký truy cập và nhật ký kiểm toán của một request luôn về cùng một consumer.
+processors:
+  - script:
+      lang: javascript
+      source: >
+        function process(event) {
+          var m = event.Get("message") || "";
+          var r = /"src_ip":"([^"]+)"/.exec(m) || /"remote_address":"([^"]+)"/.exec(m) || /\[client ([0-9a-fA-F:.]+)/.exec(m);
+          event.Put("pkey", r ? r[1] : event.Get("fields.topic"));
+        }
+
+output.kafka:
+  hosts: ["${KAFKA_BOOTSTRAP}"]        # Kafka trên máy SOC
+  topic: '%{[fields.topic]}'
+  key: '%{[pkey]}'
+  # đăng nhập SASL/PLAIN bằng tài khoản 'filebeat' (chỉ được GHI các topic nhật ký)
+  username: '${KAFKA_USER}'
+  password: '${KAFKA_PASSWORD}'
+  sasl.mechanism: PLAIN
+  codec.format:
+    string: '%{[message]}'
+  required_acks: -1                  # chỉ coi là đã gửi khi broker ghi xong
+  compression: gzip
+  # Kafka trở lại thì gửi tiếp ngay: mặc định Filebeat chờ tới 60 giây giữa các lần thử (đo được: chặn trễ ~63 giây
+  # sau khi Kafka trở lại, C3)
+  backoff.init: 1s
+  backoff.max: 5s
+  metadata.retry.backoff: 1s
+  metadata.refresh_frequency: 1m
+
+logging.level: info

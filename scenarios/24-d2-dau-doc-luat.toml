@@ -1,0 +1,45 @@
+title = "D2: đầu độc bộ sinh luật — mọi payload chèn cùng một từ phổ biến của lưu lượng hợp lệ"
+case = "D2"
+notes = """Kẻ tấn công cố ý gắn 'laptop' — giá trị phổ biến nhất của ô tìm kiếm, có trong corpus lành tính — vào MỌI payload SQLi \
+và dùng cùng một User-Agent trình duyệt phổ biến, mong bộ sinh luật chọn phần chung đó làm luật (chặn luôn người dùng thật). \
+Luật sinh ra không được chứa 'laptop' (luật chỉ nhắm ARGS nên User-Agent không thể thành luật), và người dùng hợp lệ tìm \
+'laptop' sau đó không bị Cổng 2 chặn."""
+max_s = 240
+rulegen = true
+modsec_detection_only_s = 70
+
+[override.rulegen]
+INTERVAL_S = "15"
+SHADOW_S = "20"
+LOOKBACK_S = "900"
+
+[[actor]]
+name = "đầu độc"
+ips = 2
+family = "sqli_poison"
+path = "/vulnerabilities/sqli/"
+param = "id"
+method = "GET"
+count = 8
+interval_s = 0.5
+user_agents = ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"]
+
+[[actor]]
+name = "người dùng tìm laptop"
+role = "benign"
+ips = 3
+start_s = 150
+family = "benign"
+path = "/vulnerabilities/sqli/"
+param = "id"
+method = "GET"
+count = 10
+interval_s = 1
+stop_on_block = false
+user_agents = ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"]
+
+[expect]
+rule_classes_active = ["sqli"]
+rules_must_not_contain = ["laptop", "mozilla", "chrome"]
+benign_blocked = false
+benign_gate2_max_share = 0.0

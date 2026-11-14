@@ -1,0 +1,17 @@
+title = "Công cụ giám sát hợp lệ (được miễn trừ) gọi trang phpMyAdmin dồn dập"
+case = "D3"
+notes = "IP của công cụ giám sát được thêm vào danh sách miễn trừ lúc chạy (nsmctl exempt-add); hành vi giống máy quét nhưng không được bị chặn."
+exempt = ["self"]
+max_s = 120
+
+[[actor]]
+name = "giám sát"
+role = "monitor"
+families = ["benign"]
+path = "/phpmyadmin/index.php"
+count = 40
+interval_s = 0.2
+stop_on_block = false
+
+[expect]
+monitor_blocked = false

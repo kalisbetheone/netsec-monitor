@@ -1,0 +1,25 @@
+title = "Xoay nhật ký khi tải cao: không mất thân POST (lỗi đã sửa 12/11)"
+case = "mở rộng (xoay nhật ký)"
+notes = """Trước 12/11, cắt nhật ký kiểm toán khi vượt LOG_MAX_MB làm Filebeat mất dòng chưa đọc -> classifier không nhận được \
+thân POST. Ở đây hạ ngưỡng xoay xuống 1 MB, kiểm tra mỗi 5 giây, rồi 10 IP gửi 600 form POST (mỗi thân ~3 KB) để buộc xoay \
+nhiều lần. Mọi request tới được Apache phải có thân trong bản ghi Elasticsearch."""
+max_s = 200
+exempt = ["self"]
+
+[override.apache]
+LOG_MAX_MB = "1"
+LOG_ROTATE_CHECK_S = "5"
+
+[[actor]]
+name = "gửi form"
+role = "benign"
+ips = 10
+family = "benign"
+placement = "form"
+count = 60
+interval_s = 0.2
+pad_chars = 3000
+stop_on_block = false
+
+[expect]
+bodies_received_min_share = 0.99

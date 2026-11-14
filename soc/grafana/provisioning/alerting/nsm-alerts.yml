@@ -1,0 +1,227 @@
+# Luật cảnh báo của Grafana cho hệ thống NSM — nạp tự động lúc Grafana khởi động.
+# Tệp này do tools sinh; sửa ngưỡng trực tiếp ở đây rồi  docker compose restart grafana.
+# Xem trạng thái: Grafana -> Alerting -> Alert rules (thư mục NSM).
+# Nơi nhận thông báo bên ngoài: đặt ALERT_WEBHOOK_URL trong .env (Grafana tự tạo contact point 'nsm-webhook'
+# lúc khởi động, xem soc/grafana/start.sh). Để trống thì cảnh báo chỉ hiện trong Grafana.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: nsm-su-kien          # sự kiện an ninh: đánh giá mỗi 30 giây
+    folder: NSM
+    interval: 30s
+    rules:
+      - uid: nsm-ip-block
+        title: "NSM: có IP mới bị chặn"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 120, "to": 0}, "datasourceUid": "auditdec", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "auditdec"}, "query": "decision:block", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "sum", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "gt", "params": [0]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "Responder vừa ban hành lệnh chặn IP"
+          description: "Có ít nhất một quyết định 'block' trong 2 phút gần nhất. Xem bảng 'IP đã bị chặn' trên dashboard NSM; gỡ chặn nhầm bằng: bash tools/nsmctl.sh unblock <ip>."
+        labels: {severity: warning, he_thong: nsm}
+      - uid: nsm-rule-active
+        title: "NSM: luật tự sinh vừa được ban hành"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 600, "to": 0}, "datasourceUid": "rulestatus", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "rulestatus"}, "query": "state:active AND changed_at:[now-10m TO now]", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "sum", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "gt", "params": [0]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "Một luật tự sinh vừa chuyển sang chế độ CHẶN ở Cổng 2"
+          description: "Luật mới có hiệu lực với MỌI người dùng. Kiểm tra bảng 'Vòng đời luật tự sinh' (token, đích) xem có nguy cơ chặn nhầm lưu lượng hợp lệ không."
+        labels: {severity: warning, he_thong: nsm}
+      - uid: nsm-manual-change
+        title: "NSM: có thay đổi thủ công (nsmctl)"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 120, "to": 0}, "datasourceUid": "auditdec", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "auditdec"}, "query": "reason:manual", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "sum", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "gt", "params": [0]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "Có lệnh quản trị vừa được thi hành (gỡ chặn / miễn trừ)"
+          description: "Quyết định có reason=manual trong 2 phút gần nhất (do tools/nsmctl.sh gửi). Nếu không ai trong nhóm thực hiện, kiểm tra ngay tài khoản Kafka 'ctl'."
+        labels: {severity: info, he_thong: nsm}
+      - uid: nsm-pipeline-lag
+        title: "NSM: đường ống xử lý bị ứ đọng"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 180, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "*", "metrics": [{"id": "1", "type": "max", "field": "kafka_lag"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "max", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "gt", "params": [5000]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "Một dịch vụ đang chậm hơn lưu lượng (Kafka còn hơn 5000 thông điệp chưa đọc)"
+          description: "Xem hàng 'Sức khoẻ đường ống' trên dashboard NSM. Khi ứ đọng, phát hiện và lệnh chặn sẽ đến trễ."
+        labels: {severity: warning, he_thong: nsm}
+  - orgId: 1
+    name: nsm-suc-khoe         # sức khoẻ dịch vụ: mỗi dịch vụ tự ghi nhịp tim 30 giây một lần vào nsm-health-*
+    folder: NSM
+    interval: 1m
+    rules:
+      - uid: nsm-src-net
+        title: "NSM: không còn sự kiện từ Suricata"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 300, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:classifier", "metrics": [{"id": "1", "type": "max", "field": "age_net_events_s"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "max", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "gt", "params": [180]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "Classifier không nhận được sự kiện mạng (net.events) trong hơn 3 phút"
+          description: "Suricata thường gửi sự kiện thống kê vài giây một lần, nên im lặng lâu nghĩa là Suricata hoặc Filebeat đã dừng. Kiểm tra: docker compose ps suricata filebeat."
+        labels: {severity: critical, he_thong: nsm}
+      - uid: nsm-src-web
+        title: "NSM: không còn nhật ký truy cập web"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 300, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:classifier", "metrics": [{"id": "1", "type": "max", "field": "age_web_logs_s"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "max", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "gt", "params": [900]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Classifier không nhận được nhật ký truy cập Apache (web.logs) trong hơn 15 phút"
+          description: "Có thể Apache, nginx hoặc Filebeat đã dừng — hoặc đơn giản là không có lưu lượng. Kiểm tra: docker compose ps nginx apache filebeat."
+        labels: {severity: warning, he_thong: nsm}
+      - uid: nsm-tier3-model
+        title: "NSM: tier3 chạy không có model"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 300, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:tier3 AND model_loaded:false", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "sum", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "gt", "params": [0]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "tier3 không nạp được models/tier3.joblib — chỉ còn cổng định hình"
+          description: "Phát hiện hành vi vẫn chạy nhưng kém nhạy hơn. Kiểm tra tệp models/tier3.joblib và docker compose logs tier3."
+        labels: {severity: warning, he_thong: nsm}
+      - uid: nsm-kafka-send
+        title: "NSM: gửi Kafka thất bại"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 300, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "*", "metrics": [{"id": "1", "type": "max", "field": "kafka_send_failures_new"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "max", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "gt", "params": [0]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "Một dịch vụ không gửi được thông điệp vào Kafka (cảnh báo hoặc lệnh chặn có thể đã mất)"
+          description: "Xem trường service trong chỉ mục nsm-health-* và docker compose logs của dịch vụ đó (dòng 'gửi Kafka thất bại')."
+        labels: {severity: critical, he_thong: nsm}
+      - uid: nsm-es-dropped
+        title: "NSM: bộ đệm Elasticsearch tràn"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 300, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "*", "metrics": [{"id": "1", "type": "max", "field": "es_dropped_new"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "max", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "gt", "params": [0]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "Một dịch vụ đã phải bỏ bản ghi vì Elasticsearch không nhận quá lâu"
+          description: "Việc phát hiện và chặn không bị ảnh hưởng, nhưng bản ghi sự kiện/kiểm toán cũ nhất đã mất. Kiểm tra sức khoẻ Elasticsearch."
+        labels: {severity: warning, he_thong: nsm}
+      - uid: nsm-hb-classifier
+        title: "NSM: dịch vụ classifier mất nhịp tim"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 180, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:classifier", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "sum", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "lt", "params": [1]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: Alerting
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "Không nhận được nhịp tim của classifier trong 3 phút"
+          description: "Dịch vụ classifier có thể đã dừng hoặc treo. Kiểm tra: docker compose ps  và  docker compose logs --tail 40 classifier."
+        labels: {severity: critical, he_thong: nsm}
+      - uid: nsm-hb-tier3
+        title: "NSM: dịch vụ tier3 mất nhịp tim"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 180, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:tier3", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "sum", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "lt", "params": [1]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: Alerting
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "Không nhận được nhịp tim của tier3 trong 3 phút"
+          description: "Dịch vụ tier3 có thể đã dừng hoặc treo. Kiểm tra: docker compose ps  và  docker compose logs --tail 40 tier3."
+        labels: {severity: critical, he_thong: nsm}
+      - uid: nsm-hb-responder
+        title: "NSM: dịch vụ responder mất nhịp tim"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 180, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:responder", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "sum", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "lt", "params": [1]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: Alerting
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "Không nhận được nhịp tim của responder trong 3 phút"
+          description: "Dịch vụ responder có thể đã dừng hoặc treo. Kiểm tra: docker compose ps  và  docker compose logs --tail 40 responder."
+        labels: {severity: critical, he_thong: nsm}
+      - uid: nsm-hb-enforcer
+        title: "NSM: dịch vụ enforcer mất nhịp tim"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 180, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:enforcer", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "sum", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "lt", "params": [1]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: Alerting
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "Không nhận được nhịp tim của enforcer trong 3 phút"
+          description: "Dịch vụ enforcer có thể đã dừng hoặc treo. Kiểm tra: docker compose ps  và  docker compose logs --tail 40 enforcer. Lưu ý: nhịp tim của enforcer đi qua Kafka và do logsink ghi hộ — nếu logsink cũng đang báo mất nhịp tim thì xử lý logsink trước."
+        labels: {severity: critical, he_thong: nsm}
+      - uid: nsm-hb-logsink
+        title: "NSM: dịch vụ logsink mất nhịp tim"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 180, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:logsink", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "sum", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "lt", "params": [1]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: Alerting
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "Không nhận được nhịp tim của logsink trong 3 phút"
+          description: "Dịch vụ logsink có thể đã dừng hoặc treo. Kiểm tra: docker compose ps  và  docker compose logs --tail 40 logsink."
+        labels: {severity: critical, he_thong: nsm}
+      - uid: nsm-hb-rulegen
+        title: "NSM: dịch vụ rulegen mất nhịp tim"
+        condition: C
+        data:
+          - {"refId": "A", "relativeTimeRange": {"from": 420, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:rulegen", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
+          - {"refId": "B", "datasourceUid": "__expr__", "model": {"refId": "B", "type": "reduce", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "A", "reducer": "sum", "settings": {"mode": "replaceNN", "replaceWithValue": 0}}}
+          - {"refId": "C", "datasourceUid": "__expr__", "model": {"refId": "C", "type": "threshold", "datasource": {"type": "__expr__", "uid": "__expr__"}, "expression": "B", "conditions": [{"type": "query", "evaluator": {"type": "lt", "params": [1]}, "operator": {"type": "and"}, "query": {"params": ["C"]}, "reducer": {"type": "last", "params": []}}]}}
+        noDataState: Alerting
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "Không nhận được nhịp tim của rulegen trong 7 phút"
+          description: "Dịch vụ rulegen có thể đã dừng hoặc treo. Kiểm tra: docker compose ps  và  docker compose logs --tail 40 rulegen."
+        labels: {severity: critical, he_thong: nsm}

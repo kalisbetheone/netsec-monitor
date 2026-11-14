@@ -1,0 +1,30 @@
+title = "Kafka dừng 60 giây giữa đợt tấn công"
+case = "E1"
+notes = "Filebeat phải đệm sự kiện; khi Kafka trở lại, kẻ tấn công vẫn bị chặn (cảnh báo còn mới hơn 10 phút), người dùng hợp lệ không bị chặn oan."
+max_s = 240
+settle_s = 30
+
+[[fault]]
+service = "kafka"
+stop_at_s = 5
+start_at_s = 65
+
+[[actor]]
+name = "tấn công trong lúc Kafka dừng"
+family = "sqli"
+start_s = 10
+count = 300
+interval_s = 0.5
+
+[[actor]]
+name = "người dùng"
+role = "benign"
+family = "benign"
+count = 150
+interval_s = 1
+stop_on_block = false
+
+[expect]
+attack_blocked = true
+attack_block_after_s = 50
+benign_blocked = false

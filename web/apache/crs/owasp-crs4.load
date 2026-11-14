@@ -1,0 +1,10 @@
+##
+## Nạp OWASP CRS 4.25.0 (thay gói modsecurity-crs 3.3.4 của Debian). Được Include bởi security2.conf của
+## libapache2-mod-security2 (IncludeOptional /usr/share/modsecurity-crs/*.load), tức là SAU /etc/modsecurity/*.conf
+## (modsecurity.conf) và TRƯỚC conf-enabled/zz-autogen.conf (luật tự sinh của rulegen nạp sau CRS, như trước).
+##
+Include /etc/modsecurity/crs4/crs-setup.conf
+IncludeOptional /etc/modsecurity/crs4/plugins/*-config.conf
+IncludeOptional /etc/modsecurity/crs4/plugins/*-before.conf
+Include /etc/modsecurity/crs4/rules/*.conf
+IncludeOptional /etc/modsecurity/crs4/plugins/*-after.conf

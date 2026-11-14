@@ -1,0 +1,23 @@
+title = "Slowloris: 200 kết nối nhỏ giọt từ một IP, người dùng khác vẫn phải vào được"
+case = "C3"
+max_s = 90
+
+[[actor]]
+name = "slowloris"
+role = "attack"
+kind = "slowloris"
+connections = 200
+duration_s = 45
+
+[[actor]]
+name = "người dùng trong lúc bị tấn công"
+role = "benign"
+family = "benign"
+start_s = 5
+count = 30
+interval_s = 1
+stop_on_block = false
+
+[expect]
+slowloris_capped = 20
+benign_blocked = false

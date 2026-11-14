@@ -1,0 +1,22 @@
+title = "Phát lại 600 request lành tính THẬT (website chưa thấy) — đo chặn nhầm trên stack"
+case = "A1 (dữ liệu thật)"
+notes = """Lấy từ tập test_sites của openappsec Legitimate (website không dùng khi huấn luyện), gửi nguyên phương thức, đường dẫn, \
+query, thân, Content-Type. Đường dẫn không tồn tại trên DVWA (404) nên đo việc GẮN NHÃN của classifier và việc chặn của \
+Cổng 2, không đo ứng dụng. IP được miễn trừ để đo hết các request. Cổng 2 (CRS 4.25 + tinh chỉnh 14/11 của NSM: text/plain, \
+ngoại lệ GraphQL) phải chặn dưới 5 % (trước tinh chỉnh: 16,2 %); classifier phải gắn nhãn tấn công cho dưới 1 %."""
+max_s = 240
+exempt = ["self"]
+
+[[actor]]
+name = "phát lại"
+role = "benign"
+kind = "replay"
+ips = 4
+count = 150
+every = 37
+interval_s = 0.05
+
+[expect]
+benign_classifier_max_share = 0.01
+benign_gate2_max_share = 0.05
+benign_blocked = false

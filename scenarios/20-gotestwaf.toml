@@ -1,0 +1,11 @@
+title = "GoTestWAF: bộ thử WAF bên ngoài (nhiều vị trí đặt payload, nhiều kiểu mã hoá, có bộ thử báo nhầm)"
+case = "mở rộng (công cụ bên ngoài)"
+notes = "Công cụ của Wallarm, giấy phép MIT. IP của công cụ được miễn trừ tạm để đo riêng Cổng 2 (CRS + luật tự sinh): 403 = bị chặn; 200/302/404 = đi qua. Cột classifier lấy từ Elasticsearch theo IP."
+exempt = ["self"]
+max_s = 2400
+settle_s = 30
+
+[[actor]]
+name = "GoTestWAF"
+role = "attack"
+kind = "gotestwaf"

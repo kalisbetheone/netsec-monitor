@@ -1,0 +1,56 @@
+title = "B3: payload đã có luật tự sinh bị chặn tại Cổng 2 ngay cả từ IP hoàn toàn mới"
+case = "B3"
+notes = """Pha 1 (CRS tạm DetectionOnly 70 s): 2 IP gửi RCE đa dạng, lọt Cổng 2 -> rulegen (regex RCE viết sẵn / G2r) sinh luật, \
+chạy thử 20 s rồi ban hành. Pha 2 (CRS bật lại, giây 150): 6 IP MỚI, mỗi IP 2 biến thể CHƯA từng gửi (';id', '|id', '&&id'...) \
+— không IP nào đủ ngưỡng chặn, CRS 4.25 PL1 không chặn các biến thể này, nên chỉ luật tự sinh chặn được. \
+Người dùng hợp lệ nhập địa chỉ IP vào cùng ô không được bị chặn."""
+max_s = 240
+rulegen = true
+modsec_detection_only_s = 70
+
+[override.rulegen]
+INTERVAL_S = "15"
+SHADOW_S = "20"
+LOOKBACK_S = "900"
+
+[[actor]]
+name = "gieo tấn công"
+ips = 2
+family = "rce_seed"
+path = "/vulnerabilities/exec/"
+param = "ip"
+method = "POST"
+count = 8
+interval_s = 0.5
+
+[[actor]]
+name = "IP mới, biến thể chưa thấy"
+role = "verify"
+ips = 6
+start_s = 150
+family = "rce_variant"
+shuffle = true
+path = "/vulnerabilities/exec/"
+param = "ip"
+method = "POST"
+count = 2
+interval_s = 1
+stop_on_block = false
+
+[[actor]]
+name = "người dùng nhập IP"
+role = "benign"
+start_s = 150
+family = "benign_ip"
+path = "/vulnerabilities/exec/"
+param = "ip"
+method = "POST"
+count = 10
+interval_s = 1
+stop_on_block = false
+
+[expect]
+rule_classes_active = ["rce"]
+verify_gate2_min_share = 0.8
+benign_blocked = false
+benign_gate2_max_share = 0.0

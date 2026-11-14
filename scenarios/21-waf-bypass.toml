@@ -1,0 +1,11 @@
+title = "waf-bypass: 17 nhóm payload (SSRF, SSTI, NoSQLi, LDAP, GraphQL…) ở 8 vùng, kèm bộ thử báo nhầm"
+case = "mở rộng (công cụ bên ngoài)"
+notes = "Công cụ của Nemesida, giấy phép MIT. IP của công cụ được miễn trừ tạm. Kết quả của công cụ: PASSED (chặn đúng), BYPASSED (lọt), FALSED (chặn nhầm request hợp lệ), FAILED (lỗi)."
+exempt = ["self"]
+max_s = 1800
+settle_s = 30
+
+[[actor]]
+name = "waf-bypass"
+role = "attack"
+kind = "wafbypass"
