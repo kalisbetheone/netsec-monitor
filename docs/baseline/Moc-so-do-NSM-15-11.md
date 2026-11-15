@@ -140,7 +140,7 @@ Cả 24 khung giờ đều được chấm đạt (3/3 phép kiểm mỗi khung)
 
 **Dòng 1b phải đọc thế nào.**
 - Cả 12 IP phát lại lưu lượng thật đều nhận quyết định "sẽ chặn". Ở chế độ chặn thật, cả 12 IP này sẽ bị khoá.
-- Nguyên nhân là mẫu dò đường dẫn (`recon`) của tier3: trong cửa sổ 60 giây có ít nhất 15 request, ít nhất 10 phản hồi 404 và tỷ lệ 404 từ 50 %. Mỗi IP phát lại gửi khoảng 30 request mỗi phút; 4 475/4 698 request của 12 IP này (95,3 %) trả 404.
+- Nguyên nhân là mẫu dò đường dẫn (`recon`) của tier3; `gio-*/obs.json` của lượt này ghi 141 cảnh báo `b_shape = recon` trên đúng 12 IP đó. Điều kiện của mẫu: trong cửa sổ 60 giây có ít nhất 15 request, ít nhất 10 phản hồi 404 và tỷ lệ 404 từ 50 %. Mỗi IP phát lại gửi khoảng 30 request mỗi phút; 4 475/4 698 request của 12 IP này (95,3 %) trả 404.
 - Lượng 404 đó sinh ra từ cách thử: đường dẫn của những website khác được gửi vào DVWA, nên gần như không đường dẫn nào tồn tại. Khách thật của chính ứng dụng không tạo ra mẫu này. Vì vậy kết quả không cho thấy khách thật bị chặn nhầm.
 - Điều chưa đo được: một khách thật gặp nhiều trang 404, chẳng hạn khi ứng dụng đổi cấu trúc đường dẫn hoặc có liên kết hỏng. Muốn đo cần lưu lượng thật của chính ứng dụng.
 - IP 10.10.4.16 có hai quyết định cùng thời hạn 75 s và cùng "lần vi phạm 1", khác các IP còn lại (75 → 300 s). Bản ghi của IP này có kèm dấu vân tay User-Agent, nghĩa là có quyết định được ra theo khoá (IP, User-Agent) dành cho IP dùng chung; khoá mới thì đếm lại từ lần 1. Đây là giải thích theo mã (`services/responder.py`) và theo `wouldblock.json`; chưa đối chiếu từng bản ghi kiểm toán trong Elasticsearch.
@@ -152,8 +152,44 @@ Cả 24 khung giờ đều được chấm đạt (3/3 phép kiểm mỗi khung)
 
 ## 5. Trình diễn
 
-Chưa chạy ba lượt chính thức tại thời điểm ghi mục 1–3. Kết quả sẽ được ghi ở đây sau khi chạy.
+Ba lượt chính thức của `PRESENT_AUTO=1 bash tools/present.sh`, chạy liền nhau từ 16:37 đến 17:14 ngày 15/11. **Kết quả: đạt 2/3 lượt.** Lượt 2 sai ở bước 3. Không sửa gì sau khi thấy kết quả.
+
+Nguồn: `nsm-wip-15-11/present-chinh-thuc-1.log`, `-2.log`, `-3.log`; kết quả từng kịch bản ở `nsm/eval/results/trinhdien-20261115-16*` và `-17*`; bảng của phiên chạy ở `nsm-wip-15-11/phoi-hop/P3.md`, mục "XONG ĐB3".
+
+| | Lượt 1 (16:37) | Lượt 2 (16:49) | Lượt 3 (17:02) |
+|---|---|---|---|
+| Mã thoát | 0 | **1** | 0 |
+| Tổng thời gian (giới hạn 900 s) | 718 s | 732 s | 726 s |
+| Bước 2 – khai thác thật, không lớp nào chặn | 5/8 payload khai thác được | 5/8 | 5/8 |
+| Bước 2 – khai thác thật, đủ hai lớp | 0/8 | 0/8 | 0/8 |
+| Bước 3 – khoá IP (4 IP tấn công) | 4/4 bị chặn khi còn đang tấn công; trung vị 4,5 s | **3/4**; IP thứ tư bị chặn sau khi đã gửi xong | 4/4; trung vị 3,0 s |
+| Bước 4 – luật tự sinh | luật 9900000 (rce) được ban hành; gỡ được bằng `rule-revoke` | như lượt 1 | như lượt 1 |
+| Bước 5 – nhồi tài khoản vào cổng đặt chỗ, 50 IP | 50/50 IP bị chặn; khách 30/30 thành công | 50/50; 30/30 | 50/50; 30/30 |
+| Bước 5 – flood một IP | chặn sau 2,1 s; 59,6 % request nhận 429 | 5,2 s; 71,6 % | 4,9 s; 71,0 % |
+| Các bước còn lại (1, 6, 7, chuẩn bị, dọn) | đúng | đúng | đúng |
+
+`stack.sh check` sạch trước và sau mỗi lượt.
+
+**Lượt 2, bước 3 sai vì đâu.**
+- IP thử RCE (10.10.11.4) gửi đủ 12 request trong 5,5 giây; Cổng 2 chặn cả 12 (mã 403), nên không request nào khai thác được.
+- Ba IP còn lại (SQLi, XSS, LFI) bị khoá khi còn đang tấn công, trung vị 3,0 giây.
+- Với IP RCE, cảnh báo đầu tiên tới responder muộn khoảng 8 giây, sau khi tác nhân đã dừng. Responder khoá ngay khi nhận (trong 0,06 giây).
+- Phần chậm nằm trước responder, trên đường Apache → Filebeat → Kafka → classifier. Nhật ký của classifier và responder trong khoảng đó không có lỗi; **chưa xác định được khâu nào chậm.**
+- Kịch bản chấm đúng: kỳ vọng là IP bị khoá khi còn đang tấn công. Đây là giới hạn về độ trễ của đường cảnh báo, cùng loại với mục "flood 2/3" ở 2.3: việc chặn từng request ở Cổng 2 là đồng bộ, còn việc khoá IP đi qua đường không đồng bộ và có lúc chậm vài giây.
+
+**So với lượt thử trước đó** (12:03, một lượt, bước 5 bản cũ): đạt, 697 giây. Giữa lượt thử và ba lượt chính thức, bước 5 được đổi từ kịch bản nhồi tài khoản vào DVWA sang cổng đặt chỗ (quyết định trước khi chạy ba lượt chính thức).
 
 ## 6. Thay đổi sau commit đo
 
-Sẽ ghi `git diff --stat 8498bcd..HEAD` khi chốt.
+Sau commit đo `8498bcd`, nhánh `nang-cap-15-11` có thêm các commit sau. **Không commit nào chạm vào phần được đo**: `git diff 8498bcd..HEAD -- services web soc models docker-compose.yml nginx.conf tools/scenario.sh tools/scenario.py tests` rỗng, và không kịch bản nào của bộ 45 kịch bản bị sửa.
+
+| Commit | Nội dung | Tệp |
+|---|---|---|
+| `33faba8` | công cụ ngày nén | `tools/ngaynen.sh`, `tools/ngaynen.py`, `tools/wouldblock.sh`, `tools/wouldblock.py`, `scenarios/ngay-nen/` (24 tệp khung giờ và `nguon.json`) |
+| `a59c447` | số đo chốt và nhật ký phương pháp | `docs/baseline/` (báo cáo kịch bản, bench, tổng kết ngày nén, các bản phân tích), `eval/PROTOCOL.md` |
+| `c184cd2` | trình diễn, bước 5 dùng cổng đặt chỗ | `tools/present.sh`, `scenarios/trinh-dien/td-5a-…` (đổi tệp), `scenarios/README.md`, `README.md`, `eval/PROTOCOL.md` |
+| commit tài liệu cuối | bản chốt của tệp này | `docs/baseline/Moc-so-do-NSM-15-11.md` |
+
+`git diff --stat 8498bcd..c184cd2`: 47 tệp, thêm 7 005 dòng, bớt 37 dòng. Phần lớn là dữ liệu: `scenarios/ngay-nen/nguon.json` (2 087 dòng), báo cáo kịch bản (1 176 dòng) và `wouldblock.json` (780 dòng).
+
+**Kiểm trước khi gộp nhánh.** GitHub chưa ghi nhận workflow nào của kho (Actions chưa chạy lượt nào), nên không có kết quả CI trên GitHub. Các bước của `.github/workflows/tests.yml` đã được chạy tại chỗ ngày 15/11 lúc 16:50, trên cây mã có đủ các thay đổi trên: `tests/test_logic.py` đạt, `tests/test_secrule.py` đạt, cú pháp mọi tệp shell đạt, ba tệp compose hợp lệ.
