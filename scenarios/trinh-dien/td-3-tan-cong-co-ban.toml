@@ -1,0 +1,33 @@
+# Bản rút gọn của scenarios/03-b1-tan-cong-co-ban.toml cho tools/present.sh (chỉ giảm số lượng / thời gian).
+title = "Tấn công cơ bản 4 họ, mỗi họ một IP — bản trình diễn (mỗi họ 12 request)"
+case = "B1, B2"
+max_s = 60
+
+[[actor]]
+name = "sqli"
+family = "sqli"
+count = 12
+interval_s = 0.5
+
+[[actor]]
+name = "xss"
+family = "xss"
+count = 12
+interval_s = 0.5
+
+[[actor]]
+name = "lfi"
+family = "lfi"
+count = 12
+interval_s = 0.5
+
+[[actor]]
+name = "rce"
+family = "rce"
+count = 12
+interval_s = 0.5
+
+[expect]
+attack_blocked = true
+block_within_s = 15
+detected_min_share = 0.8

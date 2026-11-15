@@ -1,0 +1,30 @@
+# Bản rút gọn của scenarios/37-flood-mot-ip-gioi-han-toc-do.toml cho tools/present.sh (chỉ giảm số lượng / thời gian).
+title = "Flood từ một IP: Cổng 1 giới hạn tốc độ ngay (429), rồi IP bị chặn hẳn — bản trình diễn (1 500 request)"
+case = "C3 mở rộng (giới hạn tốc độ)"
+notes = """Một IP gửi tới 3 000 request, khoảng 70–100 request/giây. Trước 15/11 mọi request tới Apache cho tới khi tầng 3 chặn. \
+Nay nginx chỉ cho qua 20 request/giây (vượt ngắn 40), phần còn lại nhận 429 ngay; tầng 3 thấy cả request bị 429 nên vẫn chặn \
+hẳn IP. Người dùng khác vẫn dùng bình thường."""
+max_s = 60
+
+[[actor]]
+name = "flood"
+family = "benign"
+count = 1500
+interval_s = 0.01                # khoảng 70–100 request/giây kéo dài 30–40 giây (bản 1 500 request liên tục xong trong
+                                 # 1,2 giây — nhanh hơn thời gian ra quyết định, lượt 15/11 03:57 bị chấm "chặn muộn")
+
+[[actor]]
+name = "người dùng"
+role = "benign"
+family = "benign"
+count = 30
+interval_s = 0.5
+stop_on_block = false
+
+[expect]
+attack_blocked = true
+block_within_s = 15
+attack_429_min_share = 0.3
+benign_blocked = false
+benign_429_max_share = 0.01
+benign_ok_min_share = 0.99
