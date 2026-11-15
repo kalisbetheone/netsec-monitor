@@ -1,0 +1,60 @@
+title = "Cổng đặt chỗ: chèn SQL vào ô tìm chuyến — Cổng 2 chặn ngay, khách gõ dấu nháy không bị ảnh hưởng"
+case = "B5 (cổng đặt chỗ: đánh cắp dữ liệu qua ô tìm chuyến)"
+notes = """Gửi request họ 'sqli' (bộ payload có sẵn của công cụ) vào GET /search.php?q=… của cổng đặt chỗ (Host booking.local). \
+Ứng dụng đặt chỗ là ứng dụng an toàn (truy vấn có tham số), nên kịch bản đo PHẢN ỨNG của hệ thống phòng thủ. Hai tác nhân thử: \
+(1) 'đo Cổng 2' — IP cố định 10.10.10.179 được miễn trừ tạm, nên không bao giờ bị khoá và MỌI request đều tới Cổng 2: đo thuần \
+tỷ lệ Cổng 2 chặn đồng bộ (như vai verify của kịch bản 22, 41); (2) 'chèn SQL' — IP thường, đo việc IP bị khoá. Cùng lúc hai \
+khách hợp lệ gõ từ khoá có dấu nháy đơn (họ 'benign_quote', như kịch bản 25) vào CÙNG ô tìm kiếm: không được bị khoá và Cổng 2 \
+không được chặn quá 1 % request của họ. CRS chưa được tinh chỉnh riêng cho cổng đặt chỗ (việc B4). \
+Sửa sau lần chạy đầu (15/11 12:16, scenarios-20261115-121620): bản đầu dùng một tác nhân cho cả 'Cổng 2 chặn >= 95 %' và \
+'IP bị khoá'; sau khi IP bị khoá, request thứ 9 bị Cổng 1 trả 403 và bị tính là 'Cổng 2 không chặn' -> 8/9 = 88,9 %, dù 8/8 \
+request tới Cổng 2 đều bị chặn. Ngưỡng 95 % giữ nguyên; chỉ tách phép đo (eval/PROTOCOL.md)."""
+max_s = 90
+exempt = ["10.10.10.179/32"]
+
+[[actor]]
+name = "đo Cổng 2 (IP miễn trừ)"
+role = "do_cong2"
+ip = "10.10.10.179"
+family = "sqli"
+host = "booking.local"
+path = "/search.php"
+method = "GET"
+param = "q"
+fields = []
+count = 20
+interval_s = 0.5
+stop_on_block = false
+
+[[actor]]
+name = "chèn SQL vào ô tìm chuyến"
+family = "sqli"
+host = "booking.local"
+path = "/search.php"
+method = "GET"
+param = "q"
+fields = []
+count = 20
+interval_s = 0.5
+
+[[actor]]
+name = "khách gõ dấu nháy"
+role = "benign"
+ips = 2
+family = "benign_quote"
+host = "booking.local"
+path = "/search.php"
+method = "GET"
+param = "q"
+fields = []
+count = 40
+interval_s = 1
+stop_on_block = false
+
+[expect]
+do_cong2_gate2_min_share = 0.95
+attack_blocked = true
+block_within_s = 15
+benign_blocked = false
+benign_gate2_max_share = 0.01
+do_cong2_blocked = false
