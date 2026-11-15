@@ -442,3 +442,32 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   - **Đính chính câu "hai tập `test_hardtext` và `test_residual` giữ nguyên nội dung":** hai tập có CÙNG tập văn bản và payload như
     vòng 1 (5 028 và 1 025 dòng), nhưng vật mang được chọn lại ngẫu nhiên khi dựng, nên từng dòng không giống hệt vòng 1.
   - Lúc dựng xong vòng 2, thư mục `NSM-train-v3` trên Drive chưa có `output/`: vòng 1 chưa được huấn luyện.
+
+- 16/11/2026 (01:15) — **Khâu chậm trên đường cảnh báo: số đo từng khâu, giả thuyết, và tiêu chí GHI TRƯỚC khi đổi cấu hình.**
+  Bối cảnh: bước khoá IP có lúc chậm (trình diễn lượt 2 ngày 15/11: cảnh báo của IP thử RCE tới responder chậm khoảng 8 giây).
+  - **Phép đo** (`tools/alertlat.sh`, `tools/alertlat.py`; `eval/results/alertlat-20261116-010449`; 24 request tấn công thử, mỗi
+    request một IP, đều bị Cổng 2 chặn; ba topic đọc kèm dấu thời gian Kafka; mốc 0 = lúc Apache xử lý request):
+
+    | Pha (8 lần mỗi pha) | Nhật ký truy cập tới Kafka | Nhật ký kiểm toán tới Kafka | Cảnh báo được phát | Thời gian trong classifier |
+    |---|---|---|---|---|
+    | POST, nhật ký kiểm toán nguội | 1,11 s [0,13–1,79] | 3,13 s [0,05–5,29] | 3,33 s [1,45–5,30] | 0,01 s [0,00–0,52] |
+    | GET | 0,90 s [0,12–1,89] | 2,41 s [0,51–7,83] | 0,92 s [0,13–1,90] | 0,00 s [0,00–0,01] |
+    | POST, nhật ký kiểm toán nóng | 1,21 s [0,47–1,94] | 0,85 s [0,15–1,81] | 1,69 s [1,29–2,15] | 0,01 s [0,00–1,01] |
+
+    (trung vị [nhỏ nhất – lớn nhất]). Lượt thử ngắn trước đó (`alertlat-20261116-010248`, mỗi pha một lần) chỉ để kiểm công cụ.
+  - **Kết luận từ số đo:** classifier không phải khâu chậm. Khâu chậm là Filebeat ĐỌC TỆP: nhật ký truy cập tới Kafka sau
+    0–2 giây; nhật ký kiểm toán của ModSecurity tới sau 0–5 giây khi tệp ít được ghi (có lần 7,8 giây) và 0–2 giây khi tệp được
+    ghi liên tục. Request POST có thân phải chờ dòng kiểm toán mới được phân loại (`classifier.handle_web`), nên cảnh báo của POST
+    chậm theo. Giả thuyết về nguyên nhân: input `filestream` của Filebeat, khi đọc tới cuối tệp, chờ `backoff.init` (mặc định
+    2 giây) rồi mới xem lại, và gấp đôi thời gian chờ tới `backoff.max` (mặc định 10 giây) khi tệp vẫn chưa có dòng mới;
+    `web/filebeat/filebeat.yml` không đặt hai giá trị này.
+  - **Thay đổi sẽ thử:** `backoff.init: 200ms`, `backoff.max: 1s` cho ba input nằm trên đường cảnh báo (apache-access,
+    modsec-audit, suricata-eve). Hai input còn lại (gate1, apache-error) chỉ đi tới logsink, giữ mặc định.
+  - **Giữ thay đổi nếu CẢ SÁU điều sau đúng (đo lại cùng buổi, cùng máy, một lượt); ngược lại trả về như cũ:**
+    1. nhật ký truy cập tới Kafka: trung vị <= 0,5 s và lớn nhất <= 1,0 s (gộp ba pha);
+    2. nhật ký kiểm toán ở pha POST nguội: lớn nhất <= 1,5 s;
+    3. cảnh báo ở pha POST nguội: trung vị <= 1,5 s;
+    4. không mất dòng: 24/24 lần thử có nhật ký truy cập và cảnh báo, 16/16 lần POST có nhật ký kiểm toán;
+    5. `bench.sh -r 5 mttr` với kịch bản sqli và rce: 10/10 lần bị chặn, và trung vị "T quyết định" của mỗi kịch bản không lớn hơn
+       mốc đo NGAY TRƯỚC khi đổi cấu hình;
+    6. CPU của container filebeat (trung bình 10 mẫu `docker stats`) không tăng quá 3 điểm phần trăm so với mốc.
