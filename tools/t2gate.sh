@@ -13,9 +13,9 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/_host.sh"
 CP=(docker compose -f "$D/docker-compose.yml")
 g="${1:-}"
-wait_classifier(){            # chờ classifier nạp model xong và in dòng cấu hình tầng 2
+wait_classifier(){            # chờ container classifier HIỆN TẠI nạp model xong (nhật ký chỉ của container đang chạy)
   for _ in $(seq 1 60); do
-    "${CP[@]}" logs --since 3m classifier 2>/dev/null | grep -q "classifier started" && return 0
+    "${CP[@]}" logs classifier 2>/dev/null | grep -q "classifier started" && return 0
     sleep 2
   done
   echo "!! classifier không khởi động lại được" >&2; return 1
@@ -32,7 +32,7 @@ cd "$D" || exit 1
 "${CP[@]}" up -d classifier >/dev/null 2>&1; wait_classifier || exit 1
 got="$("${CP[@]}" exec -T classifier env | grep '^TIER2_SYNTAX_GATE=' | tr -d '\r')"
 [ "$got" = "TIER2_SYNTAX_GATE=$g" ] || { echo "!! classifier đang chạy với $got, không phải $g" >&2; exit 1; }
-"${CP[@]}" logs --since 3m classifier 2>/dev/null | grep "tier2 model loaded" | tail -1
+"${CP[@]}" logs classifier 2>/dev/null | grep "tier2 model loaded" | tail -1
 sleep 15                                                    # classifier bắt kịp hàng đợi sau khi khởi động lại
 before_b="$(ls -1d bench-results/*/ 2>/dev/null | tail -1)"
 bash tools/bench.sh detect > "eval/results/t2gate-$g-bench.log" 2>&1; echo "bench detect: mã thoát $?"
