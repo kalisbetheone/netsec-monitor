@@ -124,11 +124,31 @@ có nhãn, thời gian từ request tấn công đầu tiên tới khi IP bị c
 thông lượng qua hai cổng. Báo cáo ghi vào `bench-results/<thời điểm>/report.md`. Chạy riêng từng pha:
 `bash tools/bench.sh detect`, `mttr`, `slow`, `perf`; `-r N` để lặp mỗi kịch bản chặn IP N lần.
 
-Kịch bản giả lập: `bash tools/scenario.sh` chạy 21 kịch bản trong `scenarios/` (họ tấn công mới, vị trí đặt
-payload, kỹ thuật né, hành vi C1–C4, D1, D3, sự cố E1–E5, GoTestWAF, waf-bypass), mỗi kịch bản có kỳ vọng nên
+Kịch bản giả lập: `bash tools/scenario.sh` chạy 45 kịch bản trong `scenarios/` (họ tấn công mới, vị trí đặt
+payload, kỹ thuật né, hành vi C1–C4, D1–D4, sự cố E1–E5, GoTestWAF, waf-bypass, khai thác thật, botnet, cổng đặt chỗ),
+mỗi kịch bản có kỳ vọng nên
 vừa là kiểm thử vừa ra số đo. Xem `scenarios/README.md`. Mạng vùng ngoài là `10.10.0.0/20`. Kịch bản cần chế độ
 lab (`bash tools/init-env.sh --lab && docker compose up -d apache`); rulegen bị dừng trong mỗi kịch bản trừ khi
 kịch bản khai báo `rulegen = true`, và `SC_CLEAR_RULES=1` gỡ các luật tự sinh đang ban hành trước khi chạy.
+
+Công cụ thêm ngày 15/11/2026:
+
+| Lệnh | Việc |
+|---|---|
+| `bash tools/baseline.sh <tên>` | Lượt đo đầy đủ (demo, sectest, parity, tier1sync, bench, mọi kịch bản…), kết quả trong `eval/results/baseline-<tên>/` |
+| `bash tools/present.sh` | Buổi trình diễn 7 bước, không quá 15 phút, từ trạng thái sạch (gọi `reset-all.sh` ở đầu và cuối). `PRESENT_AUTO=1` chạy liền không dừng. Mã thoát khác 0 khi một bước sai hoặc quá 15 phút |
+| `bash tools/ngaynen.sh` | "Ngày nén 12 lần": 24 khung giờ, mỗi khung 5 phút thật, responder ở chế độ chạy thử (kịch bản trong `scenarios/ngay-nen/`) |
+| `bash tools/wouldblock.sh <epoch bắt đầu> [epoch kết thúc] [nguon.json] [thư mục ra]` | Đếm quyết định chặn / "sẽ chặn" của responder theo từng IP trong một khoảng thời gian, đối chiếu với danh sách phân vai (hợp lệ / tấn công / thường trú). Chỉ đọc Elasticsearch. Mã thoát 1 khi có quyết định rơi vào IP hợp lệ |
+| `bash tools/d1grace.sh` | Kiểm nhánh hạ cấp chặn của IP dùng chung (`SHARED_GRACE_S`) trên hệ thống thật: một IP thử bị chặn cả IP, rồi được báo là IP dùng chung; phải thấy lệnh chặn hạ xuống (IP, User-Agent). Kết quả trong `eval/results/d1grace-<thời điểm>/` |
+
+Biến của `tools/scenario.sh`: `SC_DIR` (thư mục kịch bản), `SC_OUT_NAME` (tiền tố thư mục kết quả), `SC_CONT=1` (chạy liền
+mạch, cho ngày nén) — xem `scenarios/README.md`.
+
+Biến thay thế khi gọi `docker compose` (15/11/2026, mặc định giữ nguyên giá trị cũ; đặt biến trong shell hoặc `.env` rồi
+`docker compose up -d <dịch vụ>`): `LONG_WINDOW_S`, `TTL_STEPS_S`, `MAX_TTL_S`, `SHARED_TTL_S` (responder); `RULE_TTL_S`
+(rulegen); `TIER2_THRESHOLD`, `TIER2_DECISION`, `TIER2_MODEL_PATH` (classifier, biến cuối gán vào `MODEL_PATH` trong container).
+Lưu ý: `tools/reset.sh` tạo lại responder, nên biến nào không có trong môi trường của shell gọi `reset.sh` (hay `scenario.sh`)
+sẽ bị kéo về mặc định.
 
 Mọi công cụ đo (`scenario.py`, `bench.py`, `demo.sh`, `attack.sh`, `benign.sh`) gửi `Host: dvwa.local` như trình duyệt
 thật (đổi bằng `NSM_HOST`). Gửi tới địa chỉ IP thì CRS luật 920350 cộng sẵn 3 điểm cho MỌI request và làm số đo chặn
@@ -172,6 +192,7 @@ bash tools/tier1sync.sh                          # đối chiếu luật ModSecu
 | responder | `RESPONDER_MODE` | enforce | `dryrun` = chạy thử, chỉ ghi `would_block`. Đổi lúc chạy: `nsmctl mode ...` (thắng biến này) |
 | responder | `TIER2_WEIGHT` | 0.5 | Trọng số của cảnh báo `weighted` (chỉ do tầng 2) |
 | responder | `T2_SOLO_BLOCK` | 0 | 0 = chỉ toàn cảnh báo `weighted` thì không bao giờ khoá IP; cần ít nhất một cảnh báo đủ trọng số trong cửa sổ ngắn (15/11, kịch bản 02). 1 = cho phép (10 cảnh báo / 60 giây là khoá) |
+| responder | `SHARED_TTL_S` | 3600 | tier3 báo một IP là IP dùng chung thì responder nhớ điều đó trong ngần này giây (ngày nén đặt 300) |
 | responder | `SHARED_GRACE_S` | 30 | tier3 báo IP dùng chung trong ngần này giây SAU một lệnh chặn cả IP do đếm ngưỡng -> hạ xuống chặn (IP, User-Agent gây chặn), giữ hạn và số lần vi phạm (tranh chấp thời gian, kịch bản 13, 15/11). Chặn tay / `shared_escalate` không bị hạ |
 | responder | `STRONG_WEIGHT` | 1.0 | Trọng số cảnh báo từ luật tầng 1 "rất chắc" (`models/tier1_strong.json`). Mặc định tắt; 2,5 = khoá ở cảnh báo thứ 2 (làm khoá người dùng "mơ hồ" ở kịch bản 02) |
 | responder | `OFFENSE_RESET_S` | 2592000 | Nhớ số lần tái phạm 30 ngày (sau khi áp bản vá; trước đó 7 ngày) |

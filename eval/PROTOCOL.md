@@ -211,3 +211,16 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   xuống chặn (IP, User-Agent gây chặn). Chạy lại 02, 12, 13 (`scenarios-20261115-063137`): 3/3 đạt, nhưng ở lượt này tier3
   báo trước nên nhánh hạ cấp KHÔNG được kích hoạt trên hệ thống thật — nhánh đó chỉ được kiểm bằng tests/test_logic.py.
   Lượt đầy đủ giữ nguyên, không chạy lại toàn bộ.
+- 15/11/2026 (chiều) — **đợt làm song song 4 phiên** (spec `Spec-phan-viec-4-phien-NSM-15-11.md` trong thư mục GSANM;
+  trạng thái từng phiên trong `nsm-wip-15-11/phoi-hop/P0..P3.md`).
+  - **Bảng 2 × 2 tầng 2** (`bench.sh detect`, chỉ đổi model và chế độ): báo nhầm câu "khó" 1/27 ở `corroborate` với cả hai
+    model, 8/27 ở `weighted` với cả hai model -> mức tăng sau nâng cấp là do CHẾ ĐỘ, không do model (bản đầu của báo cáo
+    cuối quy cho model — đã đính chính). Model 14/11 + `weighted` gắn nhầm thêm 2/28 mẫu thường (form đăng nhập). Bắt tấn
+    công của bộ phân loại không đổi theo chế độ (62/65 với 12/11, 63/65 với 14/11). Lượt (12/11, weighted) chạy lần đầu bị
+    LOẠI: Git Bash đổi giá trị biến TIER2_MODEL_PATH=/models/… thành đường dẫn Windows, classifier chạy không có model tầng 2;
+    chạy lại với MSYS_NO_PATHCONV=1.
+  - **Kiểm nhánh hạ cấp D1 trên hệ thống thật** (`tools/d1grace.sh`): có TIÊM TAY thông điệp ip_profile bằng tài khoản Kafka
+    của tier3, vì sau khi IP bị chặn cả ở Cổng 1, tier3 không còn thấy request của IP đó. Đạt 2/2 (IP .171, .172). Lần thứ
+    hai trên cùng IP .171 không dựng được tình huống (responder còn nhớ IP dùng chung trong SHARED_TTL_S) — đúng hành vi.
+  - **docker-compose.yml**: 8 tham số đổi sang dạng ${BIẾN:-mặc định} (mặc định giữ nguyên) để công cụ đo và "ngày nén" đặt
+    tạm được lúc chạy. **rulegen**: thêm một dòng nhật ký khi mốc not_before đang cắt dữ liệu học (không đổi logic).

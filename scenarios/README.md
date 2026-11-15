@@ -22,7 +22,34 @@ bash tools/scenario.sh
 bash tools/scenario.sh 09-c4-do-mat-khau 12-e4-tai-pham
 ```
 
-Toàn bộ 33 kịch bản mất khoảng 1,5–2 giờ. Kết quả: `eval/results/scenarios-<thời điểm>/report.md`.
+Lượt chạy đầy đủ lấy mọi tệp `scenarios/*.toml` (45 kịch bản; số 43 và 44 để trống), khoảng 2 giờ. Kết quả:
+`eval/results/scenarios-<thời điểm>/report.md`.
+
+Biến môi trường tuỳ chọn của `tools/scenario.sh` (từ 15/11/2026). Không đặt biến nào thì script chạy như trước.
+
+| Biến | Ý nghĩa | Mặc định |
+|---|---|---|
+| `SC_DIR` | Thư mục kịch bản, tương đối tính từ `nsm/`. Chỉ lấy `*.toml` ngay trong thư mục đó | `scenarios` |
+| `SC_OUT_NAME` | Kết quả ghi vào `eval/results/<tiền tố>-<thời điểm>/` | `scenarios` |
+| `SC_CONT` | `1` = chạy liền mạch: không dừng rulegen (chưa chạy thì bật), không gọi `reset.sh` giữa các kịch bản, không xoá luật tự sinh (kể cả kịch bản có `rulegen = true`), không đặt mốc `not_before`, nghỉ đầu kịch bản 2 giây. `modsec_detection_only_s`, `exempt`, `override`, `fault` vẫn có tác dụng. Dùng cho ngày nén | `0` |
+
+```bash
+SC_DIR=scenarios/trinh-dien bash tools/scenario.sh --list
+```
+
+Tên kịch bản truyền làm tham số là tên tệp không có `.toml`, tìm trong `SC_DIR`.
+
+## Hai thư mục con
+
+Lượt chạy đầy đủ chỉ lấy tệp ở thư mục gốc `scenarios/`, nên hai thư mục con dưới đây không bị quét.
+
+- `scenarios/ngay-nen/` — "ngày nén 12 lần": 24 khung giờ của một ngày, mỗi khung 5 phút thật, chạy liền mạch với `SC_CONT=1`
+  ở chế độ chạy thử của responder. Công cụ: `tools/ngaynen.sh`, `tools/wouldblock.sh`. Không thay được chạy lâu thật (xem
+  `../Danh-sach-gioi-han-NSM.md`, mục 12).
+- `scenarios/trinh-dien/` — bản rút gọn của các kịch bản 03, 34, 36, 37, 38, 41 cho buổi trình diễn (`tools/present.sh`, không
+  quá 15 phút). Chỉ giảm số request, số payload mỗi họ, số địa chỉ nguồn và thời gian tối đa so với bản gốc; họ payload và kỳ vọng
+  giữ nguyên. Riêng bản rút gọn của 38 có `bot_offset = 800` để dùng dải IP bí danh riêng. Sinh lại từ bản gốc bằng
+  `nsm-wip-15-11/phoi-hop/p3_make_td.py`.
 
 ## Cấu trúc một kịch bản
 
@@ -67,6 +94,13 @@ param = "password"
 shuffle = true                   # (tuỳ chọn) mỗi IP một thứ tự payload riêng
 pad_chars = 3000                 # (tuỳ chọn) thêm tham số đệm vào thân form (tạo tải nhật ký)
 every = 37                       # (replay) lấy 1 bản ghi / N của tập test_sites
+# --- thêm 15/11/2026 (chiều) ---
+ip = "10.10.15.250"              # IP nguồn cố định (chuỗi hoặc danh sách), thay cho `ips`; không lấy từ bộ cấp phát và không
+                                 # làm lệch IP của tác nhân khác. Người viết tự giữ IP trong dải dành cho mình
+fields = [["email", "user{n}@example.test"]]   # trường phụ gửi kèm tham số chính, THAY cho trường phụ mặc định của họ
+                                 # payload (vd Submit=Submit). fields = [] = không có trường phụ. {n} = số ngẫu nhiên 1–9999,
+                                 # mỗi request một số. Có tác dụng với kiểu http và botnet, ở vị trí query, form, pad_params,
+                                 # pad_value; không khai fields thì request như trước
 
 [expect]
 attack_blocked = true            # có IP tấn công bị chặn (hoặc false: không IP nào bị chặn)
@@ -128,10 +162,11 @@ chặn của responder được xoá (như `tools/reset.sh`), nên các kịch b
 
 | Ca | Kịch bản |
 |---|---|
-| A1 | 02, 32 (lưu lượng thật) |
+| A1 | 02, 32 (lưu lượng thật), 42 (lưu lượng thật, phần dữ liệu chưa dùng để tinh chỉnh) |
 | B1 / B2 / B3 / B4 / B5 | 01, 03 / 27 / 22 / 04 / 23 |
 | C1 / C2 / C3 / C4 | 06 / 08 / 07 / 09, 10 |
 | D1 / D2 / D3 / D4 | 13 / 24 / 11, 14 / 25 |
 | E1 / E2 / E3 / E4 / E5 | 15 / 16, 19 / 17, 26 / 12 / 18 |
 | Đợt nâng cấp 15/11 | 34–36 (kiểm chứng bộ thử bằng khai thác thật), 37 (giới hạn tốc độ một IP), 38 (nhồi tài khoản 200 IP), 39 (flood phân tán 300 IP — giới hạn đã biết), 40 (cao điểm hợp lệ không bị chặn nhầm), 41 (luật tự sinh áp dụng ngay và gỡ) |
+| Cổng đặt chỗ `booking.local` (15/11 chiều) | 45 (nhồi tài khoản vào trang đăng nhập, botnet 100 IP), 46 (dò mã đặt chỗ từ một IP), 47 (Cổng 2 chặn họ `sqli` ở ô tìm chuyến; khách gõ dấu nháy không bị ảnh hưởng) |
 | Ngoài spec | 05 (họ mới), 20–21 (bộ thử bên ngoài), 28 (né bằng đệm), 29 (che mật khẩu), 30 (nhịp tim + cảnh báo), 31 (xoay nhật ký), 33 (vòng đời luật) |
