@@ -24,6 +24,9 @@
 # **Lưu ý so sánh:** model nhỏ được tinh chỉnh ở bf16; model 27B tinh chỉnh **QLoRA 4 bit** (để vừa một GPU 40 GB).
 # Lượng tử hoá 4 bit có thể làm model kém đi một chút — ghi rõ khi báo cáo. Nếu GPU ≥ 79 GB (A100 80 GB / H100) thì
 # notebook tự chạy bản bf16 để loại yếu tố này (ngưỡng: GPU ≥ 70 GB).
+#
+# **Bổ sung 15/11/2026.** H1 phần lớn do dữ liệu (ở đa số cụm không tồn tại token nào thoả ngưỡng 80 %), nên chữ
+# "ảo giác" ở trên nói quá điều H1 đo được. **Mục 8** đo lại có lưu câu trả lời thô và chấm riêng trên các cụm có đáp án.
 
 # %% [markdown]
 # ## Ước lượng VRAM và chọn GPU
@@ -559,6 +562,213 @@ RES["_config"] = {"big": BIG, "precision": "bf16" if BIG_16BIT else "4bit", "bat
                   "gpu_gb": round(GPU_GB, 1)}
 save_res()
 print("Đã lưu", RES_PATH)
+
+# %% [markdown]
+# ## 8. Đo lại H1 có lưu câu trả lời thô (thêm 15/11/2026)
+#
+# **Vì sao.** Khi đánh giá kết quả ở mục 7, thấy H1 phần lớn do dữ liệu chứ không do model: trong 100 cụm đã đo, chỉ 46
+# (valid), 5 (SR-BH) và 39 (HttpParams) cụm có ít nhất một chuỗi dài từ 3 ký tự nằm trong ≥ 80 % payload. Ở các cụm còn lại
+# không có đáp án đúng, nên model viết gì cũng bị tính H1. Thêm nữa, lời nhắc chỉ cho model xem 10 payload đầu (mỗi payload
+# cắt ở 160 ký tự), còn H1 chấm trên cả cụm (8–24 payload). Lần chạy trước không lưu câu trả lời nên không tách được hai
+# yếu tố này.
+#
+# **Cách đo lại.** Cùng lời nhắc, cùng 100 cụm, cùng cách sinh (greedy, 60 token) như H1 — nên H1 tính lại phải gần trùng
+# số cũ. Câu trả lời thô được lưu vào `output/rulesel_large/replies/<model>_<base|ft>_<tập>.jsonl`, rồi chấm thêm:
+#
+# | Ký hiệu | Định nghĩa |
+# |---|---|
+# | "phần được xem" | 10 payload đầu của cụm, mỗi payload cắt ở 160 ký tự — đúng thứ model nhìn thấy trong lời nhắc |
+# | cụm có đáp án (B) | tồn tại chuỗi dài ≥ 3 ký tự (không toàn khoảng trắng) nằm trong ≥ 80 % phần được xem. 3 ký tự = độ dài token tối thiểu của một luật trong hệ thống (`secrule.MIN_TOK`) |
+# | cụm có đáp án trên cả cụm (A) | như B nhưng tính trên toàn bộ payload của cụm |
+# | H1v | token có trong < 80 % phần được xem (không JSON = 1 token H1v) |
+# | **H1v_B** | H1v chỉ tính trên các cụm B: model được xem đủ, đáp án có tồn tại, mà token vẫn không đạt |
+# | H1_A | H1 cũ, chỉ tính trên các cụm A |
+# | **H2v** | token không có trong payload nào của phần được xem: bịa so với đúng thứ model nhìn thấy |
+# | cụm trả lời được | tỷ lệ cụm B mà model viết được ít nhất một token dài ≥ 3 ký tự có trong ≥ 80 % phần được xem |
+#
+# **Tiêu chí kết luận (chốt trước khi chạy, ngày 15/11/2026), tính trên GỘP ba tập (300 cụm):**
+# - "tự viết không đáng tin ngay cả khi có đáp án" nếu cận dưới khoảng tin cậy 95 % (Wilson) của **H1v_B > 5 %**;
+# - "có bịa" nếu cận dưới khoảng tin cậy 95 % của **H2v > 5 %**.
+#
+# Số từng tập được in để tham khảo; tập có dưới 20 cụm B thì không kết luận riêng cho tập đó. Khoảng tin cậy tính theo token,
+# coi các token là độc lập (hai token của một cụm thực ra có liên quan), nên cột "cụm trả lời được" được in kèm để đối chiếu.
+# Kết quả được báo cáo đúng như đo, kể cả khi H1v_B thấp.
+#
+# **Chi phí.** Hai model nhỏ: vài phút, chạy được trên T4/L4. Model 27B (nguyên bản + adapter LoRA đã lưu ở mục 5, không
+# tinh chỉnh lại): cần A100 40 GB, khoảng 15–20 phút gồm cả tải model. GPU dưới 34 GB thì phần 27B tự bỏ qua.
+# Chạy lại notebook từ đầu: các mục 4–6 được bỏ qua nhờ `results_large.json`; tệp câu trả lời đã có cũng được bỏ qua.
+
+# %%
+# ---- 8a. Hàm chấm: thuần Python, không cần GPU; chấm lại được bất cứ lúc nào từ tệp câu trả lời ----
+MIN_RULE_TOK = 3                                  # = secrule.MIN_TOK: token ngắn hơn không làm luật được
+SHOWN_N, SHOWN_LEN = 10, 160                      # đúng như free_prompt()
+REPLY_DIR = f"{OUTD}/replies"
+os.makedirs(REPLY_DIR, exist_ok=True)
+
+def shown_part(r):
+    return [p[:SHOWN_LEN] for p in r["payloads"][:SHOWN_N]]
+
+def has_common(payloads, share=0.8, L=MIN_RULE_TOK):
+    """Có chuỗi dài L ký tự (không toàn khoảng trắng) nằm trong >= share số payload không. Không phân biệt hoa thường,
+    như phép so của H1. Chuỗi dài hơn L thoả điều kiện thì mọi đoạn con dài L của nó cũng thoả, nên xét đúng độ dài L là đủ."""
+    df = {}
+    for p in payloads:
+        q = p.lower()
+        for g in {q[i:i + L] for i in range(len(q) - L + 1)}:
+            if g.strip():
+                df[g] = df.get(g, 0) + 1
+    need = share * len(payloads)
+    return any(c >= need for c in df.values())
+
+def score_free_writing(rows, replies):
+    cl = []
+    for r, rep in zip(rows, replies):
+        full, shown = r["payloads"], shown_part(r)
+        recs = []
+        toks = parse_tokens(rep)
+        if not toks:
+            recs.append({"nj": True, "len": 0, "full": 0.0, "shown": 0.0})
+        for t in toks:
+            tl = t.lower()
+            recs.append({"nj": False, "len": len(t), "full": float(np.mean([tl in p.lower() for p in full])),
+                         "shown": float(np.mean([tl in p.lower() for p in shown]))})
+        cl.append({"A": has_common(full), "B": has_common(shown), "recs": recs})
+
+    def rate(pred, sel=lambda c: True):
+        xs = [bool(pred(x)) for c in cl if sel(c) for x in c["recs"]]
+        k, n = sum(xs), len(xs)
+        return {"k": k, "n": n, "rate": round(k / max(n, 1), 4), "ci95": wilson(k, n)}
+
+    def cluster_ok(key, field):
+        xs = [any(x["len"] >= MIN_RULE_TOK and x[field] >= 0.8 for x in c["recs"]) for c in cl if c[key]]
+        k, n = sum(xs), len(xs)
+        return {"k": k, "n": n, "rate": round(k / max(n, 1), 4), "ci95": wilson(k, n)}
+
+    return {"n_clusters": len(cl), "clusters_A": sum(c["A"] for c in cl), "clusters_B": sum(c["B"] for c in cl),
+            "no_json_rate": round(sum(c["recs"][0]["nj"] for c in cl) / max(len(cl), 1), 4),
+            "H1": rate(lambda x: x["full"] < 0.8),                               # định nghĩa cũ, để đối chiếu
+            "H2": rate(lambda x: not x["nj"] and x["full"] == 0.0),
+            "H1_A": rate(lambda x: x["full"] < 0.8, lambda c: c["A"]),
+            "H1v": rate(lambda x: x["shown"] < 0.8),
+            "H1v_B": rate(lambda x: x["shown"] < 0.8, lambda c: c["B"]),
+            "H2v": rate(lambda x: not x["nj"] and x["shown"] == 0.0),
+            "short_tokens": rate(lambda x: not x["nj"] and x["len"] < MIN_RULE_TOK),
+            "cluster_ok_B": cluster_ok("B", "shown"), "cluster_ok_A": cluster_ok("A", "full")}
+
+def reply_path(name, tag, k):
+    return f"{REPLY_DIR}/{name}_{tag}_{k}.jsonl"
+
+def load_replies(name, tag, k):
+    """Câu trả lời đã lưu (đủ số cụm) hoặc None."""
+    p = reply_path(name, tag, k)
+    if not os.path.exists(p):
+        return None
+    with open(p, encoding="utf-8") as f:
+        reps = [json.loads(ln)["reply"] for ln in f if ln.strip()]
+    return reps if len(reps) == len(R[k][:N_HALL]) else None
+
+def collect_replies(model, tok, name, tag):
+    """Sinh và lưu câu trả lời tự viết cho 3 tập — đúng lời nhắc và cách sinh của hallucination_free_writing()."""
+    for k in TESTS:
+        if load_replies(name, tag, k) is not None:
+            continue
+        rows, t0 = R[k][:N_HALL], time.time()
+        reps = generate(model, tok, [chat(tok, FREE_SYSTEM, free_prompt(r)) for r in rows], max_new_tokens=60)
+        with open(reply_path(name, tag, k), "w", encoding="utf-8") as f:
+            for i, rep in enumerate(reps):
+                f.write(json.dumps({"i": i, "reply": rep}, ensure_ascii=False) + "\n")
+        print(f"   {name} {tag} {k}: lưu {len(reps)} câu trả lời ({time.time() - t0:.0f} s)")
+
+# %%
+# ---- 8b. Sinh câu trả lời (cần GPU). Model nhỏ trước: rẻ, và có kết quả ngay cả khi phần model lớn gặp lỗi ----
+RUN_H1V2 = True
+RUN_H1V2_BIG = GPU_GB >= 34                       # model 27B cần A100 40 GB; đặt False để chỉ đo 2 model nhỏ
+LORA_DIR = f"{OUTD}/lora_{BIG_NAME}"
+def _have(name, tag):
+    return all(load_replies(name, tag, k) is not None for k in TESTS)
+
+if RUN_LLM and RUN_H1V2:
+    for name, hf in SMALL.items():
+        if _have(name, "base"):
+            continue
+        model, tok, _ = load_model(hf, big=False)
+        for_inference(model)
+        collect_replies(model, tok, name, "base")
+        del model, tok
+        free_gpu()
+    need_base = not _have(BIG_NAME, "base")
+    need_ft = not _have(BIG_NAME, "ft") and os.path.isdir(LORA_DIR)
+    if not RUN_H1V2_BIG:
+        print(f"GPU {GPU_GB:.0f} GB < 34 GB (hoặc RUN_H1V2_BIG = False): bỏ qua model 27B. Chạy lại trên A100 40 GB để đo nốt.")
+    elif need_base or need_ft:
+        model, tok, proc = load_model(BIG, big=True)
+        for_inference(model)
+        if need_base:
+            collect_replies(model, tok, BIG_NAME, "base")
+        if need_ft:
+            try:                                  # gắn adapter đã lưu ở mục 5 lên model vừa nạp: không tinh chỉnh lại, không nạp lại 18 GB
+                from peft import PeftModel
+                model = PeftModel.from_pretrained(model, LORA_DIR)
+                model.eval()
+                try:
+                    for_inference(model)
+                except Exception as e:
+                    print(f"   (for_inference sau khi gắn adapter: {type(e).__name__}: {str(e)[:120]} — bỏ qua)")
+                collect_replies(model, tok, BIG_NAME, "ft")
+            except Exception as e:
+                print(f"!! không đo được bản tinh chỉnh từ adapter {LORA_DIR}: {type(e).__name__}: {str(e)[:300]}")
+        del model, tok, proc
+        free_gpu()
+    # adapter có thật sự được áp không: câu trả lời của bản tinh chỉnh không được trùng hết với bản nguyên bản
+    for k in TESTS:
+        a, b = load_replies(BIG_NAME, "base", k), load_replies(BIG_NAME, "ft", k)
+        if a and b:
+            same = sum(x == y for x, y in zip(a, b))
+            print(f"   {BIG_NAME} {k}: {same}/{len(a)} câu trả lời của bản tinh chỉnh trùng bản nguyên bản"
+                  + ("  !! TRÙNG HẾT: adapter có thể chưa được áp — không dùng số 'ft'" if same == len(a) else ""))
+
+# %%
+# ---- 8c. Chấm và in bảng (không cần GPU: đọc tệp câu trả lời đã lưu) ----
+def _f(d):
+    return f"{d['rate']:.3f} [{d['ci95'][0]:.2f}–{d['ci95'][1]:.2f}] ({d['k']}/{d['n']})"
+
+H1V2, H1V2_CONCL = {}, {}
+for name in (BIG_NAME, "qwen3-4b", "phi4-mini"):
+    for tag in ("base", "ft"):
+        per, prow, prep = {}, [], []
+        for k in TESTS:
+            reps = load_replies(name, tag, k)
+            if reps is None:
+                continue
+            rows = R[k][:N_HALL]
+            per[k] = score_free_writing(rows, reps)
+            prow += rows; prep += reps
+        if not per:
+            continue
+        label = f"{name} {'nguyên bản' if tag == 'base' else 'LoRA'}"
+        old = RES.get(name, {}).get("hall_base" if tag == "base" else "hall_ft", {})
+        print(f"\n=== {label} ===")
+        for k in per:
+            s = per[k]
+            print(f"{k:16} cụm có đáp án B {s['clusters_B']:3}/{s['n_clusters']} (A {s['clusters_A']:3}) | H1 {s['H1']['rate']:.3f}"
+                  f" (lần trước {old.get(k, {}).get('H1_rate', '—')}) | H1v_B {_f(s['H1v_B'])} | H2v {_f(s['H2v'])}"
+                  f" | cụm trả lời được {_f(s['cluster_ok_B'])} | token < {MIN_RULE_TOK} ký tự {s['short_tokens']['rate']:.2f}")
+        if len(per) == len(TESTS):
+            g = per["gop"] = score_free_writing(prow, prep)
+            c1, c2 = g["H1v_B"]["ci95"][0] > 0.05, g["H2v"]["ci95"][0] > 0.05
+            H1V2_CONCL[label] = {"khong_dang_tin_khi_co_dap_an": c1, "co_bia": c2}
+            print(f"{'GỘP 3 tập':16} cụm có đáp án B {g['clusters_B']:3}/{g['n_clusters']} (A {g['clusters_A']:3}) | H1 {g['H1']['rate']:.3f}"
+                  f" | H1v_B {_f(g['H1v_B'])} | H2v {_f(g['H2v'])} | cụm trả lời được {_f(g['cluster_ok_B'])}")
+            print(f"   -> tự viết không đáng tin ngay cả khi có đáp án: {'CÓ' if c1 else 'KHÔNG'} | có bịa: {'CÓ' if c2 else 'KHÔNG'}")
+        H1V2[f"{name} {tag}"] = per
+if H1V2:
+    RES["_h1v2"] = H1V2
+    RES["_h1v2_conclusion"] = H1V2_CONCL
+    RES["_h1v2_config"] = {"min_rule_tok": MIN_RULE_TOK, "shown_n": SHOWN_N, "shown_len": SHOWN_LEN, "n_hall": N_HALL}
+    save_res()
+    print("\nĐã lưu mục 8 vào", RES_PATH, "| câu trả lời thô:", REPLY_DIR)
+else:
+    print("Chưa có tệp câu trả lời nào trong", REPLY_DIR)
 
 # %%
 AUTO_DISCONNECT = True   # tự ngắt runtime khi xong để không tốn CU

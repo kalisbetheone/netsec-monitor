@@ -25,6 +25,15 @@ Notebook 03 so model Qwen lớn (`Qwen/Qwen3.8-27B`, ~18 GB tải về máy Cola
 notebook 02 về chất lượng chọn luật và mức ảo giác. Chạy sau notebook 02 (đọc `results.json` của nó). Nếu runtime
 bị ngắt, chạy lại từ đầu: phần đã xong được đọc lại từ `results_large.json` và bỏ qua.
 
+**Mục 8 của notebook 03 (thêm 15/11/2026): đo lại H1 có lưu câu trả lời thô.** H1 ở mục 7 phần lớn do dữ liệu (đa số
+cụm không có token nào thoả ngưỡng 80 %), nên mục 8 lưu câu trả lời và chấm riêng trên các cụm có đáp án. Cách chạy:
+Run all lần nữa trên **A100 40 GB**. Các mục 4–6 được bỏ qua nhờ `results_large.json` (không tinh chỉnh lại; bản tinh
+chỉnh được đo bằng adapter đã lưu trong `output/rulesel_large/lora_qwen3.8-27b`), chỉ mục 8 chạy: khoảng 20–30 phút gồm
+cả tải model. Muốn chỉ đo hai model nhỏ thì chọn L4: phần 27B tự bỏ qua khi GPU dưới 34 GB. Kết quả:
+`output/rulesel_large/replies/*.jsonl` (câu trả lời thô) và các khoá `_h1v2*` trong `results_large.json`. Bản notebook
+và `results_large.json` của lần chạy 15/11 được giữ ở `notebooks/03_large_qwen_hallucination_lan2_15-11.ipynb` và
+`output/rulesel_large/results_large_lan2_15-11.json`.
+
 1. Mở notebook trong Colab (chuột phải → Open with → Google Colaboratory).
 2. Runtime → Change runtime type → chọn như bảng trên.
 3. Runtime → Run all. Ô đầu tiên hỏi quyền truy cập Drive: chấp nhận.
