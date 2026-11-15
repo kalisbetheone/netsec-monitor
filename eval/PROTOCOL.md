@@ -331,3 +331,23 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     chặn. KHÔNG đổi ngưỡng, bộ thử, kịch bản hay cấu hình sau khi thấy kết quả. Kỳ vọng `verify_gate2_min_share = 0.5`
     của kịch bản 44 vì vậy KHÔNG ĐẠT và được giữ nguyên. Kết quả phụ: Cổng 2 chặn 9 085/9 289 (97,8 %) payload công khai
     mà regex tầng 1 bỏ lọt.
+
+- 15/11/2026 (22:15) — **Cải thiện tầng 2, bước 1: cổng cú pháp (`TIER2_SYNTAX_GATE`) — tiêu chí GHI TRƯỚC khi đo.**
+  Người dùng duyệt lúc 22:00. Bối cảnh: model 14/11 gắn nhãn tấn công cho văn bản hợp lệ có từ khoá SQL / lệnh shell với
+  điểm 1,00 (`order by price`, `select a laptop for school`), nên nâng ngưỡng không giúp; cổng cú pháp bỏ qua model khi giá
+  trị tham số không có ký tự đặc biệt nào.
+  - **Đã biết trước khi ghi tiêu chí (chấm NGOẠI TUYẾN bằng đúng mã classifier, trùng số đo thật 40/52 và 12/60):** cổng bật ->
+    bộ thử 52 payload 37/52, danh sách đối chứng cũ 5/60. Hai tập này vì vậy KHÔNG còn là phép kiểm độc lập cho cổng.
+  - **Phần chưa biết kết quả:** pha detect của bench với cổng bật; danh sách đối chứng MỚI `scenarios/tang-2/doi-chung-2.jsonl`
+    (60 văn bản, viết trước khi chạy, cùng cơ cấu nhóm với danh sách cũ, không trùng giá trị nào); 5 kịch bản 02, 13, 25, 41, 42.
+  - **Cách đo:** `tools/t2gate.sh 0` rồi `tools/t2gate.sh 1`, cùng buổi, cùng máy, mỗi cấu hình MỘT lượt: bench pha detect;
+    kịch bản đếm nhãn `scenarios/tang-2/do-nhan` (52 payload + đối chứng mới + đối chứng cũ, mỗi giá trị một lần, rulegen
+    dừng); 5 kịch bản trên. So bằng `tools/t2gate.py`.
+  - **Quy tắc quyết định: giữ cổng BẬT nếu CẢ BỐN điều sau đúng, ngược lại giữ cổng tắt:**
+    1. bench, lành tính "khó": số mẫu bị gắn nhãn ở cổng bật <= một nửa số ở cổng tắt (cùng buổi);
+    2. đối chứng mới: số văn bản bị gắn nhãn ở cổng bật <= một nửa số ở cổng tắt;
+    3. bench: số tấn công bộ phân loại bắt được ở cổng bật >= số ở cổng tắt;
+    4. bộ thử 52 payload: cổng bật gắn nhãn >= 32/52 (ngưỡng 60 % đã dùng cho số đo 1 của bộ thử tầng 2).
+    Thêm một điều kiện chặn: không kịch bản nào trong 5 kịch bản ĐẠT ở cổng tắt mà KHÔNG ĐẠT ở cổng bật. Nếu một kịch bản
+    không đạt ở cả hai cấu hình thì ghi lại, không tính vào quyết định.
+  - Không chỉnh ngưỡng `TIER2_THRESHOLD` trong bước này. Không sửa danh sách đối chứng, bộ thử hay kịch bản sau khi thấy kết quả.
