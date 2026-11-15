@@ -433,3 +433,12 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   - **Cách dùng hai vòng:** dữ liệu vòng 2 nằm ở thư mục Drive riêng `NSM-train-v4`; vòng 1 (`NSM-train-v3`) giữ nguyên. Nếu cả hai
     vòng được huấn luyện thì MỖI vòng chọn model của mình theo tiêu chí trên valid của vòng đó; model đưa đi đo trên hệ thống thật
     là model của vòng 2 (dữ liệu là tập cha của vòng 1). Model vòng 1 chỉ được đo thêm để so sánh, và việc đó được ghi lại.
+  - **Đã lọc và dựng (16/11, 00:32–00:45).** 401 payload mới mà regex tầng 1 bỏ lọt qua Cổng 2 thật
+    (`eval/results/t2poolextra-20261116-003234`, 125 giây): 247 bị chặn, 154 lọt và đều có cấu trúc tấn công rõ (train sqli 74,
+    rce 39; valid sqli 38, rce 3). Một payload không gửi được bị bỏ -> 1 202 payload bổ sung. Dữ liệu vòng 2
+    (`train/build_tier2_dataset.py`, 277 giây): dòng cấy thêm cho payload `g2 = pass` — train sqli 1 450 (vòng 1: 710), xss 190,
+    lfi 3 000, rce 610 (vòng 1: 220); valid sqli 168 (54), xss 18, lfi 1 024, rce 36 (27). Sau lượt lọc, các IP thử bị khoá muộn
+    được gỡ ngay trong script; `stack.sh check` sạch lúc 00:35.
+  - **Đính chính câu "hai tập `test_hardtext` và `test_residual` giữ nguyên nội dung":** hai tập có CÙNG tập văn bản và payload như
+    vòng 1 (5 028 và 1 025 dòng), nhưng vật mang được chọn lại ngẫu nhiên khi dựng, nên từng dòng không giống hệt vòng 1.
+  - Lúc dựng xong vòng 2, thư mục `NSM-train-v3` trên Drive chưa có `output/`: vòng 1 chưa được huấn luyện.
