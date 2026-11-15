@@ -103,9 +103,18 @@ _last_cleanup = 0.0
 
 # ------------------------------------------------------------------ dữ liệu
 FIELDS = ["target", "body", "label", "status", "@timestamp", "src_ip", "arg_n", "arg_v", "marg_n", "marg_v", "weighted"]
-def fetch(lookback, labels=None, limit=50000):
-    """Sự kiện web trong `lookback` giây, MỚI NHẤT trước. Lọc nhãn ngay trong truy vấn."""
+# Mốc "không học từ dữ liệu trước thời điểm này" (epoch giây), trong /state/not_before. tools/scenario.sh ghi mốc mỗi khi xoá
+# luật và mỗi khi bật lại rulegen sau một kịch bản: dữ liệu của kịch bản thử (vd Cổng 2 chỉ ghi nhận, tấn công đi qua) không
+# được biến thành luật CHẶN THẬT sau khi kịch bản đã xong (đã gặp 15/11: 3 luật sinh ra 1 giây sau khi kịch bản 41 kết thúc).
+NOT_BEFORE_PATH = "/state/not_before"
+def not_before():
+    try: return float(open(NOT_BEFORE_PATH).read().strip())
+    except (OSError, ValueError): return None
+
+def fetch(lookback, labels=None, limit=50000, floor=None):
+    """Sự kiện web trong `lookback` giây (và không cũ hơn `floor`, epoch giây), MỚI NHẤT trước. Lọc nhãn ngay trong truy vấn."""
     flt = [{"range": {"@timestamp": {"gte": f"now-{int(lookback)}s"}}}, {"term": {"source.keyword": "web"}}]
+    if floor: flt.append({"range": {"@timestamp": {"gte": int(floor * 1000), "format": "epoch_millis"}}})
     if labels: flt.append({"terms": {"label.keyword": list(labels)}})
     q = {"query": {"bool": {"filter": flt}}, "sort": [{"@timestamp": "desc"}]}
     out = []
@@ -545,7 +554,11 @@ def activate_new(r, now):
 def cycle():
     now = time.time()
     # Mọi truy vấn ES ở ĐẦU chu kỳ: ES lỗi -> ngoại lệ -> không đổi gì, không phát gì (E3: an toàn khi hỏng).
-    attacks = fetch(LOOKBACK, labels=ATTACK_LABELS)
+    floor = not_before()
+    if floor and floor > now - LOOKBACK:            # mốc đang cắt bớt dữ liệu học: ghi ra để người vận hành thấy (15/11)
+        L.info("mốc not_before đang có hiệu lực: bỏ qua sự kiện tấn công trước %s (%d s trước)",
+               time.strftime("%H:%M:%S", time.localtime(floor)), int(now - floor))
+    attacks = fetch(LOOKBACK, labels=ATTACK_LABELS, floor=floor)
     corpus, n_benign, live_benign = benign_corpus()
     corpus_ok = n_benign >= MIN_BENIGN
     if not corpus_ok:

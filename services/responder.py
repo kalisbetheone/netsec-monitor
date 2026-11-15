@@ -40,6 +40,10 @@ TTL_STEPS = [int(x) for x in os.getenv("TTL_STEPS_S", "900,3600,86400").split(",
 SHARED_CIDRS = [ipaddress.ip_network(c.strip(), strict=False) for c in os.getenv("SHARED_CIDRS", "").split(",") if c.strip()]
 SHARED_TTL = float(os.getenv("SHARED_TTL_S", "3600"))       # tier3 báo IP dùng chung -> nhớ trong ngần này
 SHARED_ESCALATE = int(os.getenv("SHARED_ESCALATE", "3"))    # số dấu vân tay bị chặn cùng lúc trên một IP -> chặn cả IP
+# Tranh chấp thời gian D1 (lượt đo 15/11/2026, kịch bản 13): responder có thể đủ ngưỡng chặn cả IP vài mili giây TRƯỚC khi
+# tier3 kịp báo IP đó là IP dùng chung. Báo "dùng chung" đến trong SHARED_GRACE_S sau một lệnh chặn cả IP do đếm ngưỡng ->
+# hạ lệnh đó xuống chặn theo (IP, User-Agent của request gây chặn). Lệnh chặn tay / shared_escalate không bao giờ bị hạ.
+SHARED_GRACE = float(os.getenv("SHARED_GRACE_S", "30"))
 # User-Agent ghi được vào khoá map của nginx: ASCII in được, không có " \ $ (không thì chặn cả IP như cũ)
 UA_SAFE = re.compile(r'^[\x20-\x21\x23\x25-\x5b\x5d-\x7e]{0,256}$')
 OFFENSE_RESET = int(os.getenv("OFFENSE_RESET_S", str(7*86400)))
@@ -51,6 +55,15 @@ MODE_ENV = os.getenv("RESPONDER_MODE", "enforce").lower()
 # Cảnh báo "nửa trọng số" (classifier chế độ tầng 2 'weighted': nhãn CHỈ do model, Cổng 2 không chặn): mỗi cảnh báo tính
 # TIER2_WEIGHT vào ngưỡng (mặc định 0,5 -> cần 10 cảnh báo / 60 giây thay vì 5) và không bao giờ khoá ngay.
 T2_WEIGHT = float(os.getenv("TIER2_WEIGHT", "0.5"))
+# Cảnh báo nửa trọng số KHÔNG tự mình khoá IP (T2_SOLO_BLOCK=0, 15/11/2026): phải có ít nhất một cảnh báo đủ trọng số (tầng 1,
+# Cổng 2 cũng chặn, Suricata...) trong cửa sổ ngắn. Lý do (kịch bản 02, 15/11): model 14/11 gắn nhãn sqli cho ~17 % truy vấn
+# "khó" của người dùng thật (dấu nháy, từ khoá SQL) -> 10 nhãn / 60 giây là đủ ngưỡng, 4/5 người dùng bị khoá. Nhãn chỉ do
+# model vẫn được ghi, vẫn hiện trên Grafana và vẫn là đầu vào của rulegen (luật sinh ra mới chặn ở Cổng 2).
+T2_SOLO_BLOCK = os.getenv("T2_SOLO_BLOCK", "0") == "1"
+# Cảnh báo từ luật tầng 1 "rất chắc" (cờ strong, xem classifier): mỗi cảnh báo tính STRONG_WEIGHT. Mặc định 1 (TẮT, 15/11):
+# với 2,5 người dùng gõ văn bản có cú pháp tấn công (kịch bản 02, vai 'ambiguous') bị khoá sau 2 câu, trong khi chính các
+# request đó đã bị Cổng 2 chặn đồng bộ — khoá IP sớm hơn gần như không thêm gì. Bật lại: STRONG_WEIGHT=2.5.
+STRONG_WEIGHT = float(os.getenv("STRONG_WEIGHT", "1.0"))
 CTL_MAX_AGE = float(os.getenv("CTL_MAX_AGE_S", "120"))      # lệnh quản trị cũ hơn ngần này bị bỏ (không phát lại lệnh cũ)
 STATE_PATH = "/state/responder.json"
 
@@ -112,7 +125,10 @@ def publish_blocklist():
     ips = [k for k in active if "|" not in k]
     fps = [list(split_key(k)) for k in active if "|" in k]
     # key cố định -> mọi snapshot vào CÙNG partition -> enforcer nhận đúng thứ tự phát
-    prod.produce("enforce.blocklist", key=b"blocklist", value=json.dumps({"ips": ips, "fps": fps, "ts": now}).encode())
+    # exempt: dải miễn trừ (cấu hình + thêm lúc chạy) -> enforcer ghi exempt.geo; nginx KHÔNG giới hạn tốc độ các nguồn này
+    ex = sorted({str(n) for n in EXEMPT} | {str(n) for n in EXTRA})
+    prod.produce("enforce.blocklist", key=b"blocklist",
+                 value=json.dumps({"ips": ips, "fps": fps, "exempt": ex, "ts": now}).encode())
     prod.flush(5)
     save_state()
     L.info("enforce.blocklist gửi: %d IP, %d dấu vân tay", len(ips), len(fps))
@@ -210,6 +226,8 @@ def block(key, rec, now, reason, a):
     offenses = rec["offenses"]+1 if rec and now - rec.get("last", 0) < OFFENSE_RESET else 1
     ttl = ttl_for(offenses)
     table[key] = {"expires": now+ttl, "offenses": offenses, "last": now, "active": True}
+    if "|" not in key:                     # nhớ lý do + User-Agent gây chặn, để hạ xuống dấu vân tay nếu IP hoá ra dùng chung
+        table[key].update(why=str(reason)[:64], ua=str((a or {}).get("ua") or "")[:256])
     hits.pop(key, None); hits2.pop(key, None); seen.pop(key, None)
     ip, ua = split_key(key)
     if ua is not None:                     # đủ nhiều dấu vân tay của cùng IP bị chặn cùng lúc -> chặn cả IP
@@ -231,6 +249,21 @@ def active_rec(key, now):
         return (w or real), bool(w and w.get("active") and w["expires"] > now)
     return real, False
 
+def downgrade_shared(ip_s, now):
+    """IP vừa được biết là dùng chung: lệnh chặn cả IP ra trong SHARED_GRACE giây trước đó (do đếm ngưỡng) -> chặn theo
+    (IP, User-Agent gây chặn), giữ nguyên hạn và số lần vi phạm. Không có User-Agent dùng được -> giữ chặn cả IP."""
+    for table, verdict in ((state["blocks"], "block"), (state["would"], "would_block")):
+        r = table.get(ip_s)
+        if not (r and r.get("active") and r["expires"] > now and now - r.get("last", 0) <= SHARED_GRACE): continue
+        if not str(r.get("why", "")).startswith(("threshold", "long_window", "immediate")): continue
+        fk = fp_key(ip_s, {"ua": r.get("ua")})
+        if fk is None: continue
+        table.pop(ip_s)
+        table[fk] = {"expires": r["expires"], "offenses": r["offenses"], "last": r["last"], "active": True}
+        if table is state["blocks"]: publish_blocklist()
+        audit("unblock" if verdict == "block" else "would_unblock", ip_s, "shared_downgrade")
+        audit(verdict, fk, "shared_downgrade:" + str(r.get("why")), ttl_s=int(r["expires"] - now), offenses=r["offenses"])
+
 def is_shared(ip_s, now):
     try: a = ipaddress.ip_address(ip_s)
     except ValueError: return False
@@ -251,7 +284,9 @@ def decide(a):
         if exempt(ip): return None
         was = state["shared"].get(key, 0) > now
         state["shared"][key] = now + SHARED_TTL; dirty = True
-        if not was: audit("profile", key, "shared_ip", uas=a.get("uas"))
+        if not was:
+            audit("profile", key, "shared_ip", uas=a.get("uas"))
+            downgrade_shared(key, now)
         return None
     if exempt(ip): return audit("skip", key, "exempt", a)                                   # 1
     if float(a.get("confidence", 0)) < MIN_CONF: return audit("skip", key, "low_confidence", a)   # 2
@@ -271,19 +306,28 @@ def decide(a):
     if a.get("immediate") and not weighted:  # tầng 3 behaviour: đã tự gom cả cửa sổ hành vi -> không đếm lại
         return block(key, rec, now, f"immediate:{a.get('class')}", a)
     if is_duplicate(key, a, ts): return audit("skip", key, "duplicate_sensor", a)
+    strong = bool(a.get("strong")) and not weighted
     q = (hits2 if weighted else hits)[key]; bisect.insort(q, ts); dirty = True               # 4
+    if strong: state.setdefault("strong_ts", {}).setdefault(key, []).append(ts)
     q1, q2 = hits[key], hits2[key]
     ref = max(q1[-1] if q1 else 0.0, q2[-1] if q2 else 0.0)
     del q1[:bisect.bisect_left(q1, ref - LONG_WINDOW)]
     del q2[:bisect.bisect_left(q2, ref - WINDOW)]            # cảnh báo nửa trọng số CHỈ tính ở cửa sổ ngắn: một người
     short = lambda qq: len(qq) - bisect.bisect_left(qq, ref - WINDOW)   # gõ vài chục câu "giống SQL" trong ngày không bị khoá
-    n_short = short(q1) + T2_WEIGHT * short(q2)
+    sts = [t for t in state.get("strong_ts", {}).get(key, []) if t > ref - WINDOW]
+    if "strong_ts" in state:
+        if sts: state["strong_ts"][key] = sts
+        else: state["strong_ts"].pop(key, None)
+    n_short = short(q1) + T2_WEIGHT * short(q2) + (STRONG_WEIGHT - 1.0) * len(sts)
     n_long = len(q1)
     short_hit, long_hit = n_short >= THRESHOLD, n_long >= LONG_THRESHOLD
+    solo = short_hit and not T2_SOLO_BLOCK and short(q1) == 0      # chỉ toàn cảnh báo nửa trọng số -> không khoá
+    if solo: short_hit = False
     if not short_hit and not long_hit:
-        return audit("count", key, f"{n_short:g}/{THRESHOLD} | {n_long:g}/{LONG_THRESHOLD}@long", a,
+        return audit("count", key, f"{n_short:g}/{THRESHOLD} | {n_long:g}/{LONG_THRESHOLD}@long" + (" | tier2_only" if solo else ""), a,
                      **({"weighted": True} if weighted else {}))
-    block(key, rec, now, ("threshold" if short_hit else "long_window") + ("+tier2" if q2 else ""), a)   # 5 + 6
+    state.get("strong_ts", {}).pop(key, None)
+    block(key, rec, now, ("threshold" if short_hit else "long_window") + ("+tier2" if q2 else "") + ("+strong" if sts and STRONG_WEIGHT != 1.0 else ""), a)   # 5 + 6
 
 def sweep():
     global dirty

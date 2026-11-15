@@ -1,0 +1,454 @@
+{
+ "benign_requests": 771243,
+ "attack_requests": 385005,
+ "rules": [
+  {
+   "i": 0,
+   "class": "sqli",
+   "scope": "any",
+   "pattern": "\\bunion\\b.{0,40}\\bselect\\b",
+   "fp": 0,
+   "tp": 55306
+  },
+  {
+   "i": 1,
+   "class": "sqli",
+   "scope": "any",
+   "pattern": "['\\\"\\d)]\\s*\\b(?:or|and)\\b\\s*['\\\"(]?\\d+['\\\")]?\\s*=\\s*['\\\"(]?\\d+",
+   "fp": 0,
+   "tp": 3628
+  },
+  {
+   "i": 2,
+   "class": "sqli",
+   "scope": "any",
+   "pattern": "'\\s*(?:or|and)\\s+'",
+   "fp": 29,
+   "tp": 901
+  },
+  {
+   "i": 3,
+   "class": "sqli",
+   "scope": "any",
+   "pattern": "\\b(?:sleep|benchmark|pg_sleep)\\s*\\(",
+   "fp": 0,
+   "tp": 31780
+  },
+  {
+   "i": 4,
+   "class": "sqli",
+   "scope": "any",
+   "pattern": "\\binformation_schema\\b",
+   "fp": 0,
+   "tp": 3331
+  },
+  {
+   "i": 5,
+   "class": "sqli",
+   "scope": "any",
+   "pattern": ";\\s*(?:drop|insert|update|delete)\\s",
+   "fp": 1,
+   "tp": 1
+  },
+  {
+   "i": 6,
+   "class": "sqli",
+   "scope": "any",
+   "pattern": "'\\s*--",
+   "fp": 3,
+   "tp": 1042
+  },
+  {
+   "i": 7,
+   "class": "sqli",
+   "scope": "any",
+   "pattern": "(?:extractvalue|updatexml|load_file|group_concat)\\s*\\(",
+   "fp": 0,
+   "tp": 3975
+  },
+  {
+   "i": 8,
+   "class": "sqli",
+   "scope": "any",
+   "pattern": "'\\s*(?:or|and)\\s+\\w+\\s*\\(",
+   "fp": 0,
+   "tp": 169
+  },
+  {
+   "i": 9,
+   "class": "xss",
+   "scope": "any",
+   "pattern": "<\\s*script",
+   "fp": 23,
+   "tp": 2583
+  },
+  {
+   "i": 10,
+   "class": "xss",
+   "scope": "any",
+   "pattern": "javascript\\s*:(?!\\s*(?:void\\s*\\(\\s*0\\s*\\)\\s*;?|;)?\\s*(?:$|[\\\"',}\\]&]))",
+   "fp": 324,
+   "tp": 2769
+  },
+  {
+   "i": 11,
+   "class": "xss",
+   "scope": "any",
+   "pattern": "\\bon(?:error|load|mouseover|focus|click)\\s*=",
+   "fp": 280,
+   "tp": 5521
+  },
+  {
+   "i": 12,
+   "class": "xss",
+   "scope": "any",
+   "pattern": "<\\s*(?:img|svg|iframe|body)\\b[^<>]{0,512}\\bon\\w+",
+   "fp": 165,
+   "tp": 3160
+  },
+  {
+   "i": 13,
+   "class": "xss",
+   "scope": "any",
+   "pattern": "document\\.(?:cookie|domain)",
+   "fp": 1,
+   "tp": 516
+  },
+  {
+   "i": 14,
+   "class": "rce",
+   "scope": "raw",
+   "pattern": "(?:;|\\||`|&&?|\\$\\()\\s*(?:/(?:usr/)?s?bin/)?(?:cat|ls|id|whoami|uname|wget|curl|nc|ncat|bash|sh|python[23]?|perl|php|chmod|pwd|hostname|base64|powershell|ifconfig|nslookup)(?=$|[\\s;|&<>`)'\\\"])",
+   "fp": 248,
+   "tp": 2267
+  },
+  {
+   "i": 15,
+   "class": "rce",
+   "scope": "rawonly",
+   "pattern": "(?:^|[;|&`])[^\\s;|&`]{1,64}[\\r\\n]+\\s*(?:/(?:usr/)?s?bin/)?(?:cat|ls|id|whoami|uname|wget|curl|nc|ncat|bash|sh|python[23]?|perl|php|chmod|pwd|hostname|base64|powershell|ifconfig|nslookup)(?=$|[\\s;|&<>`)'\\\"])",
+   "fp": 2,
+   "tp": 167
+  },
+  {
+   "i": 16,
+   "class": "rce",
+   "scope": "any",
+   "pattern": "\\b(?:system|exec|passthru|shell_exec|popen)\\s*\\(",
+   "fp": 17,
+   "tp": 943
+  },
+  {
+   "i": 17,
+   "class": "rce",
+   "scope": "any",
+   "pattern": "\\$\\{\\s*jndi\\s*:",
+   "fp": 0,
+   "tp": 110
+  },
+  {
+   "i": 18,
+   "class": "rce",
+   "scope": "any",
+   "pattern": "\\$\\{[^}]{0,40}\\$\\{",
+   "fp": 16,
+   "tp": 168
+  },
+  {
+   "i": 19,
+   "class": "rce",
+   "scope": "any",
+   "pattern": "\\(\\s*\\)\\s*\\{\\s*:?\\s*;\\s*\\}",
+   "fp": 0,
+   "tp": 444
+  },
+  {
+   "i": 20,
+   "class": "rce",
+   "scope": "nopath",
+   "pattern": "^\\s*\\(\\s*\\x00?\\s*\\)[\\s.]*\\{",
+   "fp": 0,
+   "tp": 470
+  },
+  {
+   "i": 21,
+   "class": "lfi",
+   "scope": "any",
+   "pattern": "(?:\\.{2,}[\\\\/]+){2,}",
+   "fp": 3,
+   "tp": 17653
+  },
+  {
+   "i": 22,
+   "class": "lfi",
+   "scope": "any",
+   "pattern": "/etc/(?:passwd|shadow|hosts)",
+   "fp": 0,
+   "tp": 10093
+  },
+  {
+   "i": 23,
+   "class": "lfi",
+   "scope": "any",
+   "pattern": "(?:boot|win)\\.ini",
+   "fp": 0,
+   "tp": 5736
+  },
+  {
+   "i": 24,
+   "class": "lfi",
+   "scope": "any",
+   "pattern": "php://(?:filter|input)",
+   "fp": 0,
+   "tp": 477
+  },
+  {
+   "i": 25,
+   "class": "xxe",
+   "scope": "nopath",
+   "pattern": "<!doctype[^>]{0,300}\\[\\s*<!entity",
+   "fp": 0,
+   "tp": 38
+  },
+  {
+   "i": 26,
+   "class": "xxe",
+   "scope": "nopath",
+   "pattern": "<!entity\\s+%?\\s*[\\w.-]+\\s+(?:system|public)\\b",
+   "fp": 0,
+   "tp": 68
+  },
+  {
+   "i": 27,
+   "class": "ssti",
+   "scope": "nopath",
+   "pattern": "\\{\\{\\s*\\d+\\s*[*+/-]\\s*\\d+\\s*\\}\\}",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 28,
+   "class": "ssti",
+   "scope": "nopath",
+   "pattern": "\\$\\{\\s*\\d+\\s*[*+/-]\\s*\\d+\\s*\\}",
+   "fp": 0,
+   "tp": 164
+  },
+  {
+   "i": 29,
+   "class": "ssti",
+   "scope": "nopath",
+   "pattern": "<%=?\\s*\\d+\\s*[*+/-]\\s*\\d+\\s*%>",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 30,
+   "class": "ssti",
+   "scope": "nopath",
+   "pattern": "#\\{\\s*\\d+\\s*[*+/-]\\s*\\d+\\s*\\}",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 31,
+   "class": "ssti",
+   "scope": "nopath",
+   "pattern": "__(?:class|mro|globals|builtins|subclasses|import)__",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 32,
+   "class": "ssti",
+   "scope": "nopath",
+   "pattern": "\\$\\{\\s*t\\s*\\(\\s*java\\.",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 33,
+   "class": "ssti",
+   "scope": "nopath",
+   "pattern": "\\{\\{\\s*(?:config|self|request|cycler|lipsum|joiner|namespace)\\b",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 34,
+   "class": "ssti",
+   "scope": "nopath",
+   "pattern": "\\{%\\s*(?:import|include|set|for)\\b",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 35,
+   "class": "ssrf",
+   "scope": "nopath",
+   "pattern": "\\b(?:https?|gopher|dict|ftp|tftp|ldap)://(?:[^/@\\s]*@)?(?:\\[[0-9a-f:.]*\\]|localhost|127(?:\\.\\d{1,3}){3}|0\\.0\\.0\\.0|0x[0-9a-f]{6,8}|\\d{8,10}|169\\.254\\.169\\.254|metadata\\.google\\.internal|10(?:\\.\\d{1,3}){3}|192\\.168(?:\\.\\d{1,3}){2}|172\\.(?:1[6-9]|2\\d|3[01])(?:\\.\\d{1,3}){2})(?=[:/?#]|$)",
+   "fp": 2,
+   "tp": 10
+  },
+  {
+   "i": 36,
+   "class": "ssrf",
+   "scope": "nopath",
+   "pattern": "\\b(?:gopher|dict)://",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 37,
+   "class": "deser",
+   "scope": "nopath",
+   "pattern": "\\b[oc]:\\+?\\d+:\\\"[\\w\\\\]+\\\":\\d+:\\{",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 38,
+   "class": "deser",
+   "scope": "nopath",
+   "pattern": "\\ba:\\d+:\\{(?:[is]:\\d+[;:])",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 39,
+   "class": "deser",
+   "scope": "nopath",
+   "pattern": "\\bro0ab|\\baced0005|\\baaeaaad/////",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 40,
+   "class": "deser",
+   "scope": "nopath",
+   "pattern": "c__builtin__|cposix\\nsystem",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 41,
+   "class": "nosqli",
+   "scope": "named",
+   "pattern": "[\\[{\\\"',]\\s*\\$(?:ne|gt|gte|lt|lte|in|nin|regex|where|exists|expr|or|and|not)\\b",
+   "fp": 1,
+   "tp": 0
+  },
+  {
+   "i": 42,
+   "class": "nosqli",
+   "scope": "named",
+   "pattern": "\\$where\\s*[\\\"':]",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 43,
+   "class": "nosqli",
+   "scope": "named",
+   "pattern": "['\\\"]\\s*;\\s*return\\s+(?:true|1)\\b",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 44,
+   "class": "ldap",
+   "scope": "named",
+   "pattern": "\\*\\s*\\)\\s*\\(\\s*[\\w-]+\\s*=",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 45,
+   "class": "ldap",
+   "scope": "named",
+   "pattern": "\\)\\s*\\(\\s*[|&!]\\s*(?:\\(|\\))",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 46,
+   "class": "ldap",
+   "scope": "named",
+   "pattern": "\\(\\s*[|&]\\s*\\(\\s*[\\w-]+\\s*=\\s*\\*",
+   "fp": 0,
+   "tp": 4
+  },
+  {
+   "i": 47,
+   "class": "crlf",
+   "scope": "rawonly",
+   "pattern": "[\\r\\n]+\\s*(?:set-cookie|location|content-(?:length|type)|refresh|x-[\\w-]+|access-control-[\\w-]+|transfer-encoding)\\s*:",
+   "fp": 87,
+   "tp": 1176
+  },
+  {
+   "i": 48,
+   "class": "rfi",
+   "scope": "include",
+   "pattern": "^\\s*(?:https?|ftp)://[^?#\\s]+\\.(?:php\\d?|phtml|txt|asp|aspx|jsp|inc)\\??\\s*$",
+   "fp": 7,
+   "tp": 0
+  },
+  {
+   "i": 49,
+   "class": "rfi",
+   "scope": "include",
+   "pattern": "^\\s*(?:https?|ftp)://\\S+\\?\\s*$",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 50,
+   "class": "rfi",
+   "scope": "include",
+   "pattern": "^\\s*\\\\\\\\[\\w.-]+\\\\",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 51,
+   "class": "redirect",
+   "scope": "redirect",
+   "pattern": "^\\s*/\\s*[/\\\\]+\\s*[^/\\\\\\s]",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 52,
+   "class": "redirect",
+   "scope": "redirect",
+   "pattern": "^\\s*\\\\\\\\[^\\\\\\s]",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 53,
+   "class": "redirect",
+   "scope": "redirect",
+   "pattern": "^\\s*https?:\\s*\\\\",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 54,
+   "class": "redirect",
+   "scope": "redirect",
+   "pattern": "^\\s*https?:(?!/)\\S",
+   "fp": 0,
+   "tp": 0
+  },
+  {
+   "i": 55,
+   "class": "redirect",
+   "scope": "redirect",
+   "pattern": "^\\s*https?://[^/?#]*@",
+   "fp": 0,
+   "tp": 0
+  }
+ ]
+}

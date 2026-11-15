@@ -10,7 +10,16 @@
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/_host.sh"      # đặt D = thư mục dự án (đường dẫn động, xem _host.sh)
 CP=(docker compose -f "$D/docker-compose.yml")
-BENIGN_SRC="${BENIGN_SRC:-10.10.10.20}"
+BENIGN_SRC="${BENIGN_SRC:-10.10.10.20,10.10.10.21}"     # các nguồn lành tính của lab (DVWA + cổng đặt chỗ), cách nhau dấu phẩy
+BENIGN_JSON="\"$(printf '%s' "$BENIGN_SRC" | sed 's/,/\",\"/g')\""
+# NHẬT KÝ KIỂM TOÁN và BẢN LƯU TẤN CÔNG phải giữ 1 năm (quyết định 15/11/2026) -> mặc định KHÔNG xoá nữa.
+# Chỉ xoá khi gọi rõ:  bash tools/reset-all.sh --wipe-audit   (làm trắng dashboard trước một buổi trình diễn trong lab).
+# Ở cấu hình môi trường thật (NSM_PROFILE=prod trong .env) script từ chối chạy nếu không có --force.
+WIPE_AUDIT=0; FORCE=0
+for a in "$@"; do case "$a" in --wipe-audit) WIPE_AUDIT=1;; --force) FORCE=1;; esac; done
+if [ "$(grep -s '^NSM_PROFILE=' "$D/.env" | cut -d= -f2 | tr -d '\r')" = prod ] && [ "$FORCE" != 1 ]; then
+  echo "!! NSM_PROFILE=prod: reset-all xoá trạng thái chặn và lịch sử sự kiện — thêm --force nếu thật sự muốn." >&2; exit 1
+fi
 # ES() (gọi Elasticsearch có xác thực) được định nghĩa trong _host.sh
 
 echo ">> [1/4] dọn container demo + gỡ blocklist + đảm bảo ModSec ở chế độ chặn ..."
@@ -23,9 +32,14 @@ docker ps -aqf "name=demo_" | xargs -r docker rm -f >/dev/null 2>&1 || true
 echo ">> [2/4] xoá lịch sử ES (giữ corpus lành tính của $BENIGN_SRC) ..."
 ES -X POST "localhost:9200/web-events-*/_delete_by_query?refresh=true&conflicts=proceed&ignore_unavailable=true" \
    -H "Content-Type: application/json" \
-   -d "{\"query\":{\"bool\":{\"must_not\":[{\"bool\":{\"filter\":[{\"term\":{\"label.keyword\":\"benign\"}},{\"term\":{\"source.keyword\":\"web\"}},{\"term\":{\"src_ip.keyword\":\"$BENIGN_SRC\"}}]}}]}}}" >/dev/null; echo
-ES -X POST "localhost:9200/audit-decisions-*/_delete_by_query?refresh=true&conflicts=proceed&ignore_unavailable=true" \
-   -H "Content-Type: application/json" -d '{"query":{"match_all":{}}}' >/dev/null
+   -d "{\"query\":{\"bool\":{\"must_not\":[{\"bool\":{\"filter\":[{\"term\":{\"label.keyword\":\"benign\"}},{\"term\":{\"source.keyword\":\"web\"}},{\"terms\":{\"src_ip.keyword\":[$BENIGN_JSON]}}]}}]}}}" >/dev/null; echo
+if [ "$WIPE_AUDIT" = 1 ]; then
+  ES -X POST "localhost:9200/audit-decisions-*,attack-events-*/_delete_by_query?refresh=true&conflicts=proceed&ignore_unavailable=true" \
+     -H "Content-Type: application/json" -d '{"query":{"match_all":{}}}' >/dev/null
+  echo "   (đã xoá cả nhật ký kiểm toán và bản lưu tấn công theo --wipe-audit)"
+else
+  echo "   (giữ nhật ký kiểm toán audit-decisions-* và bản lưu tấn công attack-events-*; muốn xoá: --wipe-audit)"
+fi
 
 echo ">> [3/4] xoá luật tự sinh (rulegen state + chỉ mục rule-status) ..."
 "${CP[@]}" run --rm --no-deps --entrypoint sh rulegen -c 'rm -f /state/rules.json' >/dev/null 2>&1 || true
@@ -36,5 +50,5 @@ echo ">> [4/4] chạy lại responder + rulegen (phát lại trạng thái rỗn
 sleep 10
 echo ">> xong:"
 echo "   - blocklist = rỗng"
-echo "   - dashboard: hết sự kiện tấn công / quyết định (chỉ còn lưu lượng lành tính của $BENIGN_SRC)"
+echo "   - dashboard: hết sự kiện tấn công (chỉ còn lưu lượng lành tính của $BENIGN_SRC); nhật ký kiểm toán: $([ "$WIPE_AUDIT" = 1 ] && echo 'đã xoá' || echo 'được giữ')"
 echo "   - luật tự sinh = none (rulegen vừa phát tệp luật rỗng -> apache active.conf trống)"

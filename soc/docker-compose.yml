@@ -180,7 +180,7 @@ services:
       KAFKA_PASSWORD: ${KAFKA_CLASSIFIER_PASSWORD}
       INTERNAL_CIDRS: 10.10.30.0/24,10.10.10.10/32,172.16.0.0/12
       MODEL_PATH: /models/tier2.joblib
-      TIER2_THRESHOLD: "0.87"              # model tầng 2 huấn luyện lại 12/11/2026 — xem bản một máy
+      TIER2_THRESHOLD: "0.67"              # model tầng 2 huấn luyện lại 12/11/2026 — xem bản một máy
       TIER2_SYNTAX_GATE: "0"
       TIER2_DECISION: "mass"
       TIER2_MODE: ${TIER2_MODE:-corroborate}   # enforce khoá người dùng gõ văn bản tự do — xem bản một máy
@@ -237,10 +237,17 @@ services:
       KAFKA_USER: rulegen
       KAFKA_PASSWORD: ${KAFKA_RULEGEN_PASSWORD}
       # giá trị rút ngắn cho lab — xem ghi chú trong docker-compose.yml của bản một máy
-      INTERVAL_S: "300"
+      # ÁP DỤNG NGAY (chốt 15/11/2026): luật qua kiểm tra tĩnh + kho lành tính là chặn luôn, kèm cảnh báo, lệnh gỡ
+      # (nsmctl rule-revoke <mã>) và tự gỡ khi chặn REVOKE_BENIGN_HITS request của nguồn sạch có tiếng. Luật sống
+      # RULE_TTL_S rồi tự gia hạn nếu trong REVOKE_S gần nhất còn chặn được tấn công. Muốn chạy thử như tài liệu đặc tả:
+      # RULE_APPLY=shadow (khi đó SHADOW_S là thời gian chạy thử).
+      RULE_APPLY: ${RULE_APPLY:-immediate}
+      INTERVAL_S: "60"
       SHADOW_S: "900"
       RULE_TTL_S: "86400"
       REVOKE_S: "21600"
+      REVOKE_BENIGN_HITS: "3"
+      RULE_BAN_S: "86400"
       MIN_CLUSTER: "5"
       BENIGN_LOOKBACK_S: "604800"
       MIN_BENIGN: "100"

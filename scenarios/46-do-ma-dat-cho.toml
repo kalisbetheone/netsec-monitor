@@ -1,0 +1,38 @@
+title = "Cổng đặt chỗ: dò mã đặt chỗ từ một IP (200 mã, 2 mã/giây)"
+case = "B5 (cổng đặt chỗ: dò mã đặt chỗ)"
+notes = """Một IP gọi GET /booking.php?code=…&last=An 200 lần, mỗi lần một mã khác nhau (giá trị hợp lệ kèm số ngẫu nhiên — \
+không có payload tấn công nào). Mã không khớp thì ứng dụng trả 404, nên tầng 3 phải nhận ra hành vi dò (tỷ lệ 404 cao / gần \
+như mọi chuỗi truy vấn khác nhau trên một đường dẫn) và khoá IP. Ứng dụng đặt chỗ là ứng dụng an toàn: kịch bản đo PHẢN ỨNG \
+của hệ thống phòng thủ. Một khách hợp lệ tìm chuyến bay trong lúc đó không được bị khoá. Giới hạn: dò rất chậm (dưới ngưỡng \
+hành vi của từng IP) hoặc rải trên nhiều IP không thuộc phạm vi kịch bản này."""
+max_s = 150
+
+[[actor]]
+name = "dò mã đặt chỗ"
+role = "attack"
+family = "benign"
+unique_suffix = true
+host = "booking.local"
+path = "/booking.php"
+method = "GET"
+param = "code"
+fields = [["last", "An"]]
+count = 200
+interval_s = 0.5
+
+[[actor]]
+name = "khách tìm chuyến"
+role = "benign"
+family = "benign"
+host = "booking.local"
+path = "/search.php"
+param = "q"
+fields = []
+count = 60
+interval_s = 1
+stop_on_block = false
+
+[expect]
+attack_blocked = true
+block_within_s = 60
+benign_blocked = false

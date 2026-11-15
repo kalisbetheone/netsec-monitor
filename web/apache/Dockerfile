@@ -19,7 +19,7 @@ RUN apt-get update \
 # DVWA_REF: MÃ COMMIT của DVWA (cố định 15/11/2026 — trước đây lấy nhánh master nên mỗi lần dựng lại có thể ra một
 # ứng dụng khác với bản đã đo). Đổi bản: --build-arg DVWA_REF=<mã commit / tag / nhánh>.
 ARG DVWA_REF=a1978a2fed195acd093010af6395f86a281537ca
-RUN git init -q /var/www/html && cd /var/www/html  && git remote add origin https://github.com/digininja/DVWA.git  && git fetch -q --depth 1 origin "${DVWA_REF}" && git checkout -q FETCH_HEAD  && cp /var/www/html/config/config.inc.php.dist /var/www/html/config/config.inc.php \
+RUN git config --global --add safe.directory /var/www/html && git init -q /var/www/html && cd /var/www/html  && git remote add origin https://github.com/digininja/DVWA.git  && git fetch -q --depth 1 origin "${DVWA_REF}" && git checkout -q FETCH_HEAD  && cp /var/www/html/config/config.inc.php.dist /var/www/html/config/config.inc.php \
  && chown -R www-data:www-data /var/www/html \
  && chmod -R 777 /var/www/html/hackable/uploads /var/www/html/config
 
@@ -54,6 +54,17 @@ RUN sed -i 's#^SecAuditLog .*#SecAuditLog /var/log/apache-json/modsec_audit.json
  && ( grep -q '^SecAuditLogFormat' /etc/modsecurity/modsecurity.conf \
       && sed -i 's/^SecAuditLogFormat .*/SecAuditLogFormat JSON/' /etc/modsecurity/modsecurity.conf \
       || printf '\nSecAuditLogFormat JSON\n' >> /etc/modsecurity/modsecurity.conf )
+
+# Cổng đặt chỗ giả lập (booking.local) — ứng dụng được bảo vệ trong bài toán "bảo vệ máy chủ dịch vụ trực tuyến và dữ
+# liệu khách hàng" (15/11/2026). PHP + SQLite, dữ liệu tổng hợp sinh lúc build; DVWA vẫn là vhost mặc định (dvwa.local).
+# Chi tiết: web/apache/booking/README.md.
+COPY booking/ /var/www/booking/
+RUN find /var/www/booking -type f \( -name '*.php' -o -name '*.conf' -o -name '*.txt' -o -name '*.css' \) -exec sed -i 's/\r$//' {} + \
+ && mkdir -p /var/lib/booking \
+ && BOOKING_DB=/var/lib/booking/booking.db php /var/www/booking/seed.php \
+ && chown -R root:root /var/www/booking && chmod -R a+rX,go-w /var/www/booking \
+ && chown -R www-data:www-data /var/lib/booking && chmod 750 /var/lib/booking && chmod 640 /var/lib/booking/booking.db \
+ && cp /var/www/booking/booking-vhost.conf /etc/apache2/sites-available/010-booking.conf && a2ensite 010-booking
 
 COPY watch-rules.sh entrypoint.sh /usr/local/bin/
 RUN for f in /usr/local/bin/watch-rules.sh /usr/local/bin/entrypoint.sh \

@@ -8,12 +8,19 @@
 # tối đa SC_PARALLEL container cùng lúc) và các sự cố (dừng/bật dịch vụ) theo lịch -> chờ -> lấy dữ liệu của hệ
 # thống -> chấm. Cấu hình tạm, miễn trừ và dịch vụ bị dừng được khôi phục khi xong hoặc khi bấm Ctrl-C.
 # Kết quả: eval/results/scenarios-<thời điểm>/report.md (+ dữ liệu thô).
+# Biến tuỳ chọn (15/11; không đặt biến nào thì hành vi như cũ):
+#   SC_DIR=scenarios/ngay-nen   thư mục kịch bản, tương đối tính từ nsm/ (mặc định: scenarios)
+#   SC_OUT_NAME=ngaynen         tiền tố thư mục kết quả eval/results/<tiền tố>-<thời điểm>/ (mặc định: scenarios)
+#   SC_CONT=1                   chạy LIỀN MẠCH (ngày nén): không dừng rulegen (chưa chạy thì bật), không reset.sh giữa
+#                               các kịch bản, không xoá luật tự sinh, không đặt mốc not_before, không kiểm "đang có luật
+#                               tự sinh"; nghỉ đầu kịch bản 2 giây thay vì 8. Các khoá khác của kịch bản giữ nguyên.
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/_host.sh"      # đặt D = thư mục dự án (đường dẫn động, xem _host.sh)
 CP=(docker compose -f "$D/docker-compose.yml")
 PYIMG="${BENCH_IMAGE:-nsm-classifier}"; NET_EXT=nsm_external_net; NET_MON=nsm_monitor_net
 MAXPAR="${SC_PARALLEL:-25}"
-SDIR="$D/scenarios"
+SDIR="$D/${SC_DIR:-scenarios}"
+OUTNAME="${SC_OUT_NAME:-scenarios}"; CONT="${SC_CONT:-0}"
 OVR="$D/.scenario.override.yml"
 
 if [ "${1:-}" = "--list" ]; then
@@ -40,7 +47,7 @@ docker image inspect "$PYIMG" >/dev/null 2>&1 || { echo "!! không thấy image 
 grep -qE '^DVWA_DISABLE_AUTH=true' "$D/.env" || { echo "!! DVWA chưa ở chế độ lab — chạy: bash tools/init-env.sh --lab && docker compose up -d apache" >&2; exit 1; }
 # luật tự sinh đang ban hành làm sai kết quả (lượt chạy thử 12/11 bị nhiễm luật 9900000): báo, và xoá nếu được yêu cầu
 NACT=$("${CP[@]}" exec -T apache sh -c "grep -c '^SecRule' /etc/modsecurity/autogen/active.conf 2>/dev/null" 2>/dev/null | tr -dc 0-9)
-if [ "${NACT:-0}" -gt 0 ]; then
+if [ "$CONT" != 1 ] && [ "${NACT:-0}" -gt 0 ]; then
   if [ "${SC_CLEAR_RULES:-0}" = 1 ]; then
     "${CP[@]}" exec -T enforcer sh -c ': > /rules/published/autogen.conf' && echo ">> đã gỡ $NACT luật tự sinh (SC_CLEAR_RULES=1); rulegen ban hành lại khi chạy tiếp" && sleep 10
   else
@@ -49,7 +56,7 @@ if [ "${NACT:-0}" -gt 0 ]; then
 fi
 
 RUN="$(date +%Y%m%d-%H%M%S)"
-OUT="$D/eval/results/scenarios-$RUN"
+OUT="$D/eval/results/$OUTNAME-$RUN"
 mkdir -p "$OUT" || exit 1
 USEROPT=(); [ "$(uname -s)" = Linux ] && USEROPT=(--user "$(id -u):$(id -g)")
 MNT=(-v "$D/tools:/tools:ro" -v "$SDIR:/scenarios:ro" -v "$D/eval/data/openappsec:/eval/data/openappsec:ro"
@@ -58,21 +65,24 @@ py(){ docker run --rm -i "${USEROPT[@]}" "${MNT[@]}" --entrypoint python "$PYIMG
 pymon(){ docker run --rm -i --network "$NET_MON" -e ES_URL=http://elasticsearch:9200 -e ES_USER=elastic \
   --env-file "$D/.env" "${MNT[@]}" --entrypoint python "$PYIMG" -B /tools/scenario.py --run "$RUN" "$@"; }
 
-OVR_SVCS=""; EXEMPTS=(); STOPPED=""; BGPIDS=""; MODSEC_SET=0
+OVR_SVCS=""; EXEMPTS=(); STOPPED=""; BGPIDS=""; MODSEC_SET=0; G2SET=0
 modsec(){ "${CP[@]}" exec -T apache sh -c "sed -i 's/^SecRuleEngine .*/SecRuleEngine $1/' /etc/modsecurity/modsecurity.conf && apache2ctl -k graceful" >/dev/null 2>&1; }
 # xoá MỌI luật tự sinh (trạng thái rulegen + chỉ mục rule-status + tệp luật đã phát) — trước và sau kịch bản có rulegen,
 # để luật của kịch bản này không làm sai kết quả của kịch bản khác. Để rulegen ở trạng thái DỪNG.
+rulegen_floor(){ "${CP[@]}" run --rm --no-deps --entrypoint sh rulegen -c 'date +%s > /state/not_before' >/dev/null 2>&1; }
 clear_rules(){
   "${CP[@]}" stop -t 5 rulegen >/dev/null 2>&1
-  "${CP[@]}" run --rm --no-deps --entrypoint sh rulegen -c 'rm -f /state/rules.json' >/dev/null 2>&1
+  "${CP[@]}" run --rm --no-deps --entrypoint sh rulegen -c 'rm -f /state/rules.json; date +%s > /state/not_before' >/dev/null 2>&1
   ES -X DELETE "localhost:9200/rule-status?ignore_unavailable=true" >/dev/null 2>&1
   "${CP[@]}" exec -T enforcer sh -c ': > /rules/published/autogen.conf' >/dev/null 2>&1
 }
 restore(){
   [ "$MODSEC_SET" = 1 ] && { modsec On; MODSEC_SET=0; }
+  [ "$G2SET" = 1 ] && { bash "$D/tools/gate2.sh" all block >/dev/null 2>&1; G2SET=0; }
   docker ps -aqf "name=sc_" | xargs -r docker rm -f >/dev/null 2>&1
   for c in "${EXEMPTS[@]}"; do bash "$D/tools/nsmctl.sh" exempt-del "$c" >/dev/null 2>&1; done
   EXEMPTS=()
+  if [ "$CONT" != 1 ]; then case " $STOPPED " in *" rulegen "*) rulegen_floor;; esac; fi   # rulegen không học từ dữ liệu của kịch bản vừa xong
   for s in $STOPPED; do "${CP[@]}" start "$s" >/dev/null 2>&1; done
   STOPPED=""
   if [ -n "$OVR_SVCS" ]; then rm -f "$OVR"; "${CP[@]}" up -d $OVR_SVCS >/dev/null 2>&1; OVR_SVCS=""; fi
@@ -90,6 +100,14 @@ for f in "${FILES[@]}"; do
   title=$(grep '^TITLE|' "$SD/plan.txt" | cut -d'|' -f2-)
   maxs=$(grep '^MAXS|' "$SD/plan.txt" | cut -d'|' -f2); settle=$(grep '^SETTLE|' "$SD/plan.txt" | cut -d'|' -f2)
   echo ">> [$name] $title"
+  if [ "$CONT" = 1 ]; then
+    # chạy liền mạch (SC_CONT=1, ngày nén): trạng thái chặn, luật tự sinh và rulegen được GIỮ qua các kịch bản
+    SC_RULEGEN=0
+    if ! "${CP[@]}" ps --status running --services 2>/dev/null | tr -d '\r' | grep -qx rulegen; then
+      "${CP[@]}" up -d rulegen >/dev/null 2>&1; echo "   rulegen được bật (SC_CONT=1)"
+    fi
+    sleep 2
+  else
   # rulegen dừng trong kịch bản trừ khi kịch bản khai báo  rulegen = true  (cô lập kết quả)
   if [ "$(grep '^RULEGEN|' "$SD/plan.txt" | cut -d'|' -f2)" != 1 ] && printf '%s\n' "$RUNNING" | grep -qx rulegen; then
     "${CP[@]}" stop rulegen >/dev/null 2>&1 && STOPPED="$STOPPED rulegen"
@@ -99,6 +117,7 @@ for f in "${FILES[@]}"; do
   SC_RULEGEN=$(grep '^RULEGEN|' "$SD/plan.txt" | cut -d'|' -f2)
   if [ "$SC_RULEGEN" = 1 ]; then echo "   xoá luật tự sinh trước kịch bản ..."; clear_rules; STOPPED="$STOPPED rulegen"; fi
   sleep 8
+  fi
 
   # cấu hình tạm
   if grep -q '^OVR|' "$SD/plan.txt"; then
@@ -124,6 +143,9 @@ for f in "${FILES[@]}"; do
     echo "   rulegen đang chạy"; sleep 5
   fi
   MODS=$(grep '^MODSEC_DO|' "$SD/plan.txt" | cut -d'|' -f2)
+  G2D=$(grep '^G2DETECT|' "$SD/plan.txt" | cut -d'|' -f2 | tr '\n' ' ')
+  for l in $G2D; do bash "$D/tools/gate2.sh" "$l" detect >/dev/null 2>&1 && G2SET=1; done
+  [ -n "${G2D// /}" ] && echo "   Cổng 2: lớp chỉ ghi nhận trong kịch bản này: $G2D"
   RELOADS=$(grep '^RELOADS|' "$SD/plan.txt" | cut -d'|' -f2)
 
   # sự cố theo lịch
@@ -169,7 +191,8 @@ for f in "${FILES[@]}"; do
             /tools/scenario.py --run "$RUN" toolparse "/scenarios/$base" --slot "$slot" --index "$i" --ipn "$j" \
             --path "/sd/wafbypass_$i.json" --t0 "$t0" --t1 "$(date +%s)" > "$SD/a_${i}_${j}.json" 2>>"$SD/actors.log" ;;
         *)
-          docker run --rm -i --name "sc_${name}_${i}_${j}" --network "$NET_EXT" --ip "$ip" "${MNT[@]}" \
+          CAP=(); [ "$kind" = botnet ] && CAP=(--cap-add NET_ADMIN)      # botnet: thêm địa chỉ IP nguồn phụ trong container
+          docker run --rm -i --name "sc_${name}_${i}_${j}" --network "$NET_EXT" --ip "$ip" ${CAP[@]+"${CAP[@]}"} "${MNT[@]}" \
             --entrypoint python "$PYIMG" -B /tools/scenario.py --run "$RUN" actor "/scenarios/$base" --slot "$slot" \
             --index "$i" --ipn "$j" < /dev/null > "$SD/a_${i}_${j}.json" 2>>"$SD/actors.log" ;;
       esac ) &
@@ -181,6 +204,7 @@ for f in "${FILES[@]}"; do
   while [ "$(alive_actors)" -gt 0 ] && [ "$(date +%s)" -lt "$deadline" ]; do sleep 1; done
   for p in $BGPIDS; do wait "$p" 2>/dev/null; done; BGPIDS=""
   [ "$MODSEC_SET" = 1 ] && { modsec On; MODSEC_SET=0; }
+  [ "$G2SET" = 1 ] && { bash "$D/tools/gate2.sh" all block >/dev/null 2>&1; G2SET=0; }
   if [ "${RELOADS:-0}" = 1 ]; then                # E5: số lần nginx nạp lại danh sách chặn trong kịch bản
     NREL=$("${CP[@]}" logs --since "$T0ISO" nginx 2>/dev/null | grep -c "blocklist reloaded")
     printf '{"scenario": "%s", "actor": -1, "name": "nginx", "role": "system", "ip": "-", "kind": "system", "t_start": %s, "t_end": %s, "sent": [], "extra": {"nginx_reloads": %s, "duration_s": %s}}\n' \
@@ -188,6 +212,7 @@ for f in "${FILES[@]}"; do
     echo "   nginx nạp lại: ${NREL:-0} lần"
   fi
   docker ps -aqf "name=sc_${name}_" | xargs -r docker rm -f >/dev/null 2>&1
+  if [ "$CONT" != 1 ]; then case " $STOPPED " in *" rulegen "*) rulegen_floor;; esac; fi
   for s in $STOPPED; do "${CP[@]}" start "$s" >/dev/null 2>&1; done; STOPPED=""
   grep -hv '^\s*$' "$SD"/actors.log 2>/dev/null | tail -n 6 | sed 's/^/ /'
   echo "   chờ ${settle}s cho đường ống ghi dữ liệu ..."; sleep "$settle"
@@ -208,4 +233,4 @@ docker run --rm -i "${USEROPT[@]}" "${MNT[@]}" -v "$OUT:/o:ro" --entrypoint pyth
   --run "$RUN" report --results /o/results.jsonl > "$OUT/report.md"
 echo
 sed -n '/^## 1\./,/^## 2\./p' "$OUT/report.md" | sed '$d'
-echo ">> báo cáo: eval/results/scenarios-$RUN/report.md"
+echo ">> báo cáo: eval/results/$OUTNAME-$RUN/report.md"

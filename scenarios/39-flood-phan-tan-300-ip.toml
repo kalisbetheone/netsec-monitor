@@ -1,0 +1,34 @@
+title = "Flood phân tán: botnet 300 IP, mỗi IP dưới ngưỡng của từng IP"
+case = "C3 mở rộng (quá tải lớp ứng dụng)"
+notes = """300 IP, mỗi IP 1,5 request/giây trong 60 giây (90 request — dưới ngưỡng flood 100 request/phút và dưới hạn mức \
+20 request/giây của từng IP), tổng khoảng 450 request/giây — vượt trần tổng 350 request/giây của Cổng 1. Mỗi request gắn \
+một chuỗi truy vấn ngẫu nhiên (kiểu phá bộ đệm), nên tầng 3 nhận ra từng IP theo mẫu 'enum' (một đường dẫn, gần như mọi \
+chuỗi truy vấn khác nhau) và khoá chúng. Trần tổng của Cổng 1 giữ cho Apache không quá tải trong lúc chờ. Người dùng hợp lệ \
+tìm kiếm 1 lần/giây và không được bị khoá; một phần nhỏ request của họ có thể nhận 429 khi trần tổng đầy (số đo ghi trong \
+báo cáo). Giới hạn còn lại: flood bằng request GIỐNG HỆT nhau, mỗi IP dưới ngưỡng, chỉ được trần tổng chặn bớt — không IP \
+nào bị khoá vì không phân biệt được với một đợt cao điểm hợp lệ (kịch bản 40)."""
+max_s = 150
+
+[[actor]]
+name = "botnet flood"
+kind = "botnet"
+bots = 300
+bot_offset = 200
+family = "benign"
+count = 90
+interval_s = 0.66
+unique_suffix = true
+stop_on_block = false
+
+[[actor]]
+name = "người dùng"
+role = "benign"
+family = "benign"
+count = 60
+interval_s = 1.0
+stop_on_block = false
+start_s = 5
+
+[expect]
+bots_blocked_min_share = 0.8
+benign_blocked = false

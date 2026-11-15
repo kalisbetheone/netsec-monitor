@@ -153,6 +153,15 @@ _RULES = [
     ("redirect", r"^\s*https?://[^/?#]*@", "redirect"),                          # https://trusted@evil
 ]
 RULES_T1 = [(c, re.compile(p, re.I), sc) for c, p, sc in _RULES]
+# Luật "rất chắc" (D5, 15/11/2026): đo trên toàn bộ lưu lượng lành tính thật của openappsec (0 lần khớp) và đủ nhiều lần khớp
+# tấn công — eval/tier1_rule_stats.py -> models/tier1_strong.json. Cảnh báo từ các luật này mang cờ strong=true; responder
+# tính mỗi cảnh báo như STRONG_WEIGHT cảnh báo (mặc định 2,5 -> IP bị chặn ở cảnh báo thứ 2 thay vì thứ 5). KHÔNG khoá ngay ở
+# cảnh báo đầu: request đó đã bị Cổng 2 chặn đồng bộ, và khách sau NAT của nhà mạng dùng chung IP (bài toán cổng đặt chỗ).
+STRONG_PATH = os.getenv("TIER1_STRONG", "/models/tier1_strong.json")
+try:
+    STRONG_PATTERNS = {r["pattern"] for r in json.load(open(STRONG_PATH, encoding="utf-8"))["rules"]}
+except (OSError, ValueError, KeyError):
+    STRONG_PATTERNS = set()
 RULES = {}                                   # dạng cũ {lớp: [mẫu]} — giữ cho mã/kiểm thử đọc danh sách luật
 for _c, _p, _sc in RULES_T1: RULES.setdefault(_c, []).append(_p)
 WS = re.compile(r"\s+")     # gộp khoảng trắng trước khi so khớp: SQL/shell không phân biệt số khoảng trắng, và
@@ -392,6 +401,7 @@ def _tier1(units, path, ua, status=0):
             conf = min(cap, REFERER_CONF) if field == "REQUEST_HEADERS:Referer" else cap
             r = {"label": cls, "conf": conf, "tier": 1, "rule": p.pattern[:200], "field": field.replace("RAW:", ""),
                  "evidence": m.group(0)[:120]}
+            if conf >= 0.9 and p.pattern in STRONG_PATTERNS: r["strong"] = True
             if conf >= 0.9: return r
             if weak is None: weak = r
             break
@@ -480,7 +490,8 @@ def _classify_web(ev, body, intercepted=None, truncated=False):
                           "confidence": conf, "tier": c["tier"], "source": "web", "target": target[:512],
                           "status": status, "waf_blocked": waf_blocked, "ua": (ua or "")[:256],
                           "evidence_field": c["field"], "evidence": c["evidence"],
-                          **({"weighted": True} if c.get("weighted") else {})})
+                          **({"weighted": True} if c.get("weighted") else {}),
+                          **({"strong": True} if c.get("strong") else {})})
     # 2) rồi mới đưa bản ghi vào bộ đệm ES (ghi ở luồng nền)
     args = redact_pairs(qargs + bargs)[:50]
     # ARGS đúng như ModSecurity nhìn thấy (giải mã MỘT lần, giữ hoa thường): luật tự sinh được áp lên

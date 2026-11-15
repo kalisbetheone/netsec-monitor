@@ -1,0 +1,13 @@
+title = "Khai thác thật trên DVWA — chỉ OWASP CRS chặn (luật tầng 1 đồng bộ chỉ ghi nhận)"
+case = "B1 (đo)"
+notes = """Cùng bộ payload và cùng phiên đăng nhập như kịch bản 34. Chỉ CRS 4.25 (mức PL1) chặn; luật tầng 1 đồng bộ của NSM \
+ở chế độ chỉ ghi nhận. Đo xem riêng CRS để lọt bao nhiêu lần khai thác."""
+max_s = 150
+exempt = ["self"]
+gate2_detect = ["tier1"]
+
+[[actor]]
+name = "khai thác"
+kind = "exploit"
+per_family = 8
+interval_s = 0.3

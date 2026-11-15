@@ -154,3 +154,119 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   `tools/tier1sync.sh` (CRS 949110 và luật tự sinh được tạm gỡ trong lúc đo). Khác biệt đã biết: ModSecurity giải mã '+'
   thành dấu cách cả trong ĐƯỜNG DẪN và giải mã `%uXXXX` (classifier thì không) nên bắt thêm SQLi/CRLF dạng đó; nội dung TỆP
   tải lên được soi qua thân thô multipart (`SecStreamInBodyInspection On`).
+- 15/11/2026 — **tầng 2 chế độ `weighted` và thang độ tin cậy.** Nhãn chỉ do model (Cổng 2 không chặn) vẫn thành cảnh báo
+  nhưng mang cờ `weighted`: responder tính `TIER2_WEIGHT` = 0,5 vào ngưỡng cửa sổ ngắn, không tính cửa sổ dài, không khoá
+  ngay; khi Cổng 2 cũng chặn thì tính đủ. Điểm model trong [ngưỡng, 1] được đổi tuyến tính sang [0,90; 1,00]
+  (`TIER2_CONF_FLOOR`) vì ngưỡng của model (chọn trên valid, model 14/11: 0,67) không cùng thang với θ = 0,90 của responder;
+  điểm gốc lưu ở `t2_conf`. Hệ quả cho đo đạc: trường `confidence` của nhãn tầng 2 từ ngày này không so trực tiếp được với
+  trước; so điểm model thì dùng `t2_conf`. Nhãn `weighted` vào `web-events-*` như nhãn tấn công — khi đếm báo nhầm của
+  classifier phải báo riêng phần `weighted`.
+- 15/11/2026 — **luật tự sinh áp dụng ngay** (`RULE_APPLY=immediate`): luật qua kiểm tra tĩnh và kho lành tính là chặn
+  ngay, không qua chạy thử `SHADOW_S`; tự gỡ khi chặn `REVOKE_BENIGN_HITS` = 3 request của nguồn sạch có tiếng (đếm từ
+  `apache-errors-*`), hoặc không khớp gì trong `REVOKE_S`; sống `RULE_TTL_S` rồi tự gia hạn nếu còn chặn được tấn công.
+  Hệ quả cho đo đạc: chỉ số "chặn nhầm trong lúc chạy thử" của bộ sinh luật không còn đo được ở cấu hình mặc định —
+  muốn đo phải đặt `RULE_APPLY=shadow` cho lượt đo đó và ghi rõ; số request lành tính bị luật tự sinh chặn trước khi luật bị
+  tự gỡ là chỉ số mới phải báo cáo.
+- 15/11/2026 — **chỉ mục `attack-events-*`**: sự kiện có nhãn tấn công được ghi thêm một bản (giữ 1 năm); `web-events-*`
+  vẫn đủ mọi sự kiện. Công cụ đo tiếp tục đọc `web-events-*`; đếm trên `attack-events-*` sẽ trùng với phần tấn công của
+  `web-events-*`, không cộng hai chỉ mục.
+- 15/11/2026 — **đo khai thác thật** (kiểu tác nhân `exploit` của `tools/scenario.py`, có sau khi áp bản vá
+  `p_scenario.py`): đăng nhập DVWA bằng tài khoản mặc định của lab, đặt mức `low`, gửi payload các họ cơ bản vào đúng
+  trang có lỗ hổng và đọc THÂN PHẢN HỒI để biết payload có khai thác được thật không. Tiêu chí (chốt trước khi chạy):
+  SQLi — trang trả từ hai bản ghi người dùng trở lên (`First name:` ≥ 2) hoặc lộ lỗi cú pháp SQL; RCE — phản hồi có kết quả
+  lệnh (`uid=…(`, `root:x:0:0`, `www-data`, chuỗi `Linux <bản> <số>`); LFI — `root:x:0:0`, `[boot loader]`, hoặc mã PHP
+  thô; XSS — payload được trả lại nguyên văn và có `<script`, `onerror`, `onload` hoặc `javascript:`. Chỉ request đi qua
+  được Cổng 2 (`gate` = `pass`) mới được tính là khai thác được. Chỉ số: tỷ lệ payload khai thác được khi không lớp nào
+  chặn (để chứng tỏ bộ thử có nghĩa) và số payload còn khai thác được ở từng cấu hình bảo vệ. Ứng dụng đặt chỗ giả lập
+  (`booking.local`) KHÔNG có lỗ hổng cài sẵn nên không dùng cho phép đo này.
+- 15/11/2026 — **kiểu tác nhân `botnet`** (sau khi áp bản vá `p_scenario2.py`): một container thêm địa chỉ IP phụ cho giao
+  diện mạng (dải 10.10.6.1–10.10.9.254 từ 15/11 04:00, trước đó 10.10.8–9.x; ngoài dải cấp IP của kịch bản; cần NET_ADMIN) và gửi từ hàng trăm IP nguồn, mỗi IP
+  một luồng. Dùng cho flood phân tán và nhồi tài khoản quy mô lớn, nơi MỖI IP ở dưới ngưỡng theo từng IP. Kết quả theo IP
+  của kiểu này không so trực tiếp được với các kịch bản mỗi IP một container (thời điểm gửi của các IP trùng nhau hơn).
+- 15/11/2026 — **ĐÍNH CHÍNH số đo waf-bypass ngày 13/11:** tỷ lệ chặn là **74,2 %** tính theo cặp (payload, vùng đặt) —
+  mỗi cặp là một request thật (trường `zones` của `wafbypass_summary`). Con số 53 % trong các báo cáo trước tính theo số
+  TỆP payload (trường `files`), trong đó một tệp bị chặn ở vùng này nhưng lọt ở vùng khác nằm trong CẢ danh sách bị chặn
+  lẫn danh sách lọt — nên đó không phải tỷ lệ request bị chặn. Từ ngày này chỉ báo tỷ lệ theo cặp; tỷ lệ theo tệp nếu cần
+  thì ghi rõ là theo tệp.
+- 15/11/2026 03:29–04:30 — **thay đổi SAU KHI đã thấy kết quả kịch bản** (ghi để người đọc biết các con số "sau nâng cấp"
+  không phải lượt đầu tiên của cấu hình mới). Lượt đầu `eval/results/scenarios-20261115-032854/` (2/9 đạt) được giữ nguyên.
+  Thay đổi HỆ THỐNG: (1) cảnh báo chỉ do tầng 2 không tự khoá IP (`T2_SOLO_BLOCK=0`) — do kịch bản 02 khoá 4/5 người dùng;
+  (2) `STRONG_WEIGHT` mặc định 1 (tắt) — do kịch bản 02 khoá người dùng "mơ hồ"; (3) rulegen có mốc `/state/not_before` —
+  do rulegen học từ dữ liệu của kịch bản trước. Thay đổi CÔNG CỤ ĐO (không đổi hệ thống): thời gian chặn lấy từ quyết định
+  chặn khi tác nhân không kịp thấy 403; botnet tính IP bị chặn theo quyết định của responder; dải IP bot riêng cho từng
+  kịch bản (ARP cũ của nginx). Thay đổi KỊCH BẢN: 37 (flood kéo dài thay vì 1,2 giây), 39 (người dùng hợp lệ 1 request/giây
+  thay vì 2 — kịch bản cũ tự vượt ngưỡng flood; kỳ vọng theo điều được đo: mẫu 'enum' bắt flood phá bộ đệm), 42 mới.
+  Rủi ro lạc quan: (1) và (2) được chọn theo chính kịch bản 02 — cần một kịch bản người dùng hợp lệ KHÁC để kiểm lại (42 là
+  lưu lượng thật không trùng, nhưng là lưu lượng 404 trên DVWA, không phải phiên người dùng).
+- 15/11/2026 — **A3, chi phí luật tầng 1 đồng bộ** (`bench.sh perf`, cùng máy, cách nhau 2 phút): có luật p50 5,4 ms, 537
+  req/s ở 8 kết nối, 472 req/s ở 32; bỏ luật (tệp rỗng tạm thời) p50 5,1 ms, 504 / 447 req/s. Chênh lệch nằm trong dao động
+  giữa hai lượt (lượt có luật còn nhanh hơn) -> chi phí không đo được ở mức này. Khi bỏ luật, 198 / 3 370 request SQLi của
+  bench đi qua Cổng 2; khi có luật: 0.
+- 15/11/2026 — **kịch bản 42 (A4)**: phát lại lưu lượng thật bắt đầu từ dòng 7 000 của tập openappsec Legitimate; kịch bản
+  32 (dùng khi tinh chỉnh CRS 14/11) chỉ lấy tới dòng 6 423 với cùng bước 37, nên hai mẫu không trùng.
+- 15/11/2026 — **lượt đo đầy đủ sau nâng cấp** (`eval/results/baseline-sau-nang-cap/`, `scenarios-20261115-044706/`):
+  37/42 đạt, 13 KHÔNG ĐẠT (62/75 request hợp lệ bị chặn lây). Nguyên nhân từ nhật ký kiểm toán: lệnh chặn cả IP ra 9 ms
+  TRƯỚC khi tier3 báo IP dùng chung (cảnh báo nửa trọng số làm đủ ngưỡng sớm hơn: 6,8 s thay vì 12,4 s). Thay đổi HỆ
+  THỐNG sau khi thấy kết quả: báo dùng chung đến trong `SHARED_GRACE_S` (30 s) sau lệnh chặn cả IP do đếm ngưỡng -> hạ
+  xuống chặn (IP, User-Agent gây chặn). Chạy lại 02, 12, 13 (`scenarios-20261115-063137`): 3/3 đạt, nhưng ở lượt này tier3
+  báo trước nên nhánh hạ cấp KHÔNG được kích hoạt trên hệ thống thật — nhánh đó chỉ được kiểm bằng tests/test_logic.py.
+  Lượt đầy đủ giữ nguyên, không chạy lại toàn bộ.
+- 15/11/2026 (chiều) — **đợt làm song song 4 phiên** (spec `Spec-phan-viec-4-phien-NSM-15-11.md` trong thư mục GSANM;
+  trạng thái từng phiên trong `nsm-wip-15-11/phoi-hop/P0..P3.md`).
+  - **Bảng 2 × 2 tầng 2** (`bench.sh detect`, chỉ đổi model và chế độ): báo nhầm câu "khó" 1/27 ở `corroborate` với cả hai
+    model, 8/27 ở `weighted` với cả hai model -> mức tăng sau nâng cấp là do CHẾ ĐỘ, không do model (bản đầu của báo cáo
+    cuối quy cho model — đã đính chính). Model 14/11 + `weighted` gắn nhầm thêm 2/28 mẫu thường (form đăng nhập). Bắt tấn
+    công của bộ phân loại không đổi theo chế độ (62/65 với 12/11, 63/65 với 14/11). Lượt (12/11, weighted) chạy lần đầu bị
+    LOẠI: Git Bash đổi giá trị biến TIER2_MODEL_PATH=/models/… thành đường dẫn Windows, classifier chạy không có model tầng 2;
+    chạy lại với MSYS_NO_PATHCONV=1.
+  - **Kiểm nhánh hạ cấp D1 trên hệ thống thật** (`tools/d1grace.sh`): có TIÊM TAY thông điệp ip_profile bằng tài khoản Kafka
+    của tier3, vì sau khi IP bị chặn cả ở Cổng 1, tier3 không còn thấy request của IP đó. Đạt 2/2 (IP .171, .172). Lần thứ
+    hai trên cùng IP .171 không dựng được tình huống (responder còn nhớ IP dùng chung trong SHARED_TTL_S) — đúng hành vi.
+  - **docker-compose.yml**: 8 tham số đổi sang dạng ${BIẾN:-mặc định} (mặc định giữ nguyên) để công cụ đo và "ngày nén" đặt
+    tạm được lúc chạy. **rulegen**: thêm một dòng nhật ký khi mốc not_before đang cắt dữ liệu học (không đổi logic).
+  - **Kịch bản 47 — sửa cách chấm SAU lần chạy đầu.** Lần đầu (`eval/results/scenarios-20261115-121620/`): KHÔNG ĐẠT 4/5,
+    tỷ lệ Cổng 2 của tác nhân thử 8/9 (88,9 %) dưới ngưỡng 95 %. Nguyên nhân là cách chấm: tác nhân bị khoá IP giữa chừng,
+    nên mẫu số tính cả request Cổng 1 chặn sau khi khoá. Sửa KỊCH BẢN (không sửa hệ thống): tách thành vai `do_cong2`
+    (IP cố định 10.10.10.179, miễn trừ tạm, giữ ngưỡng 95 %) và vai `attack` (phải bị khoá trong 15 s). Chạy lại đúng một
+    lần (`scenarios-20261115-122520`): ĐẠT 6/6. Kết quả lần đầu được giữ; bản kịch bản ban đầu ở
+    `nsm-wip-15-11/phoi-hop/47-ban-dau-lan-chay-1.toml`.
+  - **Thử SC_CONT (chạy liền mạch, không reset giữa các kịch bản):** lượt 11:59 cho kịch bản 02 KHÔNG ĐẠT (4/5 IP người
+    dùng nhận 403) vì kịch bản 03 chạy ngay trước dùng đúng các IP đó làm IP tấn công và lệnh chặn còn hạn. Đây là lỗi
+    của cách dựng phép thử, đồng thời là bằng chứng SC_CONT giữ trạng thái chặn. Không sửa gì sau khi thấy kết quả này.
+  - **Lượt đo chốt** (`tools/baseline.sh cuoi`, commit `8498bcd`, 12:32–14:32; `eval/results/baseline-cuoi/`,
+    `scenarios-20261115-124042/`, `bench-results/20261115-142806/`): 45 kịch bản — 41 ĐẠT, 1 LỖ HỔNG ĐÃ BIẾT (04), 3 CHỈ ĐO
+    (20, 21, 35), 0 KHÔNG ĐẠT. Chạy một lần, không chạy lại kịch bản nào. Trong lúc đo, máy còn chạy bốn phiên làm việc,
+    nên số req/s của bench (442 ở 8 kết nối) KHÔNG so được với lượt đêm (535).
+  - **Bench, chặn IP khi flood: 2/3.** Responder ra quyết định ở cả ba lần. Ở lần 2, quyết định có ở giây 4,0, có hiệu lực
+    tại nginx ở giây 5,5; bench dừng 47 ms sau đó vì đủ 5 000 request nên không thấy 403. `tools/bench.sh` KHÔNG được sửa
+    sau khi thấy kết quả này; con số 2/3 được báo nguyên.
+  - **Kịch bản 32 và 42 không đo việc khoá IP.** Cả hai đặt `exempt = ["self"]` để đo hết request, nên responder bỏ qua
+    các IP phát lại. "0/4 IP bị khoá" ở hai kịch bản này là hệ quả của việc miễn trừ. Các báo cáo trước ngày 15/11 (chiều)
+    có câu "không IP nào bị khoá" cho kịch bản 42 — câu đó đúng về số đo nhưng không phải bằng chứng; đã đính chính.
+  - **Ngày mô phỏng nén 12 lần** (`tools/ngaynen.sh`, công cụ ở commit `33faba8`, hệ thống ở `8498bcd`): thay cho đợt chạy
+    thử 24 giờ; KHÔNG phải 24 giờ thật và không được gọi như vậy. Responder `dryrun`. Tham số thời gian nén đúng 12 lần
+    (LONG_WINDOW_S 7200, TTL_STEPS_S 75,300,7200, MAX_TTL_S 7200, SHARED_TTL_S 300, RULE_TTL_S 7200); `OFFENSE_RESET_S`
+    không nén. Nhịp lưu lượng nén 16,2 lần: 24 khung giờ trong 5 331 s (88 phút 51 giây, 15:04:37–16:33:28), mỗi khung
+    khoảng 222 s vì `max_s = 250` chỉ là trần. Tiêu chí và ngưỡng ghi trong công cụ TRƯỚC khi chạy. Lượt thử hai khung giờ
+    (`eval/results/ngaynen-20261115-143504/`) là lượt kiểm công cụ, không tính; công cụ không đổi sau lượt thử.
+    Kết quả (`eval/results/ngaynen-20261115-150440/tong-ket.md`): tiêu chí 1 ĐẠT (0/814 IP hợp lệ có "sẽ chặn"); 1c ĐẠT;
+    2 ĐẠT (hai IP gieo: ttl 75 → 300 → 7 200); 3 ĐẠT (sinh ra 27 584 request: 0 bị Cổng 2 chặn, 0 lần 429; phát lại
+    186/4 665 = 3,99 % bị Cổng 2 chặn); 24/24 khung giờ đạt.
+  - **Ngày nén, dòng 1b — quyết định vào IP phát lại lưu lượng thật.** Việc tách IP phát lại khỏi tiêu chí 1 được quyết
+    định khi viết công cụ, trước lượt thử (lý do: đường dẫn của website khác gửi vào DVWA, phần lớn trả 404). Kết quả:
+    12/12 IP phát lại nhận "sẽ chặn" (33 quyết định, `immediate:behaviour`, mẫu `recon` của tier3; 4 475/4 698 request
+    = 95,3 % trả 404). Ở chế độ chặn thật, 12 IP này sẽ bị khoá. Diễn giải: hiện vật của cách thử, không phải bằng chứng
+    khách thật bị chặn nhầm; nhưng trường hợp khách thật gặp nhiều trang 404 CHƯA được đo. Không đổi ngưỡng `recon` sau
+    khi thấy kết quả này.
+  - **Sự cố phối hợp:** phiên P1 xong lượt thử 14:44 nhưng không nhả khoá stack; P0 gỡ khoá lúc 15:03 sau khi đọc kết quả.
+    Mất khoảng 15 phút; lượt thử lại trình diễn của P3 dời xuống ngay trước các lượt chính thức. Không ảnh hưởng số đo.
+  - **Trình diễn** (`PRESENT_AUTO=1 bash tools/present.sh`, ba lượt chính thức 16:37–17:14; nhật ký
+    `nsm-wip-15-11/present-chinh-thuc-{1,2,3}.log`, kết quả `eval/results/trinhdien-20261115-16*`, `-17*`): ĐẠT 2/3 lượt
+    (718, 732, 726 giây). Lượt 2 sai bước 3: 3/4 IP bị khoá khi còn đang tấn công; cảnh báo của IP thử RCE tới responder
+    chậm khoảng 8 giây (khâu chậm trước responder, chưa xác định); 12/12 request của IP đó vẫn bị Cổng 2 chặn. KHÔNG sửa
+    `present.sh`, kịch bản hay kỳ vọng sau khi thấy kết quả; con số 2/3 được báo nguyên. Thay đổi TRƯỚC ba lượt chính
+    thức: bước 5 đổi từ bản rút gọn của kịch bản 38 (DVWA) sang bản rút gọn của kịch bản 45 (cổng đặt chỗ); lượt thử
+    12:03 (697 giây, đạt) chạy với bản cũ.
+  - **Kịch bản 45 và 46 — lần chạy đầu** (`eval/results/scenarios-20261115-121620/`, cùng lượt với lần đầu của 47): 45 ĐẠT
+    4/4 (100/100 IP của botnet bị khoá, mẫu `stuffing` của tier3; khách 60/60 thành công); 46 ĐẠT 4/4 (IP dò mã bị khoá
+    sau 8,0 s, mẫu `recon`). Không sửa gì ở hai kịch bản này sau lần chạy đầu.

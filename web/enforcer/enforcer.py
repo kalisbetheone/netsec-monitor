@@ -27,6 +27,7 @@ from common import Heartbeat, atomic_write, consumer, install_stop, load_json, l
 L = log("enforcer")
 MAP_PATH   = "/blocklist/blocklist.map"
 FP_PATH    = "/blocklist/blockfp.map"         # khoá "<ip>|<User-Agent>" cho map "$remote_addr|$http_user_agent" của nginx
+EXEMPT_PATH = "/blocklist/exempt.geo"         # dải miễn trừ cho khối geo của nginx (không giới hạn tốc độ) — 15/11/2026
 UA_SAFE = re.compile(r'^[\x20-\x21\x23\x25-\x5b\x5d-\x7e]{0,256}$')   # không có " \ $ -> không phá được cú pháp nginx
 RULES_PATH = "/rules/published/autogen.conf"
 STATUS_JSON = "/rules/status.json"          # do watcher của apache ghi sau apachectl -t
@@ -69,6 +70,13 @@ def write_blocklist(payload, p):
         except (ValueError, TypeError):
             bad_fp += 1
     if bad_fp: L.warning("bỏ %d dấu vân tay không hợp lệ trong enforce.blocklist", bad_fp)
+    if "exempt" in payload:                # bản responder cũ không gửi khoá này -> giữ nguyên tệp đang có
+        nets, bad_n = set(), 0
+        for c in payload.get("exempt") or []:
+            try: nets.add(str(ipaddress.ip_network(str(c).strip(), strict=False)))
+            except ValueError: bad_n += 1
+        if bad_n: L.warning("bỏ %d dải miễn trừ không hợp lệ trong enforce.blocklist", bad_n)
+        atomic_write(EXEMPT_PATH, "# managed by enforcer — do not edit\n" + "".join(f"{n} 1;\n" for n in sorted(nets)))
     # ghi tệp dấu vân tay TRƯỚC: nginx nạp lại khi thấy blocklist.map đổi và đọc cả hai tệp
     atomic_write(FP_PATH, "# managed by enforcer — do not edit\n" + "".join(f'"{ip}|{ua}" 1;\n' for ip, ua in sorted(fps)))
     body = "# managed by enforcer — do not edit\n" + "".join(f"{ip} 1;\n" for ip in sorted(ips))

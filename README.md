@@ -60,6 +60,21 @@ bash tools/nsmctl.sh exempt-del 10.10.10.0/28
 Lệnh đi qua topic `nsm.control`, responder thi hành và ghi kiểm toán (`decision` = `unblock` /
 `exempt_add` / `exempt_del`, `reason` = `manual`).
 
+Từ 15/11/2026:
+```bash
+bash tools/nsmctl.sh mode                     # responder đang chặn thật (enforce) hay chạy thử (dryrun)
+bash tools/nsmctl.sh mode dryrun              # chạy thử: chỉ ghi "sẽ chặn" (would_block), không gửi lệnh chặn
+bash tools/nsmctl.sh mode enforce             # chặn thật trở lại
+bash tools/nsmctl.sh rules                    # luật tự sinh đang sống (mã, lớp, trạng thái, nội dung, số lần khớp thật)
+bash tools/nsmctl.sh rule-revoke 9900012      # gỡ MỘT luật ngay; không được sinh lại trong 24 giờ
+bash tools/nsmctl.sh rule-revoke-all          # gỡ mọi luật tự sinh
+bash tools/gate2.sh status                    # lớp nào của Cổng 2 đang chặn / chỉ ghi nhận
+bash tools/gate2.sh crs detect                # CRS chỉ ghi nhận (tier1 detect: luật tầng 1 đồng bộ); "all block" để trả lại
+```
+Lệnh `rule-*` do rulegen thi hành. `gate2.sh` ghi một tệp cấu hình tạm trong container apache, mất khi container được
+tạo lại. Hướng dẫn từng bước (gỡ chặn nhầm, gỡ luật, chạy thử ↔ chặn thật, khi một thành phần dừng):
+`Huong-dan-su-dung-NSM.md`, mục 13.
+
 ## Quan sát
 - **Cổng 1:** nginx ghi JSON các request nó từ chối (403 vì IP bị chặn, 429 vì vượt giới hạn kết nối) →
   topic `gate1.logs` → chỉ mục `gate-events-*`. Dashboard có hàng "Cổng 1 — IP đang bị chặn vẫn làm gì".
@@ -76,9 +91,13 @@ Lệnh đi qua topic `nsm.control`, responder thi hành và ghi kiểm toán (`d
   nhật ký web; tier3 chạy không có model; gửi Kafka thất bại; bộ đệm Elasticsearch tràn. Nhận cảnh báo ra
   ngoài: đặt `ALERT_WEBHOOK_URL=https://...` trong `.env` rồi `docker compose up -d grafana`
   (`soc/grafana/start.sh` tự tạo contact point). Để trống thì cảnh báo chỉ hiện trong Grafana.
-- **Lưu giữ:** chỉ mục `gate-events-*`, `apache-errors-*`, `nsm-health-*` tự xoá sau 14 ngày (ILM, đặt trong
-  `soc/es-init.sh`); `web-events-*`, `audit-decisions-*` do rulegen dọn sau 30 ngày, ILM xoá sau 32 ngày nếu
-  rulegen không chạy. Topic `web.audit` (chứa thân request) chỉ giữ 1 ngày.
+- **Lưu giữ** (từ 15/11/2026, sau khi áp bản vá `soc/es-init.sh`): nhật ký kiểm toán `audit-decisions-*` và bản lưu
+  sự kiện tấn công `attack-events-*` giữ 1 năm; `gate-events-*` 90 ngày; `web-events-*` 30 ngày (rulegen dọn, ILM xoá
+  sau 32 ngày nếu rulegen không chạy); `apache-errors-*`, `nsm-health-*` 14 ngày. `RETENTION_UNIT=h` trong `.env` đổi
+  các con số trên sang giờ để thử nhanh. Sự kiện có nhãn tấn công được ghi THÊM một bản vào `attack-events-*`;
+  rulegen không còn xoá nhật ký kiểm toán. Topic `web.audit` (chứa thân request) chỉ giữ 1 ngày.
+- **`tools/reset-all.sh`** giữ nhật ký kiểm toán và bản lưu tấn công; chỉ xoá khi gọi `--wipe-audit`. Khi `.env` có
+  `NSM_PROFILE=prod` thì cần thêm `--force`.
 - **Dữ liệu nhạy cảm:** giá trị của tham số / cookie có tên kiểu mật khẩu, token, phiên, thẻ... được thay bằng
   `[redacted]` trước khi lưu vào Elasticsearch (vẫn được quét đầy đủ khi phân loại). Cookie chỉ lưu tên.
 - **Xoay nhật ký:** mọi nhật ký (`eve.json`, `gate1.json`, `access.json`, `modsec_audit.json`, `error.log`) được
@@ -105,11 +124,31 @@ có nhãn, thời gian từ request tấn công đầu tiên tới khi IP bị c
 thông lượng qua hai cổng. Báo cáo ghi vào `bench-results/<thời điểm>/report.md`. Chạy riêng từng pha:
 `bash tools/bench.sh detect`, `mttr`, `slow`, `perf`; `-r N` để lặp mỗi kịch bản chặn IP N lần.
 
-Kịch bản giả lập: `bash tools/scenario.sh` chạy 21 kịch bản trong `scenarios/` (họ tấn công mới, vị trí đặt
-payload, kỹ thuật né, hành vi C1–C4, D1, D3, sự cố E1–E5, GoTestWAF, waf-bypass), mỗi kịch bản có kỳ vọng nên
+Kịch bản giả lập: `bash tools/scenario.sh` chạy 45 kịch bản trong `scenarios/` (họ tấn công mới, vị trí đặt
+payload, kỹ thuật né, hành vi C1–C4, D1–D4, sự cố E1–E5, GoTestWAF, waf-bypass, khai thác thật, botnet, cổng đặt chỗ),
+mỗi kịch bản có kỳ vọng nên
 vừa là kiểm thử vừa ra số đo. Xem `scenarios/README.md`. Mạng vùng ngoài là `10.10.0.0/20`. Kịch bản cần chế độ
 lab (`bash tools/init-env.sh --lab && docker compose up -d apache`); rulegen bị dừng trong mỗi kịch bản trừ khi
 kịch bản khai báo `rulegen = true`, và `SC_CLEAR_RULES=1` gỡ các luật tự sinh đang ban hành trước khi chạy.
+
+Công cụ thêm ngày 15/11/2026:
+
+| Lệnh | Việc |
+|---|---|
+| `bash tools/baseline.sh <tên>` | Lượt đo đầy đủ (demo, sectest, parity, tier1sync, bench, mọi kịch bản…), kết quả trong `eval/results/baseline-<tên>/` |
+| `bash tools/present.sh` | Buổi trình diễn 7 bước, không quá 15 phút, từ trạng thái sạch (gọi `reset-all.sh` ở đầu và cuối). `PRESENT_AUTO=1` chạy liền không dừng. Mã thoát khác 0 khi một bước sai hoặc quá 15 phút |
+| `bash tools/ngaynen.sh` | Ngày mô phỏng nén 12 lần: 24 khung giờ, mỗi khung khoảng 4 phút thật, mốc thời gian chia 12, responder ở chế độ chạy thử (kịch bản trong `scenarios/ngay-nen/`) |
+| `bash tools/wouldblock.sh <epoch bắt đầu> [epoch kết thúc] [nguon.json] [thư mục ra]` | Đếm quyết định chặn / "sẽ chặn" của responder theo từng IP trong một khoảng thời gian, đối chiếu với danh sách phân vai (hợp lệ / tấn công / thường trú). Chỉ đọc Elasticsearch. Mã thoát 1 khi có quyết định rơi vào IP hợp lệ |
+| `bash tools/d1grace.sh` | Kiểm nhánh hạ cấp chặn của IP dùng chung (`SHARED_GRACE_S`) trên hệ thống thật: một IP thử bị chặn cả IP, rồi được báo là IP dùng chung; phải thấy lệnh chặn hạ xuống (IP, User-Agent). Kết quả trong `eval/results/d1grace-<thời điểm>/` |
+
+Biến của `tools/scenario.sh`: `SC_DIR` (thư mục kịch bản), `SC_OUT_NAME` (tiền tố thư mục kết quả), `SC_CONT=1` (chạy liền
+mạch, cho ngày nén) — xem `scenarios/README.md`.
+
+Biến thay thế khi gọi `docker compose` (15/11/2026, mặc định giữ nguyên giá trị cũ; đặt biến trong shell hoặc `.env` rồi
+`docker compose up -d <dịch vụ>`): `LONG_WINDOW_S`, `TTL_STEPS_S`, `MAX_TTL_S`, `SHARED_TTL_S` (responder); `RULE_TTL_S`
+(rulegen); `TIER2_THRESHOLD`, `TIER2_DECISION`, `TIER2_MODEL_PATH` (classifier, biến cuối gán vào `MODEL_PATH` trong container).
+Lưu ý: `tools/reset.sh` tạo lại responder, nên biến nào không có trong môi trường của shell gọi `reset.sh` (hay `scenario.sh`)
+sẽ bị kéo về mặc định.
 
 Mọi công cụ đo (`scenario.py`, `bench.py`, `demo.sh`, `attack.sh`, `benign.sh`) gửi `Host: dvwa.local` như trình duyệt
 thật (đổi bằng `NSM_HOST`). Gửi tới địa chỉ IP thì CRS luật 920350 cộng sẵn 3 điểm cho MỌI request và làm số đo chặn
@@ -143,12 +182,20 @@ bash tools/tier1sync.sh                          # đối chiếu luật ModSecu
 ## Tham số chính (docker-compose.yml)
 | Dịch vụ | Tham số | Giá trị | Ý nghĩa |
 |---|---|---|---|
-| classifier | `TIER2_THRESHOLD` | 0.90 | Ngưỡng tin cậy θ của tầng 2 |
-| classifier | `TIER2_SYNTAX_GATE` | 1 | Chỉ hỏi model khi giá trị tham số có ký tự cú pháp tấn công |
-| classifier | `TIER2_MODE` | observe | `observe`: nhãn tầng 2 chỉ ghi vào `t2_label`, không dẫn tới chặn (mặc định cho tới khi huấn luyện lại model). `corroborate`: chỉ tính khi ModSecurity cũng chặn request đó. `enforce`: như trước (báo nhầm rất nhiều) |
+| classifier | `TIER2_THRESHOLD` / `TIER2_DECISION` | 0.67 / argmax | Ngưỡng của model tầng 2 ngày 14/11 (sau khi áp bản vá; model 12/11 giữ ở `models/tier2_1211.joblib` dùng mass / 0,87). Ngưỡng này khác thang θ: điểm vượt ngưỡng được đổi sang 0,90–1,00 trước khi gửi responder (`TIER2_CONF_FLOOR`), điểm gốc lưu ở `t2_conf` |
+| classifier | `TIER2_SYNTAX_GATE` | 0 | 1 = chỉ hỏi model khi giá trị tham số có ký tự cú pháp tấn công |
+| classifier | `TIER2_MODE` | weighted | `observe`: nhãn tầng 2 chỉ ghi vào `t2_label`. `corroborate`: chỉ tính khi Cổng 2 cũng chặn request đó. `weighted` (15/11, mặc định sau khi áp bản vá): nhãn chỉ do model vẫn thành cảnh báo nhưng mang cờ `weighted` — responder tính nửa trọng số, không tính cửa sổ dài, không khoá ngay; Cổng 2 cũng chặn thì tính đủ. `enforce`: tính đủ mọi nhãn |
+| classifier | `ATTACK_ARCHIVE` | 1 | Ghi thêm sự kiện có nhãn tấn công vào `attack-events-*` (giữ 1 năm) |
 | classifier | `SCAN_MAX_BYTES` / `SCAN_MAX_PARAMS` | 524288 / 1000 | Trần quét mỗi request; vượt trần (hoặc thân bị ModSecurity cắt) thì gắn nhãn `uninspected` (dưới θ: ghi kiểm toán, không tự chặn) |
 | classifier | `REFERER_CONFIDENCE` | 0.6 | Tấn công chỉ thấy trong Referer được ghi nhận dưới θ (nạn nhân XSS phản xạ không bị chặn) |
 | responder | `MIN_CONFIDENCE` / `MAX_AGE_S` | 0.90 / 600 | θ và tuổi cảnh báo tối đa (giây) |
+| responder | `RESPONDER_MODE` | enforce | `dryrun` = chạy thử, chỉ ghi `would_block`. Đổi lúc chạy: `nsmctl mode ...` (thắng biến này) |
+| responder | `TIER2_WEIGHT` | 0.5 | Trọng số của cảnh báo `weighted` (chỉ do tầng 2) |
+| responder | `T2_SOLO_BLOCK` | 0 | 0 = chỉ toàn cảnh báo `weighted` thì không bao giờ khoá IP; cần ít nhất một cảnh báo đủ trọng số trong cửa sổ ngắn (15/11, kịch bản 02). 1 = cho phép (10 cảnh báo / 60 giây là khoá) |
+| responder | `SHARED_TTL_S` | 3600 | tier3 báo một IP là IP dùng chung thì responder nhớ điều đó trong ngần này giây (ngày nén đặt 300) |
+| responder | `SHARED_GRACE_S` | 30 | tier3 báo IP dùng chung trong ngần này giây SAU một lệnh chặn cả IP do đếm ngưỡng -> hạ xuống chặn (IP, User-Agent gây chặn), giữ hạn và số lần vi phạm (tranh chấp thời gian, kịch bản 13, 15/11). Chặn tay / `shared_escalate` không bị hạ |
+| responder | `STRONG_WEIGHT` | 1.0 | Trọng số cảnh báo từ luật tầng 1 "rất chắc" (`models/tier1_strong.json`). Mặc định tắt; 2,5 = khoá ở cảnh báo thứ 2 (làm khoá người dùng "mơ hồ" ở kịch bản 02) |
+| responder | `OFFENSE_RESET_S` | 2592000 | Nhớ số lần tái phạm 30 ngày (sau khi áp bản vá; trước đó 7 ngày) |
 | responder | `THRESHOLD` / `WINDOW_S` | 5 / 60 | Ngưỡng chặn k trong cửa sổ ngắn |
 | responder | `LONG_THRESHOLD` / `LONG_WINDOW_S` | 12 / 86400 | Cửa sổ dài 24 giờ cho tấn công rải rác. **Phải lớn hơn `THRESHOLD`** |
 | responder | `TTL_STEPS_S` / `MAX_TTL_S` | 900,3600,86400 / 86400 | Thời hạn chặn lần 1 / 2 / 3+: 15 phút → 1 giờ → 24 giờ (để trống `TTL_STEPS_S` thì dùng `BASE_TTL_S` nhân đôi như cũ) |
@@ -156,10 +203,17 @@ bash tools/tier1sync.sh                          # đối chiếu luật ModSecu
 | tier3 | `TIER3_N_HI`, `TIER3_MIN_404`, … | 100, 10, … | Cổng định hình hành vi (flood, recon, denied, bruteforce, enum) |
 | tier3 | `TIER3_MIN_DENY_URI` / `TIER3_MIN_DENY_SINGLE` | 3 / 30 | Mẫu `denied` (401/403 dồn dập) cần ≥ 3 đường dẫn khác nhau, hoặc ≥ 30 lần trên một đường dẫn: người dùng gửi lại một form bị CRS chặn nhầm không làm cả IP bị chặn |
 | tier3 | `TIER3_SHARED_MIN_UA` | 4 | Số User-Agent khác nhau / cửa sổ để báo responder đây là IP dùng chung |
-| rulegen | `INTERVAL_S` / `SHADOW_S` | 300 / 900 | Chu kỳ và thời gian chạy thử (**giá trị lab**; triển khai thật: 86400) |
+| tier3 | `TIER3_STUFF_MIN_IPS` / `TIER3_STUFF_PER_IP` / `TIER3_STUFF_MIN_TOTAL` | 8 / 3 / 40 | Chiến dịch nhồi tài khoản phân tán (mẫu `stuffing`): ≥ 8 IP, mỗi IP ≥ 3 lần thử đăng nhập, tổng ≥ 40 trong một cửa sổ. "Thử đăng nhập" = POST tới `TIER3_LOGIN_RE` (`/login`) hoặc phản hồi 401 |
+| tier3 | `TIER3_MIN_429` / `TIER3_FRAC_429` | 40 / 0.3 | Mẫu `ratelimit`: nguồn vẫn dội request dù bị Cổng 1 trả 429 liên tục (tier3 đọc thêm `gate1.logs` sau khi áp bản vá) |
+| rulegen | `RULE_APPLY` | immediate | `immediate` (15/11, mặc định sau khi áp bản vá): luật qua kiểm tra là chặn ngay, kèm cảnh báo có lệnh gỡ. `shadow`: chạy thử `SHADOW_S` trước như tài liệu đặc tả |
+| rulegen | `RULE_TTL_S` / `REVOKE_S` | 86400 / 21600 | Luật sống 24 giờ; hết hạn mà trong 6 giờ gần nhất còn chặn được tấn công thì tự gia hạn. Luật không khớp gì trong 6 giờ thì tự gỡ |
+| rulegen | `REVOKE_BENIGN_HITS` / `CLEAN_MIN_EVENTS` | 3 / 10 | Tự gỡ luật khi nó chặn 3 request của "nguồn sạch có tiếng" (≥ 10 sự kiện lành tính trong 24 giờ trước khi có luật) |
+| rulegen | `RULE_BAN_S` / `T2_MIN_SOURCES` | 86400 / 2 | Luật bị gỡ không được sinh lại trong 24 giờ; luật từ bằng chứng chỉ của tầng 2 cần mẫu từ ≥ 2 IP |
+| rulegen | `INTERVAL_S` / `SHADOW_S` | 60 / 900 | Chu kỳ (60 giây sau khi áp bản vá; trước đó 300) và thời gian chạy thử khi `RULE_APPLY=shadow` (**giá trị lab**; triển khai thật: 86400) |
 | rulegen | `MIN_BENIGN` | 100 | Corpus lành tính tối thiểu; thiếu thì không sinh/ban hành luật |
 | rulegen | `EPSILON` | 0 | Tỷ lệ lưu lượng lành tính được phép khớp một ứng viên luật |
 | nginx | `RELOAD_MIN_INTERVAL_S` | 5 | Tối đa một lần nạp lại blocklist mỗi N giây |
+| nginx (`nginx.conf`) | `limit_req` | 20 r/s (vượt ngắn 40) mỗi IP; POST `/login…` 30/phút (vượt ngắn 10) mỗi IP; tổng 350 r/s | Giới hạn tốc độ ở Cổng 1 (sau khi áp bản vá). Vượt hạn mức → 429. Nguồn miễn trừ (`exempt.geo`, do enforcer ghi từ `EXEMPT_CIDRS` và `nsmctl exempt-add`) không bị giới hạn |
 | apache | `LOG_MAX_MB` | 200 | Xoay `access.json` / `modsec_audit.json` / `error.log` khi vượt kích thước này (giữ 1 bản cũ) |
 | apache, nginx | `LOG_ROTATE_CHECK_S` | 60 | Chu kỳ kiểm kích thước nhật ký (giây) |
 | nginx | `LOG_MAX_MB` | 50 | Xoay `gate1.json` khi vượt kích thước này |
@@ -168,10 +222,10 @@ bash tools/tier1sync.sh                          # đối chiếu luật ModSecu
 | mọi dịch vụ Python | `HEARTBEAT_S` | 30 | Chu kỳ ghi nhịp tim vào `nsm-health-*` |
 
 ## Giới hạn đã biết
-- **Model tầng 2 và tầng 3 chưa được huấn luyện lại.** Model tầng 2 gắn nhãn tấn công cho 40,7 % lưu lượng
-  lành tính thật (openappsec), nên mặc định chỉ được GHI NHẬN (`TIER2_MODE=observe`). Đổi lại, tỷ lệ request
-  tấn công bị classifier gắn nhãn giảm từ 60,9 % xuống 48,7 % (đo trên 300 791 request, xem
-  `eval/results/tier-compare-20261112/report.md`); Cổng 2 (CRS) vẫn chặn từng request như cũ.
+- **Tầng 2:** model gốc (run_4) gắn nhãn tấn công cho 40,7 % lưu lượng lành tính thật nên từ 12/11 chỉ được ghi nhận.
+  Model đã được huấn luyện lại hai lần (12/11 và 14/11, lần sau có văn bản tự do); từ 15/11 dùng chế độ `weighted` để
+  nhãn chỉ do model không khoá được người dùng (xem bảng tham số). Số đo: báo cáo kết quả 15/11. Model tầng 3 chưa được
+  huấn luyện lại.
 - Kafka và Elasticsearch đã bắt buộc xác thực nhưng CHƯA mã hoá (SASL_PLAINTEXT, HTTP): ai nghe lén
   được mạng giám sát vẫn đọc được mật khẩu. Ở bản một máy, lưu lượng này chỉ đi trong mạng Docker của máy.
 - **Chế độ lab** (`bash tools/init-env.sh --lab`): DVWA không đòi đăng nhập, mức `low` — payload thực thi lệnh
@@ -181,8 +235,8 @@ bash tools/tier1sync.sh                          # đối chiếu luật ModSecu
   sinh ra (403, 429, 400, 414, 431, 505...) đều được ghi vào `gate-events-*`.
 - **Cổng 2 dùng OWASP CRS 4.25.0** (từ 13/11/2026, thay gói Debian 3.3.4; tệp phát hành lưu trong `web/apache/crs/`),
   vẫn trên ModSecurity 2.9.7. CRS 4 thêm luật SSRF (934110/934120). Số đo Cổng 2 trước và sau mốc này không so trực
-  tiếp được. CRS mặc định không cho phép `Content-Type: text/plain` (luật 920420) — khi bảo vệ ứng dụng thật có dùng
-  kiểu này (vd `navigator.sendBeacon`) phải khai báo thêm trong `crs-setup.conf`.
+  tiếp được. Từ 14/11 CRS được tinh chỉnh cho lưu lượng thật (`web/apache/crs/nsm-tuning-*.conf`, gồm cho phép thân
+  `text/plain`); bảo vệ một ứng dụng khác thì phải đo và tinh chỉnh lại.
 - **Tầng 1 có luật cho 13 họ:** sqli, xss, rce (gồm Log4Shell, Shellshock), lfi, và từ 13/11: xxe, ssti, ssrf, deser,
   nosqli, ldap, crlf, rfi (chỉ tham số kiểu include), redirect (chỉ ghi nhận, độ tin cậy 0,6). NoSQLi/LDAP chỉ thấy
   trong cả thân JSON/XML thì chỉ ghi nhận (không phân biệt được với API dùng toán tử `$lt`... thật). Luật RCE đã siết:
@@ -190,6 +244,13 @@ bash tools/tier1sync.sh                          # đối chiếu luật ModSecu
 - ModSecurity 2.9 ghi thân request vào nhật ký kiểm toán JSON như chuỗi C: thân nhị phân (gzip...) bị cắt ở byte
   0 đầu tiên. Classifier nhận ra (so với `Content-Length`) và gắn nhãn `uninspected`, nhưng không soi được phần
   bị cắt.
+
+## Ứng dụng đặt chỗ giả lập (từ 15/11/2026)
+`web/apache/booking/`: cổng đặt chỗ trực tuyến nhỏ (PHP + SQLite, viết an toàn, dữ liệu tổng hợp: 10 000 khách, 50 000
+lượt đặt chỗ), vhost `booking.local` trên cùng Apache với DVWA — gửi tới nginx với `Host: booking.local`. Sau khi áp
+bản vá, ứng dụng được dựng trong image apache và container `client-booking` (10.10.10.21, **không** miễn trừ) chạy
+`tools/benign_booking.sh` liên tục (sáu luồng người dùng bình thường, nghỉ `BOOKING_CLIENT_PAUSE` = 2 giây). Ứng dụng
+không có lỗ hổng cài sẵn; kiểm chứng khai thác thật làm trên DVWA. Chi tiết: `web/apache/booking/README.md`.
 
 ## Khác với bản máy ảo
 - 1 máy thay vì 3; Kafka 1 listener (kafka:9092) thay vì 2

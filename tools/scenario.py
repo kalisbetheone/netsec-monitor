@@ -178,12 +178,26 @@ def enc(v, evasion):
 # =====================================================================
 # Dựng request theo vị trí đặt payload
 # =====================================================================
-def build(family, placement, payload, evasion=(), marker="", path=None, param=None, method=None):
-    """-> dict(method, path, body, headers). path có thể đã kèm query thô."""
-    m, p, prm, extra = DVWA.get(family, GENERIC)
+def extra_fields(act, rng):
+    """Khoá `fields` của tác nhân: danh sách cặp [tên, giá trị] THAY cho các trường phụ mặc định của họ payload (vd
+    Submit=Submit của DVWA); `fields = []` = không có trường phụ. Chuỗi {n} trong giá trị được thay bằng một số ngẫu nhiên
+    1–9999, mỗi request một số. Trả None khi tác nhân không có khoá `fields` (giữ trường phụ mặc định)."""
+    if "fields" not in act:
+        return None
+    n = str(rng.randint(1, 9999))
+    return [(str(kv[0]), str(kv[1]).replace("{n}", n)) for kv in act["fields"]]
+
+
+def build(family, placement, payload, evasion=(), marker="", path=None, param=None, method=None, extra=None):
+    """-> dict(method, path, body, headers). path có thể đã kèm query thô. extra (khác None): các trường phụ do kịch bản
+    khai báo (khoá `fields`), thay cho trường phụ của bảng DVWA / GENERIC; tên và giá trị được mã hoá URL."""
+    m, p, prm, extra0 = DVWA.get(family, GENERIC)
     p, prm, m = path or p, param or prm, method or m
     h = {"User-Agent": f"{UA} {marker}".strip(), "Accept": "*/*", "Connection": "close"}
-    ex = "&".join(f"{k}={v}" for k, v in extra)
+    if extra is None:
+        ex = "&".join(f"{k}={v}" for k, v in extra0)
+    else:
+        ex = "&".join(f"{enc(k, ())}={enc(v, ())}" for k, v in extra)
     body = None
 
     def qs(name, val):
@@ -259,13 +273,14 @@ def gate_of(status, data):
     return "pass"
 
 
-def send(rq, https=False, chunked=False, timeout=10):
+def send(rq, https=False, chunked=False, timeout=10, keep=False, src=None):
+    """keep=True: trả thêm '_body' (bytes, tối đa 200 KB) và '_headers' — chỉ dùng trong tiến trình, không ghi ra tệp."""
     t0 = time.time(); tp = time.perf_counter()
     try:
         if https:
             c = http.client.HTTPSConnection(TARGET, 443, timeout=timeout, context=ssl._create_unverified_context())
         else:
-            c = http.client.HTTPConnection(TARGET, 80, timeout=timeout)
+            c = http.client.HTTPConnection(TARGET, 80, timeout=timeout, source_address=(src, 0) if src else None)
         c.putrequest(rq["method"], rq["path"], skip_host=True, skip_accept_encoding=True)
         if not any(k.lower() == "host" for k in rq["headers"]):
             c.putheader("Host", HOST)
@@ -282,8 +297,11 @@ def send(rq, https=False, chunked=False, timeout=10):
             if body is not None:
                 c.putheader("Content-Length", str(len(body)))
             c.endheaders(body)
-        r = c.getresponse(); data = r.read(); st = r.status; c.close()
-        return {"t": t0, "status": st, "gate": gate_of(st, data), "ms": round((time.perf_counter() - tp) * 1000, 1)}
+        r = c.getresponse(); data = r.read(); st = r.status; hdrs = r.getheaders(); c.close()
+        o = {"t": t0, "status": st, "gate": gate_of(st, data), "ms": round((time.perf_counter() - tp) * 1000, 1)}
+        if keep:
+            o["_body"], o["_headers"] = data[:200000], hdrs
+        return o
     except Exception as e:                     # noqa: BLE001
         return {"t": t0, "status": 0, "gate": "error", "ms": round((time.perf_counter() - tp) * 1000, 1),
                 "err": type(e).__name__}
@@ -309,6 +327,10 @@ def alloc_ips(s, slot):
         return f"10.10.{11 + c}.{1 + d}"
     k = (slot * 211) % POOL_SIZE
     for act in s["actor"]:
+        if act.get("ip"):                 # IP nguồn cố định (chuỗi hoặc danh sách): không lấy từ bộ cấp phát, không đẩy bộ đếm
+            v = act["ip"]
+            act["_ips"] = [v] if isinstance(v, str) else [str(x) for x in v]
+            continue
         act["_ips"] = []
         for _ in range(int(act.get("ips", 1))):
             act["_ips"].append(ip_of(k)); k += 1
@@ -327,6 +349,9 @@ def cmd_plan(a):
     print(f"RULEGEN|{1 if s.get('rulegen') else 0}")
     # CRS tạm ở DetectionOnly trong N giây đầu (để tấn công "lọt" Cổng 2 và đủ điều kiện gom cụm sinh luật)
     print(f"MODSEC_DO|{int(s.get('modsec_detection_only_s', 0))}")
+    # lớp của Cổng 2 chuyển sang CHỈ GHI NHẬN suốt kịch bản (tools/gate2.sh): "crs", "tier1" — để đo riêng từng lớp
+    for layer in s.get("gate2_detect", []):
+        print(f"G2DETECT|{layer}")
     # đếm số lần nginx nạp lại danh sách chặn trong kịch bản (E5)
     print(f"RELOADS|{1 if 'nginx_reload_max_per_min' in s['expect'] else 0}")
     for svc, kv in s["override"].items():
@@ -352,6 +377,16 @@ def cmd_plan(a):
 def payload_pool(act, rng):
     fam = act.get("family", "benign")
     src = act.get("source", "builtin")
+    if src.startswith("file:"):                      # payload từ tệp (một payload JSON mỗi dòng: {"value": ...} hoặc chuỗi)
+        out = []
+        with open(src[5:], encoding="utf-8") as f:
+            for ln in f:
+                ln = ln.strip()
+                if not ln: continue
+                try: v = json.loads(ln)
+                except ValueError: v = ln
+                out.append(v.get("value") if isinstance(v, dict) else str(v))
+        return [v for v in out if v]
     pool = load_dataset(src, fam, seed=rng.randint(1, 10**6)) if src != "builtin" else []
     return pool or list(PAYLOADS.get(fam, PAYLOADS["benign"]))
 
@@ -378,6 +413,10 @@ def cmd_actor(a):
         run_malformed(act, res)
     elif kind == "replay":
         run_replay(act, rng, marker, res)
+    elif kind == "exploit":
+        run_exploit(act, rng, marker, res)
+    elif kind == "botnet":
+        run_botnet(act, rng, marker, res)
     else:
         raise SystemExit(f"kiểu tác nhân lạ: {kind}")
     res["t_end"] = time.time()
@@ -409,7 +448,10 @@ def run_http(act, rng, marker, res):
         if fam == "secret":                           # mật khẩu / token sinh ngẫu nhiên, ghi lại để kiểm ES (C1)
             v = f"S3cret-{rng.randint(10**7, 10**8 - 1)}"
             res["extra"].setdefault("secrets", []).append(v)
-        rq = build(fam, placement, v, evasion, marker, act.get("path"), act.get("param"), act.get("method"))
+        rq = build(fam, placement, v, evasion, marker, act.get("path"), act.get("param"), act.get("method"),
+                   extra=extra_fields(act, rng))
+        if act.get("host"):                           # tên miền đích (mặc định dvwa.local); vd booking.local
+            rq["headers"]["Host"] = act["host"]
         if act.get("pad_chars") and rq["body"] and "urlencoded" in rq["headers"].get("Content-Type", ""):
             rq["body"] += "&note=" + ("lorem+ipsum+dolor+sit+amet+" * (int(act["pad_chars"]) // 27 + 1))[:int(act["pad_chars"])]
         uas = act.get("user_agents")                 # mỗi "người" sau NAT một trình duyệt (khớp thứ tự families)
@@ -424,6 +466,139 @@ def run_http(act, rng, marker, res):
             break
         if interval:
             time.sleep(max(0.0, interval - r["ms"] / 1000))
+
+
+# Dấu hiệu KHAI THÁC THÀNH CÔNG trên DVWA mức 'low' (đọc trong thân phản hồi). Dùng để đo điều mà mã trạng thái không
+# cho biết: request tấn công có thật sự lấy được dữ liệu / chạy được lệnh hay không.
+def _exploited(fam, payload, body):
+    t = body.decode("utf-8", "replace")
+    if fam == "sqli":                                # trang trả nhiều hơn một bản ghi người dùng, hoặc lộ lỗi SQL
+        return t.count("First name:") >= 2 or "You have an error in your SQL syntax" in t
+    if fam == "rce":                                 # kết quả của lệnh được chèn nằm trong khối <pre>
+        return bool(re.search(r"uid=\d+\(|root:x:0:0|www-data|Linux [\w.-]+ \d", t))
+    if fam == "lfi":
+        return "root:x:0:0" in t or "[boot loader]" in t or "<?php" in t and "DVWA" not in t[:200]
+    if fam == "xss":                                 # payload được trả lại NGUYÊN VĂN (không bị thoát ký tự)
+        return payload in t and ("<script" in payload.lower() or "onerror" in payload.lower() or "onload" in payload.lower()
+                                 or "javascript:" in payload.lower())
+    return False
+
+
+def dvwa_login(marker):
+    """Đăng nhập DVWA bằng tài khoản mặc định của lab và đặt mức 'low' -> chuỗi Cookie, hoặc None nếu không được."""
+    h = {"User-Agent": f"{UA} {marker}".strip(), "Accept": "*/*", "Connection": "close"}
+    r = send({"method": "GET", "path": "/login.php", "body": None, "headers": dict(h)}, keep=True)
+    if r.get("status") != 200:
+        return None
+    sid = next((v.split(";")[0] for k, v in r["_headers"] if k.lower() == "set-cookie" and v.startswith("PHPSESSID=")), None)
+    tok = re.search(rb"user_token'\s+value='([0-9a-f]{32})'", r["_body"])
+    if not sid or not tok:
+        return None
+    cookie = f"{sid}; security=low"
+    body = f"username=admin&password=password&Login=Login&user_token={tok.group(1).decode()}"
+    r2 = send({"method": "POST", "path": "/login.php", "body": body,
+               "headers": dict(h, Cookie=cookie, **{"Content-Type": "application/x-www-form-urlencoded"})}, keep=True)
+    loc = next((v for k, v in r2.get("_headers", []) if k.lower() == "location"), "")
+    return cookie if r2.get("status") == 302 and "index.php" in loc else None
+
+
+def run_exploit(act, rng, marker, res):
+    """KIỂM CHỨNG KHAI THÁC THẬT: đăng nhập DVWA (mức low), gửi từng payload của các họ cơ bản vào đúng trang có lỗ hổng,
+    đọc phản hồi xem có khai thác được không. IP nên được miễn trừ để đo đủ mọi payload (không bị khoá giữa chừng)."""
+    cookie = dvwa_login(marker)
+    res["extra"]["login_ok"] = bool(cookie)
+    if not cookie:
+        return
+    fams = act.get("families") or list(CORE)
+    per = int(act.get("per_family", 8)); interval = float(act.get("interval_s", 0.3))
+    k = 0
+    for fam in fams:
+        pool = list(PAYLOADS.get(fam, []))[:per]
+        for v in pool:
+            rq = build(fam, "query", v, (), f"{marker}/{k}")
+            rq["headers"]["Cookie"] = cookie
+            r = send(rq, keep=True)
+            body = r.pop("_body", b""); r.pop("_headers", None)
+            r.update(fam=fam, i=k, k=k, place="query", ev="-", payload=v[:120],
+                     exploited=bool(r["gate"] == "pass" and _exploited(fam, v, body)))
+            res["sent"].append(r); k += 1
+            if interval:
+                time.sleep(interval)
+
+
+# Địa chỉ nguồn của tác nhân botnet: 10.10.6.1–10.10.9.254 (ngoài dải cấp IP của kịch bản). Mỗi kịch bản botnet nên dùng
+# một đoạn riêng (bot_offset): nếu một kịch bản dùng lại IP mà container của kịch bản ngay trước vừa dùng, bảng ARP của
+# nginx còn trỏ về địa chỉ MAC cũ -> phản hồi đầu tiên của mỗi IP bị thất lạc (quá thời gian 10 giây), đo nhầm thành lỗi
+# của hệ thống (đã gặp 15/11: kịch bản 40 sau 39, 138/6 000 request lỗi; chạy lại bằng IP mới: 0 lỗi).
+BOT_MAX = 1016
+
+
+def bot_ips(n, offset=0):
+    return [f"10.10.{6 + (offset + i) // 254}.{1 + (offset + i) % 254}" for i in range(min(n, BOT_MAX - offset))]
+
+
+def add_alias(n, ip, mask="255.255.240.0", dev="eth0"):
+    """Thêm một địa chỉ IP phụ cho giao diện mạng của container (cần quyền NET_ADMIN — tools/scenario.sh cấp cho kiểu
+    botnet). Nhờ vậy MỘT container gửi được request từ hàng trăm IP nguồn khác nhau, như một botnet."""
+    import fcntl, struct
+    name = f"{dev}:{n}".encode()
+    sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sa = lambda addr: struct.pack("H2s4s8s", socket.AF_INET, b"\x00\x00", socket.inet_aton(addr), b"\x00" * 8)
+    try:
+        fcntl.ioctl(sk, 0x8916, struct.pack("16s16s", name, sa(ip)))        # SIOCSIFADDR
+        fcntl.ioctl(sk, 0x891c, struct.pack("16s16s", name, sa(mask)))      # SIOCSIFNETMASK
+    finally:
+        sk.close()
+
+
+def run_botnet(act, rng, marker, res):
+    """BOTNET: `bots` địa chỉ nguồn khác nhau, mỗi địa chỉ gửi `count` request cách nhau `interval_s` giây — dùng cho
+    flood phân tán và nhồi tài khoản quy mô lớn (mỗi IP ở DƯỚI ngưỡng của từng IP). Mỗi bot một luồng."""
+    import threading
+    n = int(act.get("bots", 100))
+    ips = bot_ips(n, int(act.get("bot_offset", 0)))
+    for i, ip in enumerate(ips):
+        add_alias(i, ip)
+    time.sleep(1.0)
+    fams = act.get("families") or [act.get("family", "benign")]
+    placement = act.get("placement", "query")
+    count, interval = int(act.get("count", 30)), float(act.get("interval_s", 1.0))
+    stop_on_block = bool(act.get("stop_on_block", True))
+    deadline = time.time() + float(act.get("max_s", 600))
+    lock = threading.Lock()
+    state = {ip: {"blocked": False, "limited": 0, "sent": 0} for ip in ips}
+
+    def bot(bi, ip):
+        r_ = random.Random(f"{marker}/{bi}")
+        time.sleep(r_.random() * interval)              # các bot không bắn cùng một nhịp
+        for k in range(count):
+            if time.time() > deadline:
+                break
+            fam = fams[k % len(fams)]
+            v = r_.choice(PAYLOADS.get(fam, PAYLOADS["benign"]))
+            if act.get("unique_suffix"):
+                v = f"{v}{r_.randint(1, 99999)}"
+            rq = build(fam, placement, v, (), marker, act.get("path"), act.get("param"), act.get("method"),
+                       extra=extra_fields(act, r_))
+            if act.get("host"):
+                rq["headers"]["Host"] = act["host"]
+            r = send(rq, src=ip)
+            r.update(fam=fam, i=k, src=ip)
+            with lock:
+                res["sent"].append(r)
+                st = state[ip]; st["sent"] += 1; st["limited"] += r["gate"] == "limit"
+                if r["gate"] == "gate1": st["blocked"] = True
+            if stop_on_block and r["gate"] == "gate1":
+                break
+            time.sleep(max(0.0, interval - r["ms"] / 1000))
+
+    th = [threading.Thread(target=bot, args=(i, ip), daemon=True) for i, ip in enumerate(ips)]
+    for t in th: t.start()
+    for t in th: t.join(timeout=max(1.0, deadline - time.time() + 15))
+    res["sent"].sort(key=lambda x: x["t"])
+    res["extra"]["botnet"] = {"bots": len(ips), "bots_blocked": sum(v["blocked"] for v in state.values()),
+                              "bots_limited": sum(v["limited"] > 0 for v in state.values()),
+                              "requests": len(res["sent"]), "duration_s": round(time.time() - res["t_start"], 1)}
 
 
 def run_matrix(act, rng, marker, res):
@@ -516,9 +691,10 @@ def run_replay(act, rng, marker, res):
         res["extra"]["error"] = "không có dữ liệu chuẩn hoá"; return
     count, every, interval = int(act.get("count", 150)), int(act.get("every", 37)), float(act.get("interval_s", 0.05))
     off, n = rng.randrange(every), 0
+    start = int(act.get("start", 0))                 # bỏ qua `start` dòng đầu: phần mẫu không trùng lượt đã dùng để tinh chỉnh
     with gzip.open(p, "rt", encoding="utf-8") as f:
         for i, line in enumerate(f):
-            if (i + off) % every:
+            if i < start or (i + off) % every:
                 continue
             d = json.loads(line)
             method = (d.get("method") or "GET").upper()
@@ -723,6 +899,11 @@ def cmd_observe(a):
     gate = search_all("gate-events-*", ips, t0, t1, ["@timestamp", "src_ip", "reason", "status", "count"])
     aerr = search_all("apache-errors-*", ips, t0, t1, ["@timestamp", "src_ip", "module", "level", "count"])
     o = {"kind": "observe", "t0": t0, "t1": t1, "web": web, "decisions": dec, "gate": gate, "apache_errors": aerr}
+    # kiểu botnet: địa chỉ nguồn của từng bot là bí danh của container, không phải r["ip"] -> đọc riêng các lệnh CHẶN
+    # của chúng (chỉ lệnh chặn: lượng request của botnet vượt giới hạn 10 000 bản ghi một lần đọc)
+    bot_src = {x["src"] for r in runs for x in r.get("sent", []) if x.get("src")} - ips
+    o["bot_blocks"] = search_all("audit-decisions-*", bot_src, t0, t1, ["@timestamp", "src_ip", "reason"],
+                                 extra={"term": {"decision.keyword": "block"}}) if bot_src else []
     # luật tự sinh (rule-status: một bản ghi / luật, trạng thái cuối cùng)
     try:
         o["rules"] = [h["_source"] for h in es("POST", "/rule-status/_search?ignore_unavailable=true",
@@ -797,7 +978,9 @@ def per_ip_stats(run, obs):
     return {"ip": ip, "sent": len(sent), "gates": dict(g), "detected": sum(det), "any_detected": any(det),
             "blocked": in_time, "blocked_any": bool(blocks) or first_g1 is not None,
             "blocked_late": bool(blocks) and not in_time,
-            "t_block_s": round(first_g1 - run["t_start"], 1) if first_g1 else None,
+            "t_block_s": round(first_g1 - run["t_start"], 1) if first_g1 else (     # không kịp thấy 403 (đợt gửi đã xong):
+                round(min(epoch(d["@timestamp"]) for d in blocks) - run["t_start"], 1)  # lấy thời điểm quyết định chặn
+                if in_time and blocks else None),
             "block_reasons": sorted({d.get("reason") for d in blocks}), "web_labels": dict(labels),
             "net_alerts": dict(net), "behaviour": dict(beh), "decisions": len(dec)}
 
@@ -922,6 +1105,51 @@ def cmd_judge(a):
     for r in runs:
         if r.get("extra"):
             extra[f"{r['name'] or r['role']} {r['ip']}"] = r["extra"]
+    ex_sent = [x for r in runs for x in r["sent"] if "exploited" in x]
+    if ex_sent:                                       # kiểm chứng khai thác thật (kiểu tác nhân 'exploit')
+        byf = {}
+        for x in ex_sent:
+            d = byf.setdefault(x["fam"], {"sent": 0, "exploited": 0, "gate2": 0, "passed_not_exploited": 0, "still": []})
+            d["sent"] += 1; d["exploited"] += x["exploited"]; d["gate2"] += x["gate"] == "gate2"
+            d["passed_not_exploited"] += x["gate"] == "pass" and not x["exploited"]
+            if x["exploited"]: d["still"].append(x.get("payload", ""))
+        tot = len(ex_sent); nx = sum(x["exploited"] for x in ex_sent)
+        extra["exploit"] = {"sent": tot, "exploited": nx, "share": round(nx / tot, 4), "by_family": byf}
+        if "exploited_min_share" in e:
+            chk(f"khi không lớp nào chặn, ≥ {100 * e['exploited_min_share']:g} % payload KHAI THÁC ĐƯỢC THẬT (bộ thử có nghĩa)",
+                nx / tot >= e["exploited_min_share"], f"{nx}/{tot} ({100 * nx / tot:.0f} %)")
+        if "exploited_max" in e:
+            chk(f"số payload còn khai thác được ≤ {e['exploited_max']}", nx <= e["exploited_max"],
+                f"{nx}/{tot}" + ("" if not nx else " — còn lọt: " + "; ".join(p_ for d in byf.values() for p_ in d["still"])[:300]))
+    bots = [r["extra"]["botnet"] for r in runs if isinstance(r.get("extra"), dict) and "botnet" in r["extra"]]
+    if bots:
+        nb, nseen = sum(b["bots"] for b in bots), sum(b["bots_blocked"] for b in bots)
+        # "bị chặn" = có lệnh chặn của responder (kể cả khi bot đã gửi xong trước lúc lệnh có hiệu lực — botnet thật sẽ
+        # gửi tiếp) HOẶC bot đã thấy 403 của Cổng 1
+        dec_ips = {d["src_ip"] for d in obs.get("bot_blocks", [])}
+        seen_ips = {x["src"] for r in runs for x in r.get("sent", []) if x.get("src") and x["gate"] == "gate1"}
+        nblk = len(dec_ips | seen_ips) if (dec_ips or seen_ips) else nseen
+        reasons = Counter(d.get("reason") for d in obs.get("bot_blocks", []))
+        extra["botnet"] = {"bots": nb, "bots_blocked": nblk, "bots_saw_403": nseen, "bots_limited": sum(b["bots_limited"] for b in bots),
+                           "requests": sum(b["requests"] for b in bots), "block_reasons": dict(reasons.most_common(4))}
+        if "bots_blocked_min_share" in e:
+            chk(f"≥ {100 * e['bots_blocked_min_share']:g} % số IP của botnet bị chặn", nblk / max(nb, 1) >= e["bots_blocked_min_share"],
+                f"{nblk}/{nb} IP")
+        if "bots_blocked_max_share" in e:
+            chk(f"≤ {100 * e['bots_blocked_max_share']:g} % số IP của botnet bị chặn (mỗi IP dưới ngưỡng — giới hạn đã biết)",
+                nblk / max(nb, 1) <= e["bots_blocked_max_share"], f"{nblk}/{nb} IP")
+    if "benign_429_max_share" in e and bn:
+        n429 = bn["gates"].get("limit", 0)
+        chk(f"request hợp lệ bị giới hạn tốc độ (429) ≤ {100 * e['benign_429_max_share']:g} %",
+            n429 / max(bn["sent"], 1) <= e["benign_429_max_share"], f"{n429}/{bn['sent']} ({100 * n429 / max(bn['sent'], 1):.1f} %)")
+    if "benign_ok_min_share" in e and bn:
+        ok_n = bn["gates"].get("pass", 0)
+        chk(f"request hợp lệ thành công ≥ {100 * e['benign_ok_min_share']:g} %",
+            ok_n / max(bn["sent"], 1) >= e["benign_ok_min_share"], f"{ok_n}/{bn['sent']} ({100 * ok_n / max(bn['sent'], 1):.1f} %)")
+    if "attack_429_min_share" in e and at:
+        n429 = at["gates"].get("limit", 0)
+        chk(f"request của kẻ tấn công bị giới hạn tốc độ (429) ≥ {100 * e['attack_429_min_share']:g} %",
+            n429 / max(at["sent"], 1) >= e["attack_429_min_share"], f"{n429}/{at['sent']} ({100 * n429 / max(at['sent'], 1):.1f} %)")
     if "recidivism_growth" in e:
         rr = next((v.get("rounds") for v in extra.values() if v.get("rounds")), [])
         d = [x["blocked_for_s"] for x in rr if x.get("blocked_for_s")]
@@ -1122,6 +1350,17 @@ def cmd_report(a):
                 continue
             if isinstance(ex, dict) and isinstance(ex.get("tool"), dict):
                 L += tool_md(name, ex["tool"])
+                continue
+            if name == "exploit" and isinstance(ex, dict) and "by_family" in ex:
+                L += ["", f"**Khai thác thật** — {ex['exploited']}/{ex['sent']} payload khai thác được "
+                          f"({100 * ex['share']:.0f} %).", "",
+                      "| Họ | Đã gửi | Khai thác được | Cổng 2 chặn | Đi qua nhưng không khai thác được |", "|---|---|---|---|---|"]
+                for fam, d in ex["by_family"].items():
+                    L.append(f"| {fam} | {d['sent']} | {d['exploited']} | {d['gate2']} | {d['passed_not_exploited']} |")
+                still = [p_ for d in ex["by_family"].values() for p_ in d["still"]]
+                if still:
+                    L += ["", "Payload còn khai thác được: " + "; ".join(f"`{p_}`" for p_ in still[:20])]
+                L.append("")
                 continue
             L.append(f"- Số liệu thêm ({name}): `{json.dumps(ex, ensure_ascii=False)[:400]}`")
         if "matrix" in r.get("extra", {}):

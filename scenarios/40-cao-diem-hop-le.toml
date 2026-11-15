@@ -1,0 +1,21 @@
+title = "Cao điểm hợp lệ: 150 khách cùng truy cập, mỗi khách vài request mỗi giây đỉnh"
+case = "A1 (chống chặn nhầm của giới hạn tốc độ)"
+notes = """150 địa chỉ khách hợp lệ, mỗi địa chỉ 40 request cách nhau 1 giây (tổng khoảng 150 request/giây — một đợt mở bán). \
+Không địa chỉ nào được bị chặn, gần như không request nào được nhận 429, và chiến dịch nhồi tài khoản không được báo nhầm."""
+max_s = 150
+
+[[actor]]
+name = "khách hợp lệ"
+role = "benign"
+kind = "botnet"
+bots = 150
+bot_offset = 500
+families = ["benign", "benign", "benign", "benign_quote"]
+count = 40
+interval_s = 1
+stop_on_block = false
+
+[expect]
+benign_blocked = false
+benign_429_max_share = 0.01
+benign_ok_min_share = 0.99

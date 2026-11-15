@@ -1,0 +1,83 @@
+{
+ "note": "Luật tầng 1 'rất chắc' (D5, 15/11/2026): 0 lần khớp trên 771243 request lành tính thật (openappsec Legitimate, mọi phần) và >= 100 lần khớp trên 385005 request tấn công (SecLists, openappsec Malicious, HttpParams, SR-BH). Sinh bởi eval/tier1_rule_stats.py; số fp lạc quan vì luật từng được chỉnh trên chính tập lành tính này (eval/PROTOCOL.md 13/11).",
+ "rules": [
+  {
+   "class": "sqli",
+   "pattern": "\\bunion\\b.{0,40}\\bselect\\b",
+   "fp": 0,
+   "tp": 55306
+  },
+  {
+   "class": "sqli",
+   "pattern": "['\\\"\\d)]\\s*\\b(?:or|and)\\b\\s*['\\\"(]?\\d+['\\\")]?\\s*=\\s*['\\\"(]?\\d+",
+   "fp": 0,
+   "tp": 3628
+  },
+  {
+   "class": "sqli",
+   "pattern": "\\b(?:sleep|benchmark|pg_sleep)\\s*\\(",
+   "fp": 0,
+   "tp": 31780
+  },
+  {
+   "class": "sqli",
+   "pattern": "\\binformation_schema\\b",
+   "fp": 0,
+   "tp": 3331
+  },
+  {
+   "class": "sqli",
+   "pattern": "(?:extractvalue|updatexml|load_file|group_concat)\\s*\\(",
+   "fp": 0,
+   "tp": 3975
+  },
+  {
+   "class": "sqli",
+   "pattern": "'\\s*(?:or|and)\\s+\\w+\\s*\\(",
+   "fp": 0,
+   "tp": 169
+  },
+  {
+   "class": "rce",
+   "pattern": "\\$\\{\\s*jndi\\s*:",
+   "fp": 0,
+   "tp": 110
+  },
+  {
+   "class": "rce",
+   "pattern": "\\(\\s*\\)\\s*\\{\\s*:?\\s*;\\s*\\}",
+   "fp": 0,
+   "tp": 444
+  },
+  {
+   "class": "rce",
+   "pattern": "^\\s*\\(\\s*\\x00?\\s*\\)[\\s.]*\\{",
+   "fp": 0,
+   "tp": 470
+  },
+  {
+   "class": "lfi",
+   "pattern": "/etc/(?:passwd|shadow|hosts)",
+   "fp": 0,
+   "tp": 10093
+  },
+  {
+   "class": "lfi",
+   "pattern": "(?:boot|win)\\.ini",
+   "fp": 0,
+   "tp": 5736
+  },
+  {
+   "class": "lfi",
+   "pattern": "php://(?:filter|input)",
+   "fp": 0,
+   "tp": 477
+  },
+  {
+   "class": "ssti",
+   "pattern": "\\$\\{\\s*\\d+\\s*[*+/-]\\s*\\d+\\s*\\}",
+   "fp": 0,
+   "tp": 164
+  }
+ ]
+}

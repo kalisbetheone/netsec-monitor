@@ -21,6 +21,7 @@ sys.path.insert(0, SVC); sys.path.insert(0, os.path.join(ROOT, "web", "enforcer"
 os.environ.update({
     "MODEL_PATH": os.path.join(ROOT, "models", "tier2.joblib"),
     "TIER3_MODEL": os.path.join(ROOT, "models", "tier3.joblib"),
+    "TIER1_STRONG": os.path.join(ROOT, "models", "tier1_strong.json"),
     "TIER2_THRESHOLD": "0.90",
     # đúng giá trị trong docker-compose.yml
     "MIN_CONFIDENCE": "0.90", "MAX_AGE_S": "600", "THRESHOLD": "5", "WINDOW_S": "60",
@@ -720,6 +721,27 @@ check("gỡ chặn một IP gỡ cả các dấu vân tay của IP đó", not an
 d = alert("10.10.10.151", target="/a?id=1", ua='bad"ua')
 check("IP không phải dùng chung: vẫn chặn/đếm theo IP như cũ", d.get("scope") is None)
 
+print("== responder: báo 'dùng chung' đến SAU lệnh chặn cả IP (tranh chấp thời gian, kịch bản 13 lượt 15/11)")
+R.prod = FakeProd()
+for i in range(5):
+    d = alert("10.10.10.160", target=f"/a?id={i}", ua="sqlmap/1.8"); clock[0] += 1
+check("chưa biết là IP dùng chung -> chặn cả IP", R.state["blocks"].get("10.10.10.160", {}).get("active"), str(d))
+clock[0] += 1
+R.decide({"kind": "ip_profile", "src_ip": "10.10.10.160", "uas": 4, "ts": clock[0], "confidence": 0})
+snap = R.prod.msgs[-1][2]
+check("báo dùng chung trong SHARED_GRACE -> hạ xuống (IP, User-Agent gây chặn)",
+      "10.10.10.160" not in R.state["blocks"] and R.state["blocks"].get("10.10.10.160|sqlmap/1.8", {}).get("active")
+      and "10.10.10.160" not in snap["ips"] and ["10.10.10.160", "sqlmap/1.8"] in snap["fps"], str(snap))
+d = alert("10.10.10.160", target="/b?id=1", ua="Mozilla/5.0 (người dùng khác)")
+check("sau khi hạ: người dùng khác cùng IP chỉ bị đếm", d["decision"] == "count", str(d))
+for i in range(5):
+    d = alert("10.10.10.161", target=f"/a?id={i}", ua="sqlmap/1.8"); clock[0] += 1
+clock[0] += R.SHARED_GRACE + 5
+R.decide({"kind": "ip_profile", "src_ip": "10.10.10.161", "uas": 4, "ts": clock[0], "confidence": 0})
+check("báo dùng chung QUÁ SHARED_GRACE -> giữ chặn cả IP", R.state["blocks"].get("10.10.10.161", {}).get("active"))
+R.control({"cmd": "unblock", "ip": "10.10.10.160", "id": "u2", "ts": clock[0]})
+R.control({"cmd": "unblock", "ip": "10.10.10.161", "id": "u3", "ts": clock[0]})
+
 print("== enforcer: ghi blockfp.map cho dấu vân tay (D1)")
 written.clear()
 F.last_ts["blocklist"] = 0.0
@@ -832,7 +854,12 @@ clock[0] += 200000
 dec = [alert("10.10.10.191", target=f"/w?q={i}", weighted=True, tier=2) for i in range(9)]
 check("9 cảnh báo nửa trọng số (4,5 điểm) chưa đủ ngưỡng 5", all(d["decision"] == "count" for d in dec), str([d["decision"] for d in dec]))
 d = alert("10.10.10.191", target="/w?q=10", weighted=True, tier=2)
-check("cảnh báo nửa trọng số thứ 10 -> chặn, lý do ghi rõ có tầng 2", d["decision"] == "block" and "tier2" in d["reason"], str(d))
+check("10 cảnh báo CHỈ nửa trọng số -> vẫn không khoá (T2_SOLO_BLOCK=0), ghi rõ tier2_only",
+      d["decision"] == "count" and "tier2_only" in d["reason"], str(d))
+R.T2_SOLO_BLOCK = True
+d = alert("10.10.10.191", target="/w?q=11", weighted=True, tier=2)
+check("T2_SOLO_BLOCK=1: cảnh báo nửa trọng số thứ 11 -> chặn, lý do ghi rõ có tầng 2", d["decision"] == "block" and "tier2" in d["reason"], str(d))
+R.T2_SOLO_BLOCK = False
 clock[0] += 200000
 for i in range(3): alert("10.10.10.192", target=f"/m?id={i}' union select 1")
 dec = [alert("10.10.10.192", target=f"/m?q={i}", weighted=True) for i in range(4)]
@@ -944,6 +971,66 @@ check("cụm tầng 2 từ MỘT IP không sinh được luật", not G.t2_clust
 check("cụm tầng 2 từ 2 IP + token có cú pháp tấn công -> được", G.t2_cluster_ok({"op": "contains", "tokens": ["' union"]}, _cov2))
 check("cụm tầng 2: token toàn chữ thường ('select a laptop') bị loại", not G.t2_cluster_ok({"op": "contains", "tokens": ["select a "]}, _cov2))
 G.es, G.SELECTOR, G.APPLY, G.g2r = _gsaved
+
+print("== giới hạn tốc độ ở Cổng 1: miễn trừ đi tới nginx, tầng 3 thấy request bị 429")
+R.publish_blocklist()
+check("responder gửi kèm danh sách miễn trừ trong enforce.blocklist",
+      "10.10.30.0/24" in R.prod.msgs[-1][2].get("exempt", []) and "172.16.0.0/12" in R.prod.msgs[-1][2]["exempt"], str(R.prod.msgs[-1][2].get("exempt")))
+_written = {}
+_fa = F.atomic_write; F.atomic_write = lambda path, body: _written.__setitem__(path, body)
+F.last_ts["blocklist"] = 0.0
+F.write_blocklist({"ips": ["10.10.10.66"], "fps": [], "exempt": ["10.10.30.0/24", "10.10.10.240/29", "x; include /etc/passwd"], "ts": 5e9}, FakeProd())
+check("enforcer ghi exempt.geo đúng dạng '<dải> 1;' và bỏ mục không hợp lệ",
+      _written.get(F.EXEMPT_PATH, "").splitlines()[1:] == ["10.10.10.240/29 1;", "10.10.30.0/24 1;"], repr(_written.get(F.EXEMPT_PATH)))
+F.atomic_write = _fa
+g = T.gate_event({"ts": 1794214800.5, "src_ip": "10.10.10.77", "method": "POST", "uri": "/login.php?x=1", "status": 429, "ua": "curl"})
+check("dòng 429 của gate1.logs đổi đúng sang dạng sự kiện web", g and g["status"] == 429 and g["uri"] == "/login.php"
+      and g["query"] == "x=1" and abs(g["ts_ms"] - 1794214800500.0) < 1, str(g))
+check("403 của Cổng 1 (IP đã bị chặn) không đưa vào tầng 3", T.gate_event({"ts": 1.0, "src_ip": "1.2.3.4", "status": 403}) is None)
+_d = {"n_req": 60, "frac_404": 0.0, "frac_post": 0.0, "uniq_uri": 5, "uniq_q_ratio": 0.1}
+check("mẫu hành vi 'ratelimit': 40/60 request bị 429", T.attack_shape(_d, {"n404": 0, "ndeny": 0, "npost": 0, "n429": 40}) == "ratelimit")
+check("vài request bị 429 (5/60) chưa phải mẫu tấn công", T.attack_shape(_d, {"n404": 0, "ndeny": 0, "npost": 0, "n429": 5}) is None)
+
+print("== luật tầng 1 'rất chắc' (D5): cờ strong, 2 cảnh báo là chặn")
+check("đọc được danh sách luật rất chắc từ models/tier1_strong.json", len(C.STRONG_PATTERNS) >= 5, str(len(C.STRONG_PATTERNS)))
+r = C.classify("/x", [("id", "1 union select 1,2")], [], "Mozilla/5.0", {"query": "id=1", "body": "", "uri": "/x"})
+check("UNION SELECT (0 lần khớp nhầm trên 750 000 request thật) -> strong", r.get("strong") is True, str(r))
+r = C.classify("/x", [("cb", "javascript:alert(1)")], [], "Mozilla/5.0", {"query": "cb=1", "body": "", "uri": "/x"})
+check("javascript: (có khớp nhầm trên lưu lượng thật) -> không strong", r["label"] == "xss" and not r.get("strong"), str(r))
+clock[0] += 300000
+check("mặc định STRONG_WEIGHT = 1 (tắt, 15/11)", R.STRONG_WEIGHT == 1.0, str(R.STRONG_WEIGHT))
+d1 = alert("10.10.10.196", target="/s?id=1 union select 1", strong=True)
+d2 = alert("10.10.10.196", target="/s?id=2 union select 2", strong=True)
+check("STRONG_WEIGHT = 1: 2 cảnh báo strong chưa chặn", d1["decision"] == "count" and d2["decision"] == "count", str(d2))
+R.STRONG_WEIGHT = 2.5
+d1 = alert("10.10.10.195", target="/s?id=1 union select 1", strong=True)
+d2 = alert("10.10.10.195", target="/s?id=2 union select 2", strong=True)
+check("2 cảnh báo strong -> chặn (lý do ghi rõ)", d1["decision"] == "count" and d2["decision"] == "block" and "strong" in d2["reason"], str(d2))
+clock[0] += 300000
+dd = [alert("10.10.10.196", target=f"/s?q={i}") for i in range(4)]
+check("cảnh báo thường vẫn cần 5", all(x["decision"] == "count" for x in dd), str([x["decision"] for x in dd]))
+R.STRONG_WEIGHT = 1.0
+
+print("== tier3: chiến dịch nhồi tài khoản phân tán (nhiều IP, mỗi IP vài lần đăng nhập)")
+def run_campaign(n_ips, per_ip, t0=5_000_000.0, status=302, uri="/login.php", method="POST"):
+    T.st.clear(); T.login_ev.clear(); T.camp.update(last_alert={}, since=0, last_eval=0.0, max_ts=0.0)
+    buf, prod = FakeBuf(), FakeProd()
+    T.time.time = lambda: t0 + 30
+    k = 0
+    for r_ in range(per_ip):
+        for i in range(n_ips):
+            T.add({"src_ip": f"10.10.12.{i + 1}", "ts_ms": (t0 + k * 0.05) * 1000, "uri": uri, "status": status,
+                   "method": method, "query": "", "ua": "curl/8"}, prod, buf); k += 1
+    T.campaign(prod, buf, force=True)
+    return [m_[2] for m_ in prod.msgs if m_[2].get("shape") == "stuffing"]
+al = run_campaign(50, 4)
+check("50 IP × 4 lần POST đăng nhập -> cả 50 IP bị báo (mẫu 'stuffing', khoá ngay)",
+      len({a["src_ip"] for a in al}) == 50 and all(a.get("immediate") for a in al), str(len(al)))
+check("mỗi IP chỉ bị báo một lần trong thời gian chờ", len(al) == 50, str(len(al)))
+check("5 người cùng gõ sai mật khẩu vài lần KHÔNG phải chiến dịch", run_campaign(5, 4) == [])
+check("100 người mỗi người đăng nhập 1–2 lần (cao điểm hợp lệ) KHÔNG bị báo", run_campaign(100, 2) == [])
+al = run_campaign(20, 3, status=401, uri="/api.php")
+check("API trả 401 (sai mật khẩu) cũng được tính là lần thử đăng nhập", len({a["src_ip"] for a in al}) == 20, str(len(al)))
 
 print()
 if FAILS:
