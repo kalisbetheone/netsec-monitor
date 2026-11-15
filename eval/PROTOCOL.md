@@ -494,7 +494,7 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     của vai kiểm chứng lần này (10.10.12.173–.175) từng là người dùng hợp lệ trong lượt chạy tối 15/11 (16 sự kiện lành tính mỗi
     IP trong 24 giờ trước), nên rulegen coi chúng là "nguồn sạch có tiếng" và gỡ luật sau 4 lần luật chặn chúng — đúng thiết kế
     của lưới an toàn, sai do dữ liệu thử. Kiểm chéo: chạy lại kịch bản 41 từ một bản sao tạm với IP chưa từng dùng (10.10.13.x),
-    cùng thiết lập Filebeat mới (`eval/results/alertlat41-20261116-014833`): ĐẠT 3/3 phép kiểm. Tệp kịch bản 41 trong kho KHÔNG
+    cùng thiết lập Filebeat mới (`eval/results/alertlat41-20261116-014835`): ĐẠT 3/3 phép kiểm. Tệp kịch bản 41 trong kho KHÔNG
     bị sửa; bản sao tạm đã xoá. Chưa chạy lại kịch bản 41 với thiết lập CŨ để đối chiếu trực tiếp.
   - **Giới hạn mới của công cụ đo (ghi nhận, chưa sửa):** chạy các tổ hợp kịch bản khác nhau trong vòng 24 giờ có thể làm một IP
     đóng vai hợp lệ ở lượt này và vai tấn công ở lượt sau; cơ chế "nguồn sạch có tiếng" của rulegen khi đó gỡ luật.
