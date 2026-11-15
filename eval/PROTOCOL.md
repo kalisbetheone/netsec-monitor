@@ -224,3 +224,39 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     hai trên cùng IP .171 không dựng được tình huống (responder còn nhớ IP dùng chung trong SHARED_TTL_S) — đúng hành vi.
   - **docker-compose.yml**: 8 tham số đổi sang dạng ${BIẾN:-mặc định} (mặc định giữ nguyên) để công cụ đo và "ngày nén" đặt
     tạm được lúc chạy. **rulegen**: thêm một dòng nhật ký khi mốc not_before đang cắt dữ liệu học (không đổi logic).
+  - **Kịch bản 47 — sửa cách chấm SAU lần chạy đầu.** Lần đầu (`eval/results/scenarios-20261115-121620/`): KHÔNG ĐẠT 4/5,
+    tỷ lệ Cổng 2 của tác nhân thử 8/9 (88,9 %) dưới ngưỡng 95 %. Nguyên nhân là cách chấm: tác nhân bị khoá IP giữa chừng,
+    nên mẫu số tính cả request Cổng 1 chặn sau khi khoá. Sửa KỊCH BẢN (không sửa hệ thống): tách thành vai `do_cong2`
+    (IP cố định 10.10.10.179, miễn trừ tạm, giữ ngưỡng 95 %) và vai `attack` (phải bị khoá trong 15 s). Chạy lại đúng một
+    lần (`scenarios-20261115-122520`): ĐẠT 6/6. Kết quả lần đầu được giữ; bản kịch bản ban đầu ở
+    `nsm-wip-15-11/phoi-hop/47-ban-dau-lan-chay-1.toml`.
+  - **Thử SC_CONT (chạy liền mạch, không reset giữa các kịch bản):** lượt 11:59 cho kịch bản 02 KHÔNG ĐẠT (4/5 IP người
+    dùng nhận 403) vì kịch bản 03 chạy ngay trước dùng đúng các IP đó làm IP tấn công và lệnh chặn còn hạn. Đây là lỗi
+    của cách dựng phép thử, đồng thời là bằng chứng SC_CONT giữ trạng thái chặn. Không sửa gì sau khi thấy kết quả này.
+  - **Lượt đo chốt** (`tools/baseline.sh cuoi`, commit `8498bcd`, 12:32–14:32; `eval/results/baseline-cuoi/`,
+    `scenarios-20261115-124042/`, `bench-results/20261115-142806/`): 45 kịch bản — 41 ĐẠT, 1 LỖ HỔNG ĐÃ BIẾT (04), 3 CHỈ ĐO
+    (20, 21, 35), 0 KHÔNG ĐẠT. Chạy một lần, không chạy lại kịch bản nào. Trong lúc đo, máy còn chạy bốn phiên làm việc,
+    nên số req/s của bench (442 ở 8 kết nối) KHÔNG so được với lượt đêm (535).
+  - **Bench, chặn IP khi flood: 2/3.** Responder ra quyết định ở cả ba lần. Ở lần 2, quyết định có ở giây 4,0, có hiệu lực
+    tại nginx ở giây 5,5; bench dừng 47 ms sau đó vì đủ 5 000 request nên không thấy 403. `tools/bench.sh` KHÔNG được sửa
+    sau khi thấy kết quả này; con số 2/3 được báo nguyên.
+  - **Kịch bản 32 và 42 không đo việc khoá IP.** Cả hai đặt `exempt = ["self"]` để đo hết request, nên responder bỏ qua
+    các IP phát lại. "0/4 IP bị khoá" ở hai kịch bản này là hệ quả của việc miễn trừ. Các báo cáo trước ngày 15/11 (chiều)
+    có câu "không IP nào bị khoá" cho kịch bản 42 — câu đó đúng về số đo nhưng không phải bằng chứng; đã đính chính.
+  - **Ngày mô phỏng nén 12 lần** (`tools/ngaynen.sh`, công cụ ở commit `33faba8`, hệ thống ở `8498bcd`): thay cho đợt chạy
+    thử 24 giờ; KHÔNG phải 24 giờ thật và không được gọi như vậy. Responder `dryrun`. Tham số thời gian nén đúng 12 lần
+    (LONG_WINDOW_S 7200, TTL_STEPS_S 75,300,7200, MAX_TTL_S 7200, SHARED_TTL_S 300, RULE_TTL_S 7200); `OFFENSE_RESET_S`
+    không nén. Nhịp lưu lượng nén 16,2 lần: 24 khung giờ trong 5 331 s (88 phút 51 giây, 15:04:37–16:33:28), mỗi khung
+    khoảng 222 s vì `max_s = 250` chỉ là trần. Tiêu chí và ngưỡng ghi trong công cụ TRƯỚC khi chạy. Lượt thử hai khung giờ
+    (`eval/results/ngaynen-20261115-143504/`) là lượt kiểm công cụ, không tính; công cụ không đổi sau lượt thử.
+    Kết quả (`eval/results/ngaynen-20261115-150440/tong-ket.md`): tiêu chí 1 ĐẠT (0/814 IP hợp lệ có "sẽ chặn"); 1c ĐẠT;
+    2 ĐẠT (hai IP gieo: ttl 75 → 300 → 7 200); 3 ĐẠT (sinh ra 27 584 request: 0 bị Cổng 2 chặn, 0 lần 429; phát lại
+    186/4 665 = 3,99 % bị Cổng 2 chặn); 24/24 khung giờ đạt.
+  - **Ngày nén, dòng 1b — quyết định vào IP phát lại lưu lượng thật.** Việc tách IP phát lại khỏi tiêu chí 1 được quyết
+    định khi viết công cụ, trước lượt thử (lý do: đường dẫn của website khác gửi vào DVWA, phần lớn trả 404). Kết quả:
+    12/12 IP phát lại nhận "sẽ chặn" (33 quyết định, `immediate:behaviour`, mẫu `recon` của tier3; 4 475/4 698 request
+    = 95,3 % trả 404). Ở chế độ chặn thật, 12 IP này sẽ bị khoá. Diễn giải: hiện vật của cách thử, không phải bằng chứng
+    khách thật bị chặn nhầm; nhưng trường hợp khách thật gặp nhiều trang 404 CHƯA được đo. Không đổi ngưỡng `recon` sau
+    khi thấy kết quả này.
+  - **Sự cố phối hợp:** phiên P1 xong lượt thử 14:44 nhưng không nhả khoá stack; P0 gỡ khoá lúc 15:03 sau khi đọc kết quả.
+    Mất khoảng 15 phút; lượt thử lại trình diễn của P3 dời xuống ngay trước các lượt chính thức. Không ảnh hưởng số đo.

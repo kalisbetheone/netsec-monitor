@@ -1,0 +1,14 @@
+reset0 rc=0 24s
+demo rc=0 59s
+reset1 rc=0 24s
+sectest rc=0 18s
+parity rc=0 241s
+tier1sync rc=0 99s
+reset2 rc=0 26s
+scenarios rc=0 6272s
+reset3 rc=0 29s
+ruledemo rc=0 54s
+ruledemo-multi rc=0 65s
+reset4 rc=0 26s
+bench rc=0 237s
+reset5 rc=0 30s

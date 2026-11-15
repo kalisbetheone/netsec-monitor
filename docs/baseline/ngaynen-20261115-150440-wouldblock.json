@@ -1,0 +1,780 @@
+{
+ "t0": 1794729877.0,
+ "t1": null,
+ "tong_quyet_dinh": 39,
+ "so_ip": 14,
+ "ip_theo_vai": {
+  "phat_lai": 12,
+  "tan_cong": 2
+ },
+ "ip_hop_le_bi_chan": [],
+ "ip_khong_ro_co_quyet_dinh": [],
+ "phat_lai_co_quyet_dinh": [
+  {
+   "ip": "10.10.4.14",
+   "luc": [
+    "15:12:35",
+    "15:14:43",
+    "15:27:14"
+   ],
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "so_request": 600,
+   "so_404": 566,
+   "cong_2_403": 31
+  },
+  {
+   "ip": "10.10.4.15",
+   "luc": [
+    "15:27:14",
+    "15:29:21",
+    "15:41:59"
+   ],
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "so_request": 500,
+   "so_404": 473,
+   "cong_2_403": 20
+  },
+  {
+   "ip": "10.10.4.16",
+   "luc": [
+    "15:41:59",
+    "15:44:03"
+   ],
+   "quyet_dinh": {
+    "would_block": 2
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    75
+   ],
+   "so_request": 100,
+   "so_404": 94,
+   "cong_2_403": 5
+  },
+  {
+   "ip": "10.10.4.17",
+   "luc": [
+    "15:16:17",
+    "15:18:24",
+    "15:30:56"
+   ],
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "so_request": 599,
+   "so_404": 574,
+   "cong_2_403": 21
+  },
+  {
+   "ip": "10.10.4.18",
+   "luc": [
+    "15:30:56",
+    "15:32:56",
+    "15:45:41"
+   ],
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "so_request": 500,
+   "so_404": 479,
+   "cong_2_403": 18
+  },
+  {
+   "ip": "10.10.4.19",
+   "luc": [
+    "15:45:39",
+    "15:47:45",
+    "16:15:23"
+   ],
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "so_request": 199,
+   "so_404": 196,
+   "cong_2_403": 2
+  },
+  {
+   "ip": "10.10.4.4",
+   "luc": [
+    "15:05:15",
+    "15:07:23",
+    "15:19:51"
+   ],
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "so_request": 600,
+   "so_404": 567,
+   "cong_2_403": 29
+  },
+  {
+   "ip": "10.10.4.5",
+   "luc": [
+    "15:34:44",
+    "15:36:52",
+    "15:49:31"
+   ],
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "so_request": 400,
+   "so_404": 385,
+   "cong_2_403": 15
+  },
+  {
+   "ip": "10.10.4.6",
+   "luc": [
+    "16:19:08",
+    "16:21:11"
+   ],
+   "quyet_dinh": {
+    "would_block": 2
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300
+   ],
+   "so_request": 100,
+   "so_404": 97,
+   "cong_2_403": 3
+  },
+  {
+   "ip": "10.10.4.7",
+   "luc": [
+    "15:08:55",
+    "15:11:01",
+    "15:23:40"
+   ],
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "so_request": 600,
+   "so_404": 567,
+   "cong_2_403": 25
+  },
+  {
+   "ip": "10.10.4.8",
+   "luc": [
+    "15:38:18",
+    "15:40:21",
+    "15:53:16"
+   ],
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "so_request": 400,
+   "so_404": 381,
+   "cong_2_403": 13
+  },
+  {
+   "ip": "10.10.4.9",
+   "luc": [
+    "15:38:18",
+    "15:40:21"
+   ],
+   "quyet_dinh": {
+    "would_block": 2
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300
+   ],
+   "so_request": 100,
+   "so_404": 96,
+   "cong_2_403": 4
+  }
+ ],
+ "so_ip_khai_bao": {
+  "hop_le": 814,
+  "phat_lai": 12,
+  "tan_cong": 8,
+  "thuong_tru": 7
+ },
+ "ip": [
+  {
+   "ip": "10.10.4.14",
+   "vai": "phat_lai",
+   "so_quyet_dinh": 3,
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "offenses": [
+    1,
+    2,
+    3
+   ],
+   "luc": [
+    "15:12:35",
+    "15:14:43",
+    "15:27:14"
+   ],
+   "dau_van_tay": []
+  },
+  {
+   "ip": "10.10.4.15",
+   "vai": "phat_lai",
+   "so_quyet_dinh": 3,
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "offenses": [
+    1,
+    2,
+    3
+   ],
+   "luc": [
+    "15:27:14",
+    "15:29:21",
+    "15:41:59"
+   ],
+   "dau_van_tay": []
+  },
+  {
+   "ip": "10.10.4.16",
+   "vai": "phat_lai",
+   "so_quyet_dinh": 2,
+   "quyet_dinh": {
+    "would_block": 2
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    75
+   ],
+   "offenses": [
+    1,
+    1
+   ],
+   "luc": [
+    "15:41:59",
+    "15:44:03"
+   ],
+   "dau_van_tay": [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+   ]
+  },
+  {
+   "ip": "10.10.4.17",
+   "vai": "phat_lai",
+   "so_quyet_dinh": 3,
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "offenses": [
+    1,
+    2,
+    3
+   ],
+   "luc": [
+    "15:16:17",
+    "15:18:24",
+    "15:30:56"
+   ],
+   "dau_van_tay": []
+  },
+  {
+   "ip": "10.10.4.18",
+   "vai": "phat_lai",
+   "so_quyet_dinh": 3,
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "offenses": [
+    1,
+    2,
+    3
+   ],
+   "luc": [
+    "15:30:56",
+    "15:32:56",
+    "15:45:41"
+   ],
+   "dau_van_tay": []
+  },
+  {
+   "ip": "10.10.4.19",
+   "vai": "phat_lai",
+   "so_quyet_dinh": 3,
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "offenses": [
+    1,
+    2,
+    3
+   ],
+   "luc": [
+    "15:45:39",
+    "15:47:45",
+    "16:15:23"
+   ],
+   "dau_van_tay": []
+  },
+  {
+   "ip": "10.10.4.4",
+   "vai": "phat_lai",
+   "so_quyet_dinh": 3,
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "offenses": [
+    1,
+    2,
+    3
+   ],
+   "luc": [
+    "15:05:15",
+    "15:07:23",
+    "15:19:51"
+   ],
+   "dau_van_tay": []
+  },
+  {
+   "ip": "10.10.4.5",
+   "vai": "phat_lai",
+   "so_quyet_dinh": 3,
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "offenses": [
+    1,
+    2,
+    3
+   ],
+   "luc": [
+    "15:34:44",
+    "15:36:52",
+    "15:49:31"
+   ],
+   "dau_van_tay": []
+  },
+  {
+   "ip": "10.10.4.6",
+   "vai": "phat_lai",
+   "so_quyet_dinh": 2,
+   "quyet_dinh": {
+    "would_block": 2
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300
+   ],
+   "offenses": [
+    1,
+    2
+   ],
+   "luc": [
+    "16:19:08",
+    "16:21:11"
+   ],
+   "dau_van_tay": []
+  },
+  {
+   "ip": "10.10.4.7",
+   "vai": "phat_lai",
+   "so_quyet_dinh": 3,
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "offenses": [
+    1,
+    2,
+    3
+   ],
+   "luc": [
+    "15:08:55",
+    "15:11:01",
+    "15:23:40"
+   ],
+   "dau_van_tay": []
+  },
+  {
+   "ip": "10.10.4.8",
+   "vai": "phat_lai",
+   "so_quyet_dinh": 3,
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "offenses": [
+    1,
+    2,
+    3
+   ],
+   "luc": [
+    "15:38:18",
+    "15:40:21",
+    "15:53:16"
+   ],
+   "dau_van_tay": []
+  },
+  {
+   "ip": "10.10.4.9",
+   "vai": "phat_lai",
+   "so_quyet_dinh": 2,
+   "quyet_dinh": {
+    "would_block": 2
+   },
+   "ly_do": [
+    "immediate:behaviour"
+   ],
+   "lop": [
+    "behaviour"
+   ],
+   "ttl_s": [
+    75,
+    300
+   ],
+   "offenses": [
+    1,
+    2
+   ],
+   "luc": [
+    "15:38:18",
+    "15:40:21"
+   ],
+   "dau_van_tay": []
+  },
+  {
+   "ip": "10.10.15.241",
+   "vai": "tan_cong",
+   "so_quyet_dinh": 3,
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "threshold"
+   ],
+   "lop": [
+    "rce"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "offenses": [
+    1,
+    2,
+    3
+   ],
+   "luc": [
+    "15:08:29",
+    "15:37:50",
+    "16:18:36"
+   ],
+   "dau_van_tay": []
+  },
+  {
+   "ip": "10.10.15.242",
+   "vai": "tan_cong",
+   "so_quyet_dinh": 3,
+   "quyet_dinh": {
+    "would_block": 3
+   },
+   "ly_do": [
+    "threshold"
+   ],
+   "lop": [
+    "rce"
+   ],
+   "ttl_s": [
+    75,
+    300,
+    7200
+   ],
+   "offenses": [
+    1,
+    2,
+    3
+   ],
+   "luc": [
+    "15:08:29",
+    "15:37:50",
+    "16:18:36"
+   ],
+   "dau_van_tay": []
+  }
+ ],
+ "thuong_tru": {
+  "10.10.10.21": {
+   "web": 2677,
+   "g2_403": 0,
+   "s404": 13,
+   "g1_403": 0,
+   "g1_429": 0
+  },
+  "10.10.4.1": {
+   "web": 2146,
+   "g2_403": 0,
+   "s404": 0,
+   "g1_403": 0,
+   "g1_429": 0
+  },
+  "10.10.4.11": {
+   "web": 2677,
+   "g2_403": 0,
+   "s404": 5,
+   "g1_403": 0,
+   "g1_429": 0
+  },
+  "10.10.4.12": {
+   "web": 2678,
+   "g2_403": 0,
+   "s404": 12,
+   "g1_403": 0,
+   "g1_429": 0
+  },
+  "10.10.4.13": {
+   "web": 2678,
+   "g2_403": 0,
+   "s404": 12,
+   "g1_403": 0,
+   "g1_429": 0
+  },
+  "10.10.4.2": {
+   "web": 2146,
+   "g2_403": 0,
+   "s404": 0,
+   "g1_403": 0,
+   "g1_429": 0
+  },
+  "10.10.4.3": {
+   "web": 2146,
+   "g2_403": 0,
+   "s404": 0,
+   "g1_403": 0,
+   "g1_429": 0
+  }
+ }
+}
