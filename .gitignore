@@ -17,3 +17,9 @@ eval/*.log
 
 # ứng viên của bộ thử tầng 2 (sinh lại được bằng eval/t2test_candidates.py)
 scenarios/tang-2/ung-vien*.jsonl
+
+# dữ liệu trung gian của việc cải thiện tầng 2 (sinh lại được bằng train/t2_pool.py)
+train/data_src/
+scenarios/tang-2/loc/
+scenarios/tang-2/loc-test/
+train/data_1411/

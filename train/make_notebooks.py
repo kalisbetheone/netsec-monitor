@@ -2,7 +2,11 @@
 """train/make_notebooks.py — chuyển train/notebooks_src/*.py (định dạng ô '# %%') thành .ipynb và dựng thư mục
 NSM-train để đẩy lên Google Drive.
 
-    python -X utf8 -B train/make_notebooks.py [thư_mục_đích]      (mặc định: train/drive_stage/NSM-train)
+    python -X utf8 -B train/make_notebooks.py [thư_mục_đích] [tiền_tố]      (mặc định: train/drive_stage/NSM-train)
+
+`tiền_tố` (vd `01`): chỉ dựng notebook có tên bắt đầu bằng tiền tố đó và chỉ chép dữ liệu `tier2_*` (01) / `rulesel_*` (02, 03).
+Tên thư mục đích khác `NSM-train` (vd `NSM-train-v3`): đường dẫn Drive trong notebook được đổi theo tên đó, để mỗi đợt dữ liệu
+nằm ở một thư mục Drive riêng và không ghi đè đợt trước.
 
 Thư mục đích:
     notebooks/   01_tier2_classifier.ipynb, 02_rule_selection_ranker_llm.ipynb
@@ -78,20 +82,34 @@ def to_ipynb_text(text):
             "nbformat": 4, "nbformat_minor": 5}
 
 
+DRIVE_BASE = '"/content/drive/MyDrive/NSM-train"'
+
+
 def main():
     dst = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "train", "drive_stage", "NSM-train")
+    prefix = sys.argv[2] if len(sys.argv) > 2 else ""
+    folder = os.path.basename(os.path.normpath(dst))
     for sub in ("notebooks", "data", "code"):
         os.makedirs(os.path.join(dst, sub), exist_ok=True)
     for py in sorted(glob.glob(os.path.join(SRC, "*.py"))):
-        nb = to_ipynb(py)
+        if not os.path.basename(py).startswith(prefix):
+            continue
+        text = open(py, encoding="utf-8").read()
+        if folder != "NSM-train":
+            assert DRIVE_BASE in text, f"{py}: không thấy đường dẫn Drive để đổi"
+            text = text.replace(DRIVE_BASE, f'"/content/drive/MyDrive/{folder}"')
+        nb = to_ipynb_text(text)
         out = os.path.join(dst, "notebooks", os.path.basename(py)[:-3] + ".ipynb")
         json.dump(nb, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         print("notebook:", out, f"({len(nb['cells'])} ô)")
-        for tag, nb2 in shard_variants(open(py, encoding="utf-8").read()):
+        for tag, nb2 in shard_variants(text):
             out2 = out[:-len(".ipynb")] + f"_{tag}.ipynb"
             json.dump(nb2, open(out2, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
             print("notebook:", out2, f"({len(nb2['cells'])} ô)")
+    data_prefix = {"01": ("tier2_",), "02": ("rulesel_",), "03": ("rulesel_",)}.get(prefix, ("",))
     for f in glob.glob(os.path.join(ROOT, "train", "data", "*")):
+        if not os.path.basename(f).startswith(data_prefix):
+            continue
         t = os.path.join(dst, "data", os.path.basename(f))
         if not os.path.exists(t) or os.path.getmtime(t) < os.path.getmtime(f) or os.path.getsize(t) != os.path.getsize(f):
             shutil.copy2(f, t)

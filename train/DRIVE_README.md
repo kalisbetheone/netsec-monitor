@@ -46,6 +46,16 @@ và `results_large.json` của lần chạy 15/11 được giữ ở `notebooks/
   `docker-compose-env.txt` như trước. Thiếu phần của ứng viên nào thì bước gộp dừng và nêu tên;
 - bản một phiên `01_tier2_classifier.ipynb` vẫn chạy như cũ. Phần XGBoost nghiên cứu chỉ có ở bản một phiên.
 
+**Đợt cải thiện tầng 2 — thư mục `NSM-train-v3` (15/11/2026).** Dữ liệu `tier2_*` của đợt này khác hai đợt trước:
+- payload tấn công có cờ `g2` ("pass" = lọt Cổng 2 thật và có cấu trúc tấn công rõ); các payload đó được cấy thêm;
+- thêm văn bản hợp lệ "khó" (từ khoá SQL / lệnh shell, ký hiệu) vào train / valid, cờ `hard`;
+- hai tập kiểm tra mới: `tier2_test_hardtext` và `tier2_test_residual` (tấn công thật của SR-BH mà Cổng 2 để lọt).
+Notebook 01 nhận ra dữ liệu này (in "V2: True") và tự đổi: 6 ứng viên (M2, M3 × trọng số 1 / 3 / 10), mục tiêu chọn là phát
+hiện trên payload lọt Cổng 2 (trung bình đều theo lớp), thêm ràng buộc báo nhầm ≤ 5 % trên văn bản hợp lệ khó. Cách chạy:
+ba phiên, mỗi phiên một tệp `01_tier2_classifier_phien<i>.ipynb` trong `NSM-train-v3/notebooks`; xong cả ba thì gộp.
+Tiêu chí được ghi trước trong `nsm/eval/PROTOCOL.md` (mục 15/11/2026, 23:00). Dựng lại dữ liệu: `train/t2_pool.py` →
+bước lọc qua Cổng 2 → `train/t2_pool_result.py`, `train/t2_hard_benign.py`, rồi `train/build_tier2_dataset.py`.
+
 1. Mở notebook trong Colab (chuột phải → Open with → Google Colaboratory).
 2. Runtime → Change runtime type → chọn như bảng trên.
 3. Runtime → Run all. Ô đầu tiên hỏi quyền truy cập Drive: chấp nhận.

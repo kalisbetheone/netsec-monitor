@@ -97,8 +97,12 @@ def load(name, limit=None):
 LIM = {"train": 30000, "valid": 10000, "test_sites": 10000, "test_srbh": 10000, "test_httpparams": 5000} if SMOKE else {}
 # test_freetext: câu Tatoeba CHƯA thấy cấy vào website chưa thấy; test_scenario_text: câu tự viết của khung kịch bản
 # (chỉ để kiểm tra, không dùng chọn model). Hai tập này có từ 14/11/2026.
-TESTS = [k for k in ("test_sites", "test_srbh", "test_httpparams", "test_freetext", "test_scenario_text")
+# test_hardtext (văn bản hợp lệ "khó") và test_residual (tấn công thật của SR-BH mà Cổng 2 để lọt) có từ đợt cải thiện tầng 2
+# 15/11/2026 (train/t2_hard_benign.py, train/t2_pool.py). V2 = dữ liệu có các cờ g2 / hard -> đổi danh sách ứng viên và tiêu chí chọn.
+TESTS = [k for k in ("test_sites", "test_srbh", "test_httpparams", "test_freetext", "test_scenario_text", "test_hardtext", "test_residual")
          if os.path.exists(f"{LOCAL}/tier2_{k}.jsonl.gz")]
+V2 = "test_hardtext" in TESTS
+print("dữ liệu đợt cải thiện tầng 2 (V2):", V2)
 D = {k: load(k, LIM.get(k)) for k in (["valid"] if MERGE else ["train", "valid"] + TESTS)}   # gộp: chỉ cần valid để đo độ trễ
 for k, v in D.items():
     from collections import Counter
@@ -123,7 +127,9 @@ def featurize(rows):
     loc = np.array([r.get("loc", "args") for r in rows])
     nul = np.array([bool(r.get("nul")) for r in rows])        # thân có byte rỗng (lỗi C7: hệ thống thật cắt thân)
     free = np.array([str(r.get("source", "")).startswith(("inject:tatoeba", "inject:scenario")) for r in rows])
-    return texts, nums, y, t1, gate, loc, nul, free
+    g2p = np.array([r.get("g2") == "pass" for r in rows])     # payload LỌT Cổng 2 thật: phần duy nhất tầng 2 có giá trị riêng
+    hard = np.array([bool(r.get("hard")) for r in rows])      # văn bản hợp lệ "khó" (từ khoá SQL / lệnh shell, ký hiệu)
+    return texts, nums, y, t1, gate, loc, nul, free, g2p, hard
 
 t0 = time.time()
 F = {} if MERGE else {k: featurize(v) for k, v in D.items()}
@@ -176,6 +182,20 @@ def report(F_k, scores, decision, theta, use_gate):
                 ms = m & (y == "sqli")
                 if ms.any():
                     out[f"det_sqli_{L}"] = float(flag[ms].mean()); out[f"n_sqli_{L}"] = int(ms.sum())
+    g2p, hard = F_k[8], F_k[9]
+    if (att & g2p).any():                                     # phát hiện trên payload lọt Cổng 2; tách phần tầng 2 tự bắt
+        m = att & g2p
+        out["det_residual"] = float(flag[m].mean()); out["det_residual_tier2"] = float(t2only[m].mean()); out["n_residual"] = int(m.sum())
+        per = []
+        for c in ("sqli", "xss", "lfi", "rce"):
+            mc = m & (y == c)
+            if mc.any():
+                out[f"det_residual_{c}"] = float(flag[mc].mean()); out[f"n_residual_{c}"] = int(mc.sum())
+                per.append(out[f"det_residual_{c}"])
+        out["det_residual_macro"] = float(np.mean(per))        # trung bình ĐỀU theo lớp: LFI có hàng nghìn payload lọt, lớp khác vài chục
+    if (ben & hard).any():                                    # báo nhầm riêng trên văn bản hợp lệ "khó"
+        out["fpr_hard_system"] = float(flag[ben & hard].mean()); out["fpr_hard_tier2_added"] = float(t2only[ben & hard].mean())
+        out["n_hard"] = int((ben & hard).sum())
     free = F_k[7]
     if (ben & free).any():                                    # báo nhầm riêng trên văn bản tự do (câu người gõ)
         out["fpr_free_system"] = float(flag[ben & free].mean()); out["fpr_free_tier2_added"] = float(t2only[ben & free].mean())
@@ -184,19 +204,29 @@ def report(F_k, scores, decision, theta, use_gate):
         out["fpr_system_nul_body"] = float(flag[ben & nul].mean()); out["n_benign_nul_body"] = int((ben & nul).sum())
     return out
 
-def pick_threshold(F_valid, scores, decision, use_gate, budget=0.001, budget_free=0.002):
-    """θ cho phát hiện cao nhất mà tầng 2 chỉ thêm <= budget báo nhầm trên lành tính của valid VÀ <= budget_free trên
-    văn bản tự do của valid (câu người gõ — thêm 14/11/2026, vì model trước khoá người dùng ở kịch bản 02)."""
+def objective(r):
+    """Điều cần tối đa khi chọn: phát hiện trên payload LỌT Cổng 2, trung bình đều theo lớp (nếu dữ liệu có cờ đó), rồi mới
+    tới phát hiện chung. Dữ liệu cũ không có cờ -> cả hai phần đều là phát hiện chung, tức đúng tiêu chí trước 15/11."""
+    return (r.get("det_residual_macro", r["det_all"]), r["det_all"])
+
+def pick_threshold(F_valid, scores, decision, use_gate, budget=0.001, budget_free=0.002, budget_hard=0.05):
+    """θ cho mục tiêu cao nhất mà tầng 2 chỉ thêm <= budget báo nhầm trên lành tính của valid, <= budget_free trên văn bản tự
+    do của valid (câu người gõ — thêm 14/11/2026, vì model trước khoá người dùng ở kịch bản 02) VÀ <= budget_hard trên văn
+    bản hợp lệ "khó" của valid (thêm 15/11/2026; dữ liệu cũ không có loại này thì ràng buộc không có tác dụng)."""
     best = None
     for theta in np.round(np.concatenate([np.arange(0.50, 0.95, 0.01), np.arange(0.95, 0.9995, 0.001)]), 4):
         r = report(F_valid, scores, decision, theta, use_gate)
-        if r["fpr_tier2_added"] <= budget and r.get("fpr_free_tier2_added", 0.0) <= budget_free:
-            if best is None or r["det_all"] > best[1]["det_all"]:
+        if (r["fpr_tier2_added"] <= budget and r.get("fpr_free_tier2_added", 0.0) <= budget_free
+                and r.get("fpr_hard_tier2_added", 0.0) <= budget_hard):
+            if best is None or objective(r) > objective(best[1]):
                 best = (float(theta), r)
     return best
 
 # %%
-# ---- 5. Model hiện tại (baseline) — chạy y như cấu hình trong docker-compose: argmax, θ=0.90, cổng bật ----
+# ---- 5. Model hiện tại (baseline) — chạy y như cấu hình trong docker-compose ----
+# Dữ liệu V2 (15/11/2026): model 14/11 đang chạy với argmax, θ = 0,67, cổng cú pháp TẮT. Dữ liệu cũ: giữ cấu hình của lần
+# huấn luyện trước (argmax, θ = 0,90, cổng bật) để bảng cũ tái lập được.
+CUR_DEC, CUR_THETA, CUR_GATE = ("argmax", 0.67, False) if V2 else ("argmax", 0.90, True)
 cur = joblib.load(f"{CODE}/tier2_current.joblib")
 def proba_of(model, F_k):
     texts, nums = F_k[0], F_k[1]
@@ -208,7 +238,8 @@ BASELINE_PATH = f"{PARTS}/_baseline.json"
 if SHARD in ("0", "1"):                                 # chia phiên: chỉ phiên 1 đo model hiện tại (mọi phiên sẽ ra cùng số)
     cur_cls = [str(c) for c in cur["clf"].classes_]
     S_cur = {k: tier2_scores(proba_of(cur, F[k]), cur_cls)[0] for k in F}
-    RESULTS["M0_hien_tai"] = {k: report(F[k], S_cur[k], "argmax", 0.90, True) for k in F}
+    RESULTS["M0_hien_tai"] = {k: report(F[k], S_cur[k], CUR_DEC, CUR_THETA, CUR_GATE) for k in F}
+    RESULTS["M0_hien_tai"]["_config"] = {"decision": CUR_DEC, "gate": CUR_GATE, "theta": CUR_THETA}
     for k, v in RESULTS["M0_hien_tai"].items():
         print(k, {a: (round(b, 4) if isinstance(b, float) else b) for a, b in v.items()})
     # (tuỳ chọn) model huấn luyện lại LẦN TRƯỚC (12/11, chưa có văn bản tự do): NSM_PREV_MODEL=<đường dẫn joblib>,
@@ -256,13 +287,15 @@ def fold_scaling(clf, scale):
     out.coef_[:, -len(scale):] = out.coef_[:, -len(scale):] / scale
     return out
 
-def train_model(name, text_spec, make_clf, scale_numeric):
+def train_model(name, text_spec, make_clf, scale_numeric, weight=1.0):
+    """weight > 1: dòng "payload lọt Cổng 2" và dòng "văn bản hợp lệ khó" được tính nặng gấp `weight` lần khi học."""
     t0 = time.time()
     texts, nums, y = F["train"][0], F["train"][1], F["train"][2]
     vec, Xt = fit_text(text_spec, texts)
     scale = np.maximum(np.abs(nums).max(0), 1.0) if scale_numeric else np.ones(len(NUM))
     X = hstack([Xt, csr_matrix(nums / scale)]).tocsr()
-    clf = make_clf().fit(X, y)
+    sw = np.where(F["train"][8] | F["train"][9], float(weight), 1.0) if weight != 1.0 else None
+    clf = make_clf().fit(X, y, sample_weight=sw)
     clf = fold_scaling(clf, scale) if scale_numeric else clf
     model = {"vectorizer": vec, "clf": clf, "num_cols": list(NUM)}
     print(f"{name}: {X.shape[1]} đặc trưng, học {time.time() - t0:.0f} s")
@@ -270,14 +303,27 @@ def train_model(name, text_spec, make_clf, scale_numeric):
 
 # Danh sách ứng viên theo THỨ TỰ CỐ ĐỊNH (thứ tự này quyết định ứng viên nào được chọn khi hoà điểm, và phiên nào học gì)
 TEXT_BIG = {"ngram_range": (1, 5), "min_df": 3, "max_features": 100000, "sublinear_tf": True}
+def _m2(C=1.0):
+    return lambda: LogisticRegression(C=C, class_weight="balanced", max_iter=3000, n_jobs=-1)
+def _m3():
+    return SGDClassifier(loss="modified_huber", penalty="elasticnet", alpha=2e-6, l1_ratio=0.15,
+                         class_weight="balanced", max_iter=30, tol=1e-4, random_state=0)
 SPECS = {}
-if not FAST:
-    SPECS["M1_cong_thuc_cu"] = ({"ngram_range": (2, 4), "min_df": 5, "max_features": 4000},
-                                lambda: LogisticRegression(C=1.0, max_iter=2000, n_jobs=-1), False)
-for C in ([1.0] if (SMOKE or FAST) else [0.3, 1.0, 3.0]):
-    SPECS[f"M2_lr_C{C}"] = (TEXT_BIG, lambda C=C: LogisticRegression(C=C, class_weight="balanced", max_iter=3000, n_jobs=-1), True)
-SPECS["M3_sgd"] = (TEXT_BIG, lambda: SGDClassifier(loss="modified_huber", penalty="elasticnet", alpha=2e-6, l1_ratio=0.15,
-                                                   class_weight="balanced", max_iter=30, tol=1e-4, random_state=0), True)
+if V2:
+    # Đợt cải thiện tầng 2: hai model tuyến tính × trọng số của dòng "lọt Cổng 2" và "hợp lệ khó". 6 ứng viên = 2 ứng viên / phiên
+    # khi chia 3 phiên (mỗi phiên một M2 và một M3). Chạy thử nhanh: 3 ứng viên.
+    for w, kinds in (((1, "23"), (3, "3")) if (SMOKE or FAST) else ((1, "23"), (3, "23"), (10, "23"))):
+        if "2" in kinds:
+            SPECS[f"M2_lr_C1.0_w{w}"] = (TEXT_BIG, _m2(1.0), True, float(w))
+        if "3" in kinds:
+            SPECS[f"M3_sgd_w{w}"] = (TEXT_BIG, _m3, True, float(w))
+else:
+    if not FAST:
+        SPECS["M1_cong_thuc_cu"] = ({"ngram_range": (2, 4), "min_df": 5, "max_features": 4000},
+                                    lambda: LogisticRegression(C=1.0, max_iter=2000, n_jobs=-1), False)
+    for C in ([1.0] if (SMOKE or FAST) else [0.3, 1.0, 3.0]):
+        SPECS[f"M2_lr_C{C}"] = (TEXT_BIG, _m2(C), True)
+    SPECS["M3_sgd"] = (TEXT_BIG, _m3, True)
 NAMES = list(SPECS)
 if SHARD == "0":
     MINE = NAMES
@@ -302,8 +348,11 @@ REPORTS = {}        # (ứng viên, cách quyết định, cổng) -> {tập: s�
 OPTIONS = [(d, g) for d in ("argmax", "mass") for g in (True, False)]
 
 def show_sel(name, decision, gate, p):
-    print(f"{name:16} {decision:6} cổng={'bật' if gate else 'tắt'}  θ={p[0]:.3f}  "
-          f"valid: phát hiện {p[1]['det_all']:.4f}, tầng 2 thêm báo nhầm {p[1]['fpr_tier2_added']:.5f}")
+    r = p[1]
+    extra = (f", lọt Cổng 2 (TB theo lớp) {r['det_residual_macro']:.4f}, hợp lệ khó {r.get('fpr_hard_tier2_added', float('nan')):.4f}"
+             if "det_residual_macro" in r else "")
+    print(f"{name:18} {decision:6} cổng={'bật' if gate else 'tắt'}  θ={p[0]:.3f}  "
+          f"valid: phát hiện {r['det_all']:.4f}, tầng 2 thêm báo nhầm {r['fpr_tier2_added']:.5f}{extra}")
 
 for name, model in CANDIDATES.items():
     classes = [str(c) for c in model["clf"].classes_]
@@ -336,7 +385,7 @@ if MERGE:                                               # đọc phần của m�
             show_sel(name, o["decision"], bool(o["gate"]), SEL[key])
 
 if FINAL:
-    best_key = max(SEL, key=lambda k: (SEL[k][1]["det_all"], -SEL[k][1]["fpr_system"]))
+    best_key = max(SEL, key=lambda k: (*objective(SEL[k][1]), -SEL[k][1]["fpr_system"]))
     BEST_NAME, BEST_DEC, BEST_GATE = best_key
     BEST_THETA = SEL[best_key][0]
     print("\n>> CHỌN:", BEST_NAME, "| TIER2_DECISION =", BEST_DEC, "| TIER2_SYNTAX_GATE =", int(BEST_GATE),
@@ -356,7 +405,7 @@ if FINAL:
             RESULTS[name] = dict(REPORTS[key])
             RESULTS[name]["_config"] = {"decision": BEST_DEC, "gate": BEST_GATE, "theta": SEL[key][0]}
     if "M0_hien_tai" in RESULTS:
-        print("Model hiện tại (argmax, θ=0.90, cổng bật):")
+        print(f"Model hiện tại ({CUR_DEC}, θ={CUR_THETA}, cổng={'bật' if CUR_GATE else 'tắt'}):")
         for k in TESTS:
             print("  ", k, fmt(RESULTS["M0_hien_tai"][k]))
     print(f"\nModel chọn {BEST_NAME} ({BEST_DEC}, θ={BEST_THETA}, cổng={'bật' if BEST_GATE else 'tắt'}):")
@@ -413,7 +462,10 @@ if FINAL:
 if FINAL:
     meta = {"trained_at": time.strftime("%Y-%m-%d %H:%M:%S"), "name": BEST_NAME, "sklearn": sklearn.__version__,
             "decision": BEST_DEC, "syntax_gate": BEST_GATE, "threshold": BEST_THETA, "latency_ms": round(lat_ms, 3),
-            "smoke": SMOKE, "selection": "max valid detection with tier-2 added FPR <= 0.1% on valid benign",
+            "smoke": SMOKE, "v2": V2,
+            "selection": ("max valid detection on Gate-2-passing payloads (macro average over classes), then overall; tier-2 added FPR <= 0.1% on valid benign, "
+                          "<= 0.2% on free text, <= 5% on hard benign text") if V2
+                         else "max valid detection with tier-2 added FPR <= 0.1% on valid benign",
             "shards": N_SHARDS if MERGE else 1, "train_seconds": TRAIN_S}
     out_model = {"vectorizer": best["vectorizer"], "clf": best["clf"], "num_cols": best["num_cols"], "meta": meta}
     joblib.dump(out_model, f"{OUTD}/tier2_new.joblib", compress=3)

@@ -351,3 +351,66 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     Thêm một điều kiện chặn: không kịch bản nào trong 5 kịch bản ĐẠT ở cổng tắt mà KHÔNG ĐẠT ở cổng bật. Nếu một kịch bản
     không đạt ở cả hai cấu hình thì ghi lại, không tính vào quyết định.
   - Không chỉnh ngưỡng `TIER2_THRESHOLD` trong bước này. Không sửa danh sách đối chứng, bộ thử hay kịch bản sau khi thấy kết quả.
+
+- 15/11/2026 (22:52) — **Cải thiện tầng 2, bước 1: KẾT QUẢ đo cổng cú pháp — quyết định theo quy tắc ghi trước: GIỮ CỔNG TẮT.**
+  Một lượt mỗi cấu hình, 22:17–22:52 (`tools/t2gate.sh`; `eval/results/t2gate-0.txt`, `t2gate-1.txt`; bench
+  `bench-results/20261115-221757` và `-223508`).
+
+  | Phép đo | Cổng tắt | Cổng bật | Điều kiện | Đạt |
+  |---|---|---|---|---|
+  | bench, lành tính "khó" bị gắn nhãn | 8/27 | 7/27 | bật <= một nửa của tắt (<= 4) | KHÔNG |
+  | đối chứng mới bị gắn nhãn | 13/60 | 7/60 | bật <= một nửa của tắt (<= 6) | KHÔNG |
+  | bench, bộ phân loại bắt tấn công | 63/65 | 63/65 | bật >= tắt | có |
+  | bộ thử 52 payload được gắn nhãn | 40/52 | 37/52 | >= 32/52 | có |
+  | 5 kịch bản 02, 13, 25, 41, 42 | 5 đạt | 5 đạt | không kịch bản nào từ đạt thành không đạt | có |
+
+  Ghi thêm (không thuộc quy tắc): bench lành tính thường 2/28 -> 0/28; đối chứng cũ 12/60 -> 5/60. Cổng có ích cho văn bản
+  KHÔNG có ký tự đặc biệt, nhưng phần lớn mẫu "khó" của bench có ký tự đặc biệt nên cổng không chạm tới. Hai điều kiện không
+  đạt -> cấu hình chạy KHÔNG đổi (`TIER2_SYNTAX_GATE` mặc định 0). Cổng vẫn là một lựa chọn trong bảng chọn model của bước 2
+  (notebook 01 chọn cách quyết định × cổng trên valid). Không sửa danh sách đối chứng, bộ thử, kịch bản hay ngưỡng sau khi thấy
+  kết quả. Sau lượt đo, classifier được trả về mặc định và `stack.sh check` sạch.
+- 15/11/2026 (23:00) — **Cải thiện tầng 2, bước 2: dữ liệu huấn luyện mới và tiêu chí chọn model — GHI TRƯỚC khi huấn luyện.**
+  - **Cờ "lọt Cổng 2" (`g2`).** Payload train/valid (seclists, openappsec_mal; giá trị dài nhất ModSecurity thấy, khử trùng theo
+    giá trị: 47 607) mà regex tầng 1 bỏ lọt (33 887) được gửi qua Cổng 2 THẬT dạng `GET /index.php?q=<payload>`, 8 tác nhân song
+    song, IP miễn trừ, rulegen dừng (`train/t2_pool.py`, `scenarios/tang-2/loc/`, kết quả `eval/results/t2pool-20261115-225610`,
+    234 giây): 28 279 bị Cổng 2 chặn, 5 608 lọt. Sau lượt lọc 6 IP thử bị responder khoá (cảnh báo tới sau khi hết miễn trừ);
+    đã gỡ bằng `nsmctl unblock` lúc 23:02 — không ảnh hưởng mã phản hồi đã ghi (không request nào bị Cổng 1 chặn).
+  - **Lọc chất lượng.** Payload lọt chỉ được đánh dấu `g2 = pass` nếu có CẤU TRÚC TẤN CÔNG rõ theo `train/t2_constructs.py` (biểu
+    thức viết tay, viết TRƯỚC khi có model mới nào được chấm; kiểm trên 52 payload đã đọc tay: nhận 50/52); còn lại là
+    `pass_weak` và được dùng như payload thường. Lý do: đọc tay 15/11 cho thấy chỉ 57/126 payload lọt là tấn công thật. Kết quả:
+    `pass` train sqli 71, xss 19, lfi 4 109, rce 16; valid sqli 18, xss 6, lfi 1 024, rce 8. Lớp LFI lấn át, nên (a) mỗi lớp
+    chỉ được cấy thêm tối đa 3 000 dòng (train) / 1 200 dòng (valid), mỗi payload tối đa 10 / 3 vật mang; (b) mục tiêu chọn
+    model là trung bình ĐỀU theo lớp.
+  - **Văn bản hợp lệ "khó"** (`train/t2_hard_benign.py`): 5 856 câu Tatoeba có từ khoá SQL / lệnh shell (chia theo băm của trình
+    dựng dữ liệu) + chuỗi ngắn sinh theo 13 họ mẫu (chia theo băm của chuỗi) + 2 họ CHỈ có ở test (`toan`, `url`). Mọi chuỗi
+    trùng một chuỗi của các danh sách kiểm tra (hai danh sách đối chứng, mẫu lành tính của bench, câu của khung kịch bản; 320
+    chuỗi) bị loại khỏi dữ liệu sinh. Không sinh câu SQL hoàn chỉnh đứng một mình làm mẫu hợp lệ.
+  - **Bộ kiểm tra mới, không dùng để chọn:** `test_hardtext` (phần test của văn bản khó) và `test_residual` — payload tấn công
+    THẬT của SR-BH 2020 mà regex tầng 1 bỏ lọt (1 383), gửi qua Cổng 2 (`eval/results/t2pooltest-20261115-225311`): 721 lọt, trong
+    đó 205 có cấu trúc tấn công rõ (sqli 149, rce 56; chủ yếu 5 khung của máy quét: `<giá trị>&sleep$mc 15&`,
+    `<giá trị>&cat$jj $jj/etc$jj/passwd&`, `<giá trị> ASC  -- `, `<giá trị> DESC  -- `, `<giá trị>-- `). 516 giá trị lọt còn lại
+    là giá trị thường của request bị gắn nhãn tấn công hoặc dò bằng một ký tự cuối (`4.2.6'`) — không dùng.
+  - **Ứng viên:** M2 (hồi quy logistic, C = 1) và M3 (SGD) × trọng số 1 / 3 / 10 cho dòng `g2 = pass` và dòng văn bản khó
+    (6 ứng viên, 2 ứng viên mỗi phiên Colab). Đặc trưng và dạng model không đổi (thay vào classifier được ngay).
+  - **Tiêu chí chọn (trên valid, không nhìn tập test):** với mỗi ứng viên × cách quyết định × cổng cú pháp, lấy ngưỡng cho mục
+    tiêu cao nhất trong các ngưỡng thoả CẢ BA ràng buộc: tầng 2 thêm <= 0,1 % báo nhầm trên lành tính thường; <= 0,2 % trên văn
+    bản tự do; <= 5 % trên văn bản hợp lệ khó. **Mục tiêu = tỷ lệ phát hiện trên payload `g2 = pass`, trung bình đều theo lớp**,
+    hoà thì lấy phát hiện chung cao hơn, rồi báo nhầm hệ thống thấp hơn.
+  - **Mốc đạt của bước 2, đo trên HỆ THỐNG THẬT sau khi có model (không phải trên valid):** (1) văn bản hợp lệ khó bị gắn nhãn
+    <= 5 % trên hai danh sách đối chứng gộp (hiện 25/120) và trên bench "khó" (hiện 8/27; 5 % của 27 làm tròn lên = 2);
+    (2) bộ thử 52 payload được gắn nhãn >= 39/52 (75 %), riêng RCE >= 7/14 (hiện 5/14); (3) bench: bộ phân loại bắt tấn công
+    không giảm (63/65); (4) 5 kịch bản 02, 13, 25, 41, 42 vẫn đạt. Không đạt đủ thì KHÔNG thay model.
+  - **Giới hạn đã biết trước khi huấn luyện:** phần lọt có cấu trúc của SQLi / XSS / RCE trong train chỉ 71 / 19 / 16 payload
+    (valid 18 / 6 / 8), nên số đo "lọt Cổng 2" của ba lớp này trên valid dao động mạnh; cả tập train chỉ có 614 giá trị SQLi
+    khác nhau. Nguồn SQLi / RCE bổ sung cần tải thêm và chưa được người dùng duyệt -> đợt này (vòng 1) KHÔNG có nguồn mới.
+  - **Dữ liệu đã dựng (23:07, `train/build_tier2_dataset.py`, 254 giây).** Số dòng cấy thêm cho payload `g2 = pass`: train
+    sqli 710, xss 190, lfi 3 000, rce 220; valid sqli 54, xss 18, lfi 1 024, rce 27 (trình dựng đếm theo payload của từng lớp
+    nên số payload RCE là 22 / 9, lệch chút so với 16 / 8 đếm theo giá trị ở trên). Văn bản hợp lệ khó: 44 172 dòng train,
+    9 096 dòng valid, 5 028 dòng `test_hardtext`. `test_residual`: 1 025 dòng (sqli 745, rce 280). Bản dữ liệu 14/11 được giữ ở
+    `train/data_1411/` và trên Drive (`NSM-train-v2`); đợt này nằm ở `NSM-train-v3`.
+  - **Lượt chạy thử nhanh trên máy (23:08–23:15, `NSM_SMOKE=1`, 30 000 dòng train — KHÔNG phải kết quả).** Mục đích: kiểm mã của
+    notebook với dữ liệu mới. Lượt này IN RA số trên các tập test, nên các số đó đã được nhìn thấy trước lượt huấn luyện đầy đủ:
+    model đang chạy (argmax, 0,67, cổng tắt): `test_hardtext` bị gắn nhãn 12,8 %, `test_residual` phát hiện 58,6 % (sqli 66,6 %,
+    rce 37,5 %); model thử nhanh được chọn (M3, trọng số 1): `test_hardtext` 0,9 %, `test_residual` 22,7 %. KHÔNG đổi dữ liệu,
+    ứng viên, trọng số hay tiêu chí sau khi thấy các số này. Điều cần theo dõi ở lượt đầy đủ: bớt nhãn nhầm có thể phải trả
+    bằng phát hiện trên tấn công thật lọt Cổng 2.

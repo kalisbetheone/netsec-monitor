@@ -151,7 +151,9 @@ def make_row(req, d, meta):
             "injected": meta.get("injected", False), "method": req["method"], "uri": N.apache_uri(req["path"]),
             "query": req.get("query") or "", "body": "" if d.get("over_limit") else (req.get("body") or ""),
             "ct": req.get("ct") or "", "t1": lab if tier == 1 else "benign", "gate": gate_of(d.get("arg_v")),
-            "old_label": lab, "old_tier": tier, "loc": "args", "nul": has_nul(req)}
+            "old_label": lab, "old_tier": tier, "loc": "args", "nul": has_nul(req),
+            # 15/11/2026 (cải thiện tầng 2): g2 = "pass" nếu payload LỌT Cổng 2 thật (train/t2_pool*.py); hard = văn bản hợp lệ "khó"
+            **({"g2": meta["g2"]} if meta.get("g2") else {}), **({"hard": True} if meta.get("hard") else {})}
 
 
 def row_from_norm(r, split, source, group):
@@ -171,6 +173,22 @@ def write_rows(f, row, c):
 
 
 CARRIERS_PER_SPLIT = 50000
+# ---- Dữ liệu bổ sung của việc cải thiện tầng 2 (15/11/2026). Mỗi tệp là TUỲ CHỌN: thiếu tệp nào thì phần đó bị bỏ qua và
+# đầu ra giống hệt trước đây. Sinh bằng train/t2_pool.py + t2_pool_result.py (cờ "lọt Cổng 2") và train/t2_hard_benign.py.
+SRC2 = os.path.join(ROOT, "train", "data_src")
+RESIDUAL_COPIES = {"train": 10, "valid": 3}      # mỗi payload lọt Cổng 2 được cấy thêm vào TỐI ĐA ngần này vật mang khác nhau
+RESIDUAL_CAP = {"train": 3000, "valid": 1200}    # ... nhưng mỗi lớp không quá ngần này dòng cấy thêm: lớp LFI có hàng nghìn payload
+                                                 # lọt (SQLi, XSS, RCE chỉ vài chục) nên nếu không chặn trên, LFI lấn át
+HARD_COPIES = 2                                  # mỗi văn bản hợp lệ "khó" của train/valid cấy vào 2 vật mang
+TEST_RESIDUAL_COPIES = 5                         # mỗi payload của bộ kiểm tra "lọt Cổng 2" (SR-BH) cấy vào 5 vật mang test_sites
+
+
+def read_src2(name):
+    p = os.path.join(SRC2, name)
+    if not os.path.exists(p):
+        return []
+    with gzip.open(p, "rt", encoding="utf-8") as f:
+        return [json.loads(ln) for ln in f if ln.strip()]
 # Văn bản tự do LÀNH TÍNH do người viết (Tatoeba, CC BY 2.0 FR) — thêm 14/11/2026: model cũ gắn nhãn tấn công cho câu
 # người dùng gõ tay ("rock 'n' roll", "select a laptop for school", "bàn phím cơ"...) nên không bật được TIER2_MODE=enforce.
 # Câu được CẤY vào request lành tính thật (như payload tấn công), nhãn benign. Chia theo id câu: 70 % train / 15 % valid /
@@ -235,6 +253,16 @@ def main():
                 v = longest(r)
                 if v:
                     payloads[r["split"]][r["ds_class"]].append((v, src, r["family"]))
+    # 1b) cờ "lọt Cổng 2" của payload train/valid, và payload từ nguồn bổ sung (đã có cờ) nếu có
+    G2 = {(o["split"], o["value"]): o.get("g2") for o in read_src2("pool_g2.jsonl.gz")}
+    n_extra = Counter()
+    for o in read_src2("extra_attacks.jsonl.gz"):
+        if o.get("cls") in CLASSES and o.get("split") in payloads and o.get("value"):
+            payloads[o["split"]][o["cls"]].append((o["value"], o.get("src", "extra"), o.get("family", "extra")))
+            G2[(o["split"], o["value"])] = o.get("g2")
+            n_extra[(o["split"], o["cls"])] += 1
+    if G2:
+        print(f"   cờ lọt Cổng 2: {dict(Counter(G2.values()))}; payload bổ sung: {dict(n_extra)}", file=sys.stderr, flush=True)
     # 2) vật mang: mẫu ngẫu nhiên đều (reservoir) các request lành tính GET/POST thân nhỏ, theo tập
     carriers = {s: [] for s in ("train", "valid", "test_sites")}
     seen = Counter()
@@ -281,8 +309,61 @@ def main():
                 else:
                     vis["dropped"] += 1
                     continue
-                jobs.append((req, {"split": s, "source": f"inject:{src}", "group": fam, "ds_class": c, "injected": True}))
+                jobs.append((req, {"split": s, "source": f"inject:{src}", "group": fam, "ds_class": c, "injected": True,
+                                   "g2": G2.get((s, v))}))
     print(f"   cửa sổ tầng 2: {dict(vis)}", file=sys.stderr, flush=True)
+
+    def inject_visible(pool_c, v):
+        """Cấy payload vào một vật mang sao cho payload nằm trong cửa sổ 2000 ký tự của tầng 2 (như vòng lặp trên); None nếu không được."""
+        carrier = rng.choice(pool_c)
+        for attempt in range(9):
+            if attempt and attempt % 3 == 0:
+                carrier = rng.choice(pool_c)
+            st = rng.getstate()
+            marked = inject(carrier, MARK, rng, common)
+            rng.setstate(st)
+            req = inject(carrier, v, rng, common)
+            if t2_visible(marked, v):
+                return req
+        return None
+
+    # 3a') payload LỌT Cổng 2: cấy thêm vào nhiều vật mang khác nhau (vòng 3 chỉ cho mỗi payload vài lần, có payload của valid
+    #      không được cấy lần nào) — đây là phần duy nhất mà tầng 2 có giá trị riêng
+    n_res = Counter()
+    for s in ("train", "valid"):
+        for c in CLASSES:
+            passers = list({p[0]: p for p in payloads[s][c] if G2.get((s, p[0])) == "pass"}.values())
+            copies = max(1, min(RESIDUAL_COPIES[s], RESIDUAL_CAP[s] // max(len(passers), 1)))
+            if len(passers) > RESIDUAL_CAP[s]:
+                rng.shuffle(passers)
+                passers = passers[:RESIDUAL_CAP[s]]
+            for v, src, fam in passers:
+                for _ in range(copies):
+                    req = inject_visible(carriers[s], v)
+                    if req is not None:
+                        jobs.append((req, {"split": s, "source": f"inject:{src}", "group": fam, "ds_class": c, "injected": True, "g2": "pass"}))
+                        n_res[(s, c)] += 1
+    # 3d) bộ kiểm tra "lọt Cổng 2" MỚI: payload tấn công thật của SR-BH mà Cổng 2 để lọt, cấy vào website chưa thấy
+    for o in read_src2("pool_test_g2.jsonl.gz"):
+        if o.get("g2") == "pass" and o.get("cls") in CLASSES:
+            for _ in range(TEST_RESIDUAL_COPIES):
+                req = inject_visible(carriers["test_sites"], o["value"])
+                if req is not None:
+                    jobs.append((req, {"split": "test_residual", "source": f"inject:{o.get('src', 'srbh2020')}", "group": o.get("family") or "srbh",
+                                       "ds_class": o["cls"], "injected": True, "g2": "pass"}))
+                    n_res[("test_residual", o["cls"])] += 1
+    # 3e) văn bản hợp lệ "khó" (train/t2_hard_benign.py): train/valid cấy vào vật mang cùng tập; test -> tệp test_hardtext
+    n_hard = Counter()
+    for o in read_src2("hard_benign.jsonl.gz"):
+        s = o["split"]
+        tgt, copies, pool_c = (s, HARD_COPIES, carriers[s]) if s in ("train", "valid") else ("test_hardtext", 1, carriers["test_sites"])
+        for _ in range(copies):
+            req = inject(rng.choice(pool_c), o["value"], rng, common)
+            jobs.append((req, {"split": tgt, "source": f"inject:hard-{o['family']}", "group": f"hard-{o['family']}", "ds_class": "benign",
+                               "injected": True, "hard": True}))
+            n_hard[tgt] += 1
+    if n_res or n_hard:
+        print(f"   cấy thêm payload lọt Cổng 2: {dict(n_res)}; văn bản hợp lệ khó: {dict(n_hard)}", file=sys.stderr, flush=True)
     # 3b) văn bản tự do LÀNH TÍNH (Tatoeba) cấy vào request lành tính thật; tập test_sites -> tệp test_freetext riêng
     free = tatoeba_pools(rng)
     n_free = Counter()
@@ -329,7 +410,9 @@ def main():
     for s, f in files.items():
         f.close()
         os.replace(os.path.join(OUT, f"tier2_{s}.jsonl.gz.tmp"), os.path.join(OUT, f"tier2_{s}.jsonl.gz"))
-    for name in ("test_freetext", "test_scenario_text"):
+    for name in ("test_freetext", "test_scenario_text", "test_hardtext", "test_residual"):
+        if name in ("test_hardtext", "test_residual") and not att[name]:
+            continue                                    # không có dữ liệu bổ sung -> không tạo tệp (như trước 15/11)
         cnt[name] = Counter()
         with gzip.open(os.path.join(OUT, f"tier2_{name}.jsonl.gz.tmp"), "wt", encoding="utf-8", compresslevel=6) as f:
             for row in att[name]:
@@ -349,6 +432,9 @@ def main():
         json.dump({"rows": summary, "per_class_injected": PER_CLASS, "seed": SEED, "t2_window": dict(vis),
                    "nul_benign_dropped": dict(nul_dropped),
                    "unique_payloads": {s: {c: len(payloads[s][c]) for c in CLASSES} for s in payloads},
+                   "gate2_flags": dict(Counter(str(v) for v in G2.values())),
+                   "residual_injected": {f"{s}/{c}": n for (s, c), n in sorted(n_res.items())},
+                   "hard_benign_injected": dict(n_hard), "extra_payloads": {f"{s}/{c}": n for (s, c), n in sorted(n_extra.items())},
                    "seconds": round(time.time() - t0)}, f, ensure_ascii=False, indent=1)
     print(f"   xong sau {time.time() - t0:.0f} s", file=sys.stderr)
 
