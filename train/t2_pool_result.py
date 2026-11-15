@@ -3,6 +3,7 @@
 
     python -X utf8 -B train/t2_pool_result.py eval/results/t2pool-<thời điểm>            payload train/valid
     python -X utf8 -B train/t2_pool_result.py eval/results/t2pooltest-<thời điểm> test   payload kiểm tra (SR-BH) -> pool_test_g2
+    python -X utf8 -B train/t2_pool_result.py eval/results/t2poolextra-<thời điểm> extra  nguồn tải thêm -> pool_extra_g2 + extra_attacks
 
 Vào : train/data_src/pool.jsonl.gz (train/t2_pool.py), scenarios/tang-2/loc/phan-<k>.jsonl, <kết quả>/loc-song-song/runs.jsonl
 Ra  : train/data_src/pool_g2.jsonl.gz — như pool.jsonl.gz, thêm g2 = "pass" (mã 200: Cổng 2 để lọt VÀ giá trị có cấu trúc tấn
@@ -27,10 +28,11 @@ def jl(p, gz=False):
 
 def main():
     global LOC
-    test = len(sys.argv) > 2 and sys.argv[2] == "test"
-    name = "pool_test" if test else "pool"
-    if test:
-        LOC = os.path.join(ROOT, "scenarios", "tang-2", "loc-test")
+    mode = sys.argv[2] if len(sys.argv) > 2 else ""
+    test = mode == "test"
+    name = f"pool_{mode}" if mode else "pool"
+    if mode:
+        LOC = os.path.join(ROOT, "scenarios", "tang-2", f"loc-{mode}")
     rdir = os.path.join(ROOT, sys.argv[1], "loc-song-song")
     pool = jl(os.path.join(SRC, f"{name}.jsonl.gz"), gz=True)
     res, gates = {}, Counter()
@@ -60,6 +62,13 @@ def main():
             print(f"  {s:5} {c:4}: {tot:6} payload | lọt Cổng 2, có cấu trúc tấn công {n['pass']:5} ({100 * n['pass'] / max(tot, 1):4.1f} %) "
                   f"| lọt, không rõ cấu trúc {n['pass_weak']:5} | Cổng 2 chặn {n['block']:6} | tầng 1 bắt {n['t1']:6} | không rõ {n['unknown']:5}")
     print("->", os.path.join(SRC, f"{name}_g2.jsonl.gz"))
+    if mode == "extra":                                 # tệp mà train/build_tier2_dataset.py đọc: payload bổ sung kèm cờ g2
+        keep = [o for o in pool if o["g2"] != "unknown"]
+        with gzip.open(os.path.join(SRC, "extra_attacks.jsonl.gz"), "wt", encoding="utf-8") as f:
+            for o in keep:
+                f.write(json.dumps({k: o[k] for k in ("value", "cls", "split", "src", "family", "g2")}, ensure_ascii=False) + chr(10))
+        print(f"-> {os.path.join(SRC, 'extra_attacks.jsonl.gz')}: {len(keep)} payload",
+              dict(Counter((o["split"], o["cls"]) for o in keep)))
 
 
 if __name__ == "__main__":

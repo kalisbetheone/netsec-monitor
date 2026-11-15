@@ -414,3 +414,22 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     rce 37,5 %); model thử nhanh được chọn (M3, trọng số 1): `test_hardtext` 0,9 %, `test_residual` 22,7 %. KHÔNG đổi dữ liệu,
     ứng viên, trọng số hay tiêu chí sau khi thấy các số này. Điều cần theo dõi ở lượt đầy đủ: bớt nhãn nhầm có thể phải trả
     bằng phát hiện trên tấn công thật lọt Cổng 2.
+
+- 16/11/2026 — **Cải thiện tầng 2, bước 2, VÒNG 2: thêm nguồn SQLi và chèn lệnh — GHI TRƯỚC khi lọc, dựng dữ liệu và huấn luyện.**
+  Người dùng duyệt việc tải ("Có, tải đi"). Lúc ghi mục này, vòng 1 (`NSM-train-v3`) CHƯA có kết quả huấn luyện đầy đủ nào được
+  tôi nhìn thấy; số duy nhất đã thấy là của lượt chạy thử nhanh ghi ở mục trước.
+  - **Nguồn** (`eval/data/payloads_extra/`, `SOURCE.md` có commit, kích thước, SHA-256): PayloadsAllTheThings `SQL Injection/Intruder`
+    (21 tệp) và `Command Injection/Intruder` (2 tệp), commit `08ea40e`, MIT; fuzzdb `attack/sql-injection/detect` (8 tệp) và ba tệp
+    dạng chèn lệnh của `attack/os-cmd-execution`, commit `5656ab2`, BSD 3 điều khoản + CC BY 3.0. 36 tệp, 120 246 byte, chỉ là văn
+    bản. Các tệp liệt kê tên lệnh trần của fuzzdb KHÔNG tải (tên lệnh trần là văn bản hợp lệ trong dữ liệu huấn luyện).
+  - **Quy tắc giữ payload** (`train/t2_pool.py extra`): mỗi dòng một payload; giữ nếu dài 4–400 ký tự, không còn chỗ trống mẫu
+    (`{cmd}`), có cấu trúc tấn công rõ theo `train/t2_constructs.py`, chưa có trong payload train/valid hiện tại, và không trùng giá
+    trị nào của các tập kiểm tra (HttpParams, SR-BH, bộ thử 52 payload). Kết quả: 2 457 dòng -> 328 trùng nhau, 134 sai độ dài
+    hoặc là mẫu, 397 không rõ cấu trúc, 395 đã có, 0 trùng tập kiểm tra -> **giữ 1 203** (sqli 876 train + 162 valid; rce 143 +
+    22). Chia train / valid 85 / 15 theo băm của payload đã che chữ số. Số giá trị SQLi khác nhau của train: 614 -> 1 490.
+  - **Phần còn lại KHÔNG đổi so với vòng 1:** gửi phần regex tầng 1 bỏ lọt (401 payload) qua Cổng 2 thật để gắn cờ `g2`; trình dựng
+    dữ liệu, văn bản hợp lệ khó, 6 ứng viên, tiêu chí chọn trên valid, và các mốc đạt đo trên hệ thống thật đều như mục 15/11 23:00.
+    Hai tập `test_hardtext` và `test_residual` giữ nguyên nội dung.
+  - **Cách dùng hai vòng:** dữ liệu vòng 2 nằm ở thư mục Drive riêng `NSM-train-v4`; vòng 1 (`NSM-train-v3`) giữ nguyên. Nếu cả hai
+    vòng được huấn luyện thì MỖI vòng chọn model của mình theo tiêu chí trên valid của vòng đó; model đưa đi đo trên hệ thống thật
+    là model của vòng 2 (dữ liệu là tập cha của vòng 1). Model vòng 1 chỉ được đo thêm để so sánh, và việc đó được ghi lại.

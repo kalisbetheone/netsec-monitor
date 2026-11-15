@@ -52,16 +52,87 @@ def sendable(v):
     return 1 <= len(v) <= 1500 and not any(ord(c) < 32 and c not in "\t\n\r" for c in v) and "�" not in v
 
 
+EXTRA = os.path.join(ROOT, "eval", "data", "payloads_extra")
+_TEMPLATE = __import__("re").compile(r"\{[A-Za-z_]+\}")
+
+
+def extra_rows():
+    """Vòng 2 (16/11/2026): payload SQLi / chèn lệnh từ nguồn công khai tải thêm (eval/data/payloads_extra, xem SOURCE.md).
+    Mỗi dòng của tệp `<lớp>_<tên gốc>` là một payload. Chỉ giữ payload: dài 4–400 ký tự, không còn chỗ trống mẫu ({cmd}),
+    có cấu trúc tấn công rõ (train/t2_constructs.py — loại tên lệnh trần như `ls`, dấu nháy lẻ), CHƯA có trong payload
+    train/valid hiện tại, và KHÔNG trùng giá trị nào của các tập kiểm tra (HttpParams, SR-BH, bộ thử 52 payload) để các tập đó
+    vẫn độc lập. Chia train / valid 85 / 15 theo băm của payload đã che chữ số, nên các biến thể chỉ khác số nằm cùng một tập."""
+    import hashlib, re
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from t2_constructs import constructs
+    have, tests = set(), set()
+    pp = os.path.join(SRC_OUT, "pool.jsonl.gz")
+    assert os.path.exists(pp), "chạy `python train/t2_pool.py` (không tham số) trước"
+    with gzip.open(pp, "rt", encoding="utf-8") as f:
+        have = {json.loads(ln)["value"] for ln in f}
+    for src in ("httpparams", "srbh2020"):
+        with gzip.open(os.path.join(NORM, f"{src}.jsonl.gz"), "rt", encoding="utf-8") as f:
+            for ln in f:
+                r = json.loads(ln)
+                if r.get("ds_class") in CLASSES:
+                    tests.update(v for v in (r.get("marg_v") or []) if v)
+    bt = os.path.join(ROOT, "scenarios", "tang-2", "bo-thu.jsonl")
+    tests |= {json.loads(ln)["value"] for ln in open(bt, encoding="utf-8") if ln.strip()}
+    out, stat, seen = [], Counter(), set()
+    for repo in sorted(os.listdir(EXTRA)):
+        d = os.path.join(EXTRA, repo)
+        if not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            cls = name.split("_", 1)[0]
+            if cls not in CLASSES:
+                continue                                # LICENSE, _copyright.txt
+            for raw in open(os.path.join(d, name), encoding="utf-8", errors="replace").read().splitlines():
+                v = raw.strip()
+                if not v:
+                    continue
+                stat["dong"] += 1
+                if v in seen:
+                    stat["trung_trong_nguon_moi"] += 1; continue
+                seen.add(v)
+                if not 4 <= len(v) <= 400 or _TEMPLATE.search(v):
+                    stat["do_dai_hoac_mau"] += 1; continue
+                if not constructs(v):
+                    stat["khong_ro_cau_truc"] += 1; continue
+                if v in have:
+                    stat["da_co_trong_train_valid"] += 1; continue
+                if v in tests:
+                    stat["trung_tap_kiem_tra"] += 1; continue
+                h = hashlib.sha1(("extra:" + re.sub(r"\d+", "0", v.lower())).encode()).hexdigest()
+                split = "train" if int(h[:8], 16) / 0xFFFFFFFF < 0.85 else "valid"
+                out.append({"ds_class": cls, "split": split, "family": "x" + h[:15], "marg_v": [v], "_src": f"extra:{repo}/{name}"})
+    print("   nguồn tải thêm:", dict(stat), "-> giữ", len(out), file=sys.stderr)
+    return out
+
+
 def main():
     """Không tham số: payload train/valid. Tham số `test`: payload của tập kiểm tra độc lập SR-BH 2020 (tấn công thật từ
-    Internet) — để lập bộ kiểm tra "lọt Cổng 2" MỚI; ghi pool_test.jsonl.gz và scenarios/tang-2/loc-test/. Không dùng để huấn luyện."""
+    Internet) — để lập bộ kiểm tra "lọt Cổng 2" MỚI; ghi pool_test.jsonl.gz và scenarios/tang-2/loc-test/. Không dùng để huấn luyện.
+    Tham số `extra`: payload từ nguồn tải thêm (vòng 2); ghi pool_extra.jsonl.gz và scenarios/tang-2/loc-extra/."""
     global LOC
-    test = len(sys.argv) > 1 and sys.argv[1] == "test"
-    sources = ("srbh2020",) if test else ("seclists", "openappsec_mal")
-    pool_name = "pool_test.jsonl.gz" if test else "pool.jsonl.gz"
-    if test:
-        LOC = os.path.join(ROOT, "scenarios", "tang-2", "loc-test")
+    mode = sys.argv[1] if len(sys.argv) > 1 else ""
+    test, extra = mode == "test", mode == "extra"
+    sources = ("srbh2020",) if test else ("extra",) if extra else ("seclists", "openappsec_mal")
+    pool_name = {"test": "pool_test.jsonl.gz", "extra": "pool_extra.jsonl.gz"}.get(mode, "pool.jsonl.gz")
+    if mode:
+        LOC = os.path.join(ROOT, "scenarios", "tang-2", f"loc-{mode}")
     seen, pool, stat = {}, [], Counter()
+    if extra:
+        for r in extra_rows():
+            v = r["marg_v"][0]
+            stat["dong"] += 1
+            o = {"value": v, "cls": r["ds_class"], "split": r["split"], "src": r["_src"], "family": r["family"]}
+            if not sendable(v):
+                o["skip"] = "khong_gui_duoc"; stat["khong_gui_duoc"] += 1
+            else:
+                o["t1"] = bool(tier1_catches(v))
+            pool.append(o)
+        sources = ()
     for src in sources:
         with gzip.open(os.path.join(NORM, f"{src}.jsonl.gz"), "rt", encoding="utf-8") as f:
             for ln in f:
@@ -100,8 +171,8 @@ def main():
                 f.write(json.dumps({"value": o["value"], "id": o["id"]}, ensure_ascii=True) + "\n")
     toml = ['# SINH TỰ ĐỘNG bởi train/t2_pool.py — bước lọc song song: gửi payload huấn luyện mà regex tầng 1 bỏ lọt qua Cổng 2 thật.',
             '# Chỉ đọc mã phản hồi (runs.jsonl). rulegen dừng (mặc định). Lưu lượng thử nội bộ, gửi vào hệ thống của dự án.',
-            f'# Chạy:  SC_DIR=scenarios/tang-2/{os.path.basename(LOC)} SC_OUT_NAME={"t2pooltest" if test else "t2pool"} bash tools/scenario.sh loc-song-song',
-            f'title = "Tầng 2, bước 2 — lọc {len(send)} payload {"kiểm tra (SR-BH)" if test else "huấn luyện"} qua Cổng 2, {N_PARTS} tác nhân gửi song song"',
+            f'# Chạy:  SC_DIR=scenarios/tang-2/{os.path.basename(LOC)} SC_OUT_NAME=t2pool{mode} bash tools/scenario.sh loc-song-song',
+            f'title = "Tầng 2, bước 2 — lọc {len(send)} payload {"kiểm tra (SR-BH)" if test else "nguồn tải thêm" if extra else "huấn luyện"} qua Cổng 2, {N_PARTS} tác nhân gửi song song"',
             'case = "công cụ (dữ liệu huấn luyện tầng 2)"',
             'notes = "IP được miễn trừ để gửi hết request, không nghỉ giữa các request."',
             'max_s = 1800', 'exempt = ["self"]', '']
