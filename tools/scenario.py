@@ -178,12 +178,26 @@ def enc(v, evasion):
 # =====================================================================
 # Dựng request theo vị trí đặt payload
 # =====================================================================
-def build(family, placement, payload, evasion=(), marker="", path=None, param=None, method=None):
-    """-> dict(method, path, body, headers). path có thể đã kèm query thô."""
-    m, p, prm, extra = DVWA.get(family, GENERIC)
+def extra_fields(act, rng):
+    """Khoá `fields` của tác nhân: danh sách cặp [tên, giá trị] THAY cho các trường phụ mặc định của họ payload (vd
+    Submit=Submit của DVWA); `fields = []` = không có trường phụ. Chuỗi {n} trong giá trị được thay bằng một số ngẫu nhiên
+    1–9999, mỗi request một số. Trả None khi tác nhân không có khoá `fields` (giữ trường phụ mặc định)."""
+    if "fields" not in act:
+        return None
+    n = str(rng.randint(1, 9999))
+    return [(str(kv[0]), str(kv[1]).replace("{n}", n)) for kv in act["fields"]]
+
+
+def build(family, placement, payload, evasion=(), marker="", path=None, param=None, method=None, extra=None):
+    """-> dict(method, path, body, headers). path có thể đã kèm query thô. extra (khác None): các trường phụ do kịch bản
+    khai báo (khoá `fields`), thay cho trường phụ của bảng DVWA / GENERIC; tên và giá trị được mã hoá URL."""
+    m, p, prm, extra0 = DVWA.get(family, GENERIC)
     p, prm, m = path or p, param or prm, method or m
     h = {"User-Agent": f"{UA} {marker}".strip(), "Accept": "*/*", "Connection": "close"}
-    ex = "&".join(f"{k}={v}" for k, v in extra)
+    if extra is None:
+        ex = "&".join(f"{k}={v}" for k, v in extra0)
+    else:
+        ex = "&".join(f"{enc(k, ())}={enc(v, ())}" for k, v in extra)
     body = None
 
     def qs(name, val):
@@ -313,6 +327,10 @@ def alloc_ips(s, slot):
         return f"10.10.{11 + c}.{1 + d}"
     k = (slot * 211) % POOL_SIZE
     for act in s["actor"]:
+        if act.get("ip"):                 # IP nguồn cố định (chuỗi hoặc danh sách): không lấy từ bộ cấp phát, không đẩy bộ đếm
+            v = act["ip"]
+            act["_ips"] = [v] if isinstance(v, str) else [str(x) for x in v]
+            continue
         act["_ips"] = []
         for _ in range(int(act.get("ips", 1))):
             act["_ips"].append(ip_of(k)); k += 1
@@ -430,7 +448,8 @@ def run_http(act, rng, marker, res):
         if fam == "secret":                           # mật khẩu / token sinh ngẫu nhiên, ghi lại để kiểm ES (C1)
             v = f"S3cret-{rng.randint(10**7, 10**8 - 1)}"
             res["extra"].setdefault("secrets", []).append(v)
-        rq = build(fam, placement, v, evasion, marker, act.get("path"), act.get("param"), act.get("method"))
+        rq = build(fam, placement, v, evasion, marker, act.get("path"), act.get("param"), act.get("method"),
+                   extra=extra_fields(act, rng))
         if act.get("host"):                           # tên miền đích (mặc định dvwa.local); vd booking.local
             rq["headers"]["Host"] = act["host"]
         if act.get("pad_chars") and rq["body"] and "urlencoded" in rq["headers"].get("Content-Type", ""):
@@ -559,7 +578,8 @@ def run_botnet(act, rng, marker, res):
             v = r_.choice(PAYLOADS.get(fam, PAYLOADS["benign"]))
             if act.get("unique_suffix"):
                 v = f"{v}{r_.randint(1, 99999)}"
-            rq = build(fam, placement, v, (), marker, act.get("path"), act.get("param"), act.get("method"))
+            rq = build(fam, placement, v, (), marker, act.get("path"), act.get("param"), act.get("method"),
+                       extra=extra_fields(act, r_))
             if act.get("host"):
                 rq["headers"]["Host"] = act["host"]
             r = send(rq, src=ip)
