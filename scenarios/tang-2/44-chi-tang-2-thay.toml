@@ -1,0 +1,84 @@
+# Kịch bản 44 — bộ thử "CRS và regex tầng 1 đều bỏ lọt": tầng 2 gắn nhãn được bao nhiêu, bao nhiêu thành luật tự sinh,
+# và bao nhiêu request lọt trước khi luật có hiệu lực. Tiêu chí và ngưỡng: eval/PROTOCOL.md (15/11/2026, ghi trước khi đo).
+# Mọi request là lưu lượng thử gửi vào hệ thống của dự án. Chạy:
+#   SC_DIR=scenarios/tang-2 SC_OUT_NAME=t2test bash tools/scenario.sh 44-chi-tang-2-thay
+#   bash tools/t2test.sh fetch eval/results/t2test-<thời điểm>/44-chi-tang-2-thay
+#   bash tools/t2test.sh report eval/results/t2test-<thời điểm>
+title = "Payload mà CRS và regex tầng 1 đều bỏ lọt: tầng 2 gắn nhãn, luật tự sinh, phần lọt trước khi có luật"
+case = "tầng 2 (bằng chứng lợi ích)"
+notes = """52 payload công khai đã lọc qua Cổng 2 thật và đọc tay (bo-thu.jsonl): 34 gieo, 18 giữ lại. Ba IP gửi phần gieo, mỗi IP \
+một thứ tự, 1 request / 2 giây, 3 vòng. Hai người dùng hợp lệ gửi 60 văn bản hợp lệ vào cùng tham số suốt kịch bản (đối chứng). \
+Giây 390: một IP MỚI gửi phần giữ lại. rulegen chạy với tham số thật (chu kỳ 60 giây, áp dụng ngay). Mọi IP được miễn trừ để \
+đo hết request. Ba số đo do tools/t2test.py tính; kỳ vọng dưới đây chỉ là ngưỡng của số đo 2."""
+max_s = 480
+rulegen = true
+exempt = ["self"]
+
+[[actor]]
+name = "gieo, thứ tự a"
+role = "gieo"
+ips = 1
+family = "t2test"
+source = "file:/scenarios/gieo-a.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 102
+interval_s = 2
+stop_on_block = false
+
+[[actor]]
+name = "gieo, thứ tự b"
+role = "gieo"
+ips = 1
+family = "t2test"
+source = "file:/scenarios/gieo-b.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 102
+interval_s = 2
+stop_on_block = false
+
+[[actor]]
+name = "gieo, thứ tự c"
+role = "gieo"
+ips = 1
+family = "t2test"
+source = "file:/scenarios/gieo-c.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 102
+interval_s = 2
+stop_on_block = false
+
+[[actor]]
+name = "đối chứng: người dùng hợp lệ"
+role = "benign"
+ips = 2
+family = "t2ctl"
+source = "file:/scenarios/doi-chung.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 420
+interval_s = 1
+stop_on_block = false
+
+[[actor]]
+name = "IP mới, phần giữ lại"
+role = "verify"
+ips = 1
+start_s = 390
+family = "t2test"
+source = "file:/scenarios/giu-lai.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 18
+interval_s = 1
+stop_on_block = false
+
+[expect]
+verify_gate2_min_share = 0.5

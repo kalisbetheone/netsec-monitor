@@ -273,3 +273,61 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   - **Trình diễn, lượt ngoài kế hoạch:** 17:17–17:29 một script chạy thử đặt hẹn từ trưa (đã ghi là huỷ nhưng tiến trình nền
     còn) tự chạy thêm một lượt `present.sh` sau ba lượt chính thức: ĐẠT, 729 giây (`nsm-wip-15-11/present-thu-2.log`).
     Lượt này KHÔNG tính vào kết quả 2/3; ghi lại để không ai chọn nó thay cho lượt 2.
+- 15/11/2026 (tối) — **bộ thử "CRS và regex tầng 1 đều bỏ lọt" cho tầng 2: ghi TRƯỚC khi đo** (yêu cầu của người dùng:
+  "đưa cả ba vào tiêu chí", "lập bộ thử và thử luôn"). Mọi request là lưu lượng thử gửi vào hệ thống của dự án.
+  - **Vì sao không dùng `eval/t2only_candidates.jsonl`:** tệp đó chỉ giữ payload mà model tầng 2 ĐÃ gắn nhãn (ngoại
+    tuyến), nên tỷ lệ gắn nhãn đo trên nó gần 100 % theo cách dựng. Bộ mới (`eval/t2test_candidates.py`) KHÔNG nạp model
+    tầng 2: chỉ loại payload mà regex tầng 1 bắt, trên đúng dạng request sẽ gửi (GET /index.php?q=<payload>).
+    Kết quả bước này: 28 822 bản ghi tấn công (phần model chưa thấy) -> 17 208 payload một tham số không trùng -> tầng 1
+    bắt 7 919 -> còn 9 289 (sqli 5 293, xss 3 296, lfi 465, rce 235) -> lấy ngẫu nhiên 75 mỗi lớp (hạt giống 20261115)
+    = 300 ứng viên, `scenarios/tang-2/ung-vien.jsonl`.
+  - **Quy trình còn lại, cố định trước khi chạy:** (1) gửi 300 ứng viên qua Cổng 2 thật từ một IP miễn trừ
+    (`scenarios/tang-2/loc-cong-2.toml`), giữ payload KHÔNG bị 403; ở bước này chỉ đọc mã phản hồi, không đọc nhãn của
+    classifier. (2) Trong số còn lại, lấy theo thứ tự ngẫu nhiên (hạt giống 20261115) và ĐỌC TAY từng payload; giữ payload
+    có cú pháp tấn công của đúng lớp (mệnh đề/toán tử SQL ghép được vào câu lệnh; thẻ HTML, trình xử lý sự kiện hoặc URI
+    javascript:; chuỗi leo thư mục hoặc đường dẫn tệp nhạy cảm; lệnh shell có dấu nối lệnh hoặc thế lệnh); loại chữ/số
+    thường, mảnh cụt không còn cú pháp, giá trị trông hợp lệ. Việc đọc tay làm khi CHƯA xem nhãn tầng 2. Lấy tối đa 15
+    payload mỗi lớp. (3) Chia mỗi lớp: hai phần ba "gieo", một phần ba "giữ lại" (theo thứ tự ngẫu nhiên đó). Lớp có
+    dưới 8 payload vẫn tính vào số đo 1 nhưng không tính vào số đo 2 và 3 (một luật cần 5 mẫu khác nhau).
+  - **Kịch bản đo** (`scenarios/tang-2/44-chi-tang-2-thay.toml`, rulegen chạy với tham số thật: chu kỳ 60 s, áp dụng
+    ngay): 3 IP gửi phần gieo (mỗi IP một thứ tự, 1 request / 2 s, lặp 3 vòng); người dùng hợp lệ gửi văn bản thường và
+    "khó" vào cùng tham số suốt kịch bản (đối chứng); một IP mới gửi phần giữ lại, bắt đầu 180 s sau khi phần gieo xong.
+    Mọi IP của kịch bản được miễn trừ để đo hết request (như kịch bản 32, 42, 47).
+  - **Ba số đo và ngưỡng:** (1) tỷ lệ payload của cả bộ được classifier gắn nhãn tấn công ở lần gửi đầu, ngưỡng >= 60 %;
+    (2) tỷ lệ payload phần giữ lại bị Cổng 2 trả 403 ở pha kiểm chứng (mọi payload đã qua bước lọc nên 403 chỉ có thể do
+    luật tự sinh), ngưỡng >= 50 %, và không request đối chứng nào bị luật tự sinh chặn; (3) thời gian từ payload đầu của
+    một lớp tới lần đầu một request phần gieo của lớp đó bị 403, trung vị theo lớp, ngưỡng <= 120 s; số request của lớp
+    đã tới ứng dụng trước mốc đó chỉ ghi nhận. Lớp không có luật: số đo 3 ghi "không có luật", tính là không đạt.
+  - **Quyết định:** (1) < 60 % -> `corroborate`; cả ba đạt -> giữ `weighted`; (1) đạt mà (2) hoặc (3) không đạt -> giữ
+    `weighted`, ghi giới hạn; luật tự sinh chặn đối chứng -> `corroborate` cho tới khi bàn xong với người dùng.
+    Kịch bản 44 chạy MỘT lần; nếu hỏng vì lỗi công cụ thì ghi lại lần hỏng rồi mới chạy lại.
+  - **Thay đổi ở bước CHỌN, sau khi thấy kết quả bước lọc và TRƯỚC khi đọc bất kỳ nhãn nào của classifier:** 300 ứng viên
+    đầu chỉ cho 33 payload đi qua Cổng 2 (`eval/results/t2loc-20261115-175744/`), không đủ lập bộ thử. Mở rộng bằng đúng
+    quy trình và hạt giống đó tới TOÀN BỘ 9 289 payload mà tầng 1 bỏ lọt: đợt 1 gồm 3 700 (`t2loc-20261115-180120/`),
+    đợt 2 gồm 5 589 payload sqli và xss còn lại (`t2loc-20261115-180954/`). Kết quả lọc: Cổng 2 chặn 9 085/9 289
+    (97,8 %); đi qua 204: lfi 134/465, rce 28/235, sqli 25/5 293, xss 17/3 296.
+  - **Đọc tay** (ghi ở `scenarios/tang-2/doc-tay.json`): lfi đọc 56 giữ 15 (loại: mẫu chưa thay `{file}`, chuỗi chỉ gồm
+    dấu chấm / chữ a, đường dẫn mất dấu gạch); rce đọc cả 28 giữ 14 (loại: lệnh không có dấu nối lệnh hay thế lệnh, chuỗi
+    hỏng mã hoá, `asdf3334`); sqli đọc cả 25 giữ 20, lấy 15 đầu (loại: số thường như `-3752`, `5739-5738`, chuỗi dò ký
+    tự); xss đọc cả 17 giữ 8 (loại: mảnh cụt không còn thẻ, thẻ đã mất dấu ngoặc). Bộ thử: 52 payload
+    (`scenarios/tang-2/bo-thu.jsonl`): 34 gieo, 18 giữ lại; cả bốn lớp đều có từ 8 payload.
+  - **Làm rõ số đo 1 (trước khi đọc nhãn):** "lần gửi đầu" của mỗi payload là lần gửi ở bước lọc — khi đó rulegen dừng và
+    không có luật tự sinh, nên nhãn không bị ảnh hưởng bởi kịch bản 44. Nhãn ở vòng gieo đầu của kịch bản 44 được báo
+    kèm để đối chiếu.
+  - **Giới hạn của công cụ kịch bản tìm ra ở bước này:** `obs.json` chỉ lấy 10 000 bản ghi đầu của `web-events-*` cho mọi
+    nguồn (web, net, behaviour), nên với lượt gửi vài nghìn request nó thiếu sự kiện web. `tools/t2test.sh fetch` đọc đủ
+    sự kiện web bằng phân trang; `tools/scenario.py` KHÔNG sửa. Các kịch bản của bộ 45 kịch bản gửi dưới mức này nên
+    không bị ảnh hưởng, trừ kịch bản dùng botnet (đã đọc quyết định chặn riêng).
+  - **Đối chứng:** 60 văn bản hợp lệ (`scenarios/tang-2/doi-chung.jsonl`), cố định trước khi chạy: 36 văn bản có sẵn
+    của công cụ kịch bản (thường, "khó", có dấu nháy, địa chỉ IP) và 24 văn bản thêm giống đường dẫn, tên lệnh, thẻ HTML.
+  - **Kết quả** (kịch bản 44 chạy MỘT lần, `eval/results/t2test-20261115-182204/`, bảng ở `t2test.md`; bản chép
+    `docs/baseline/t2test-20261115-182204.md`): số đo 1 = 40/52 (76,9 %; Wilson 63,9–86,3 %) — ĐẠT (lfi 14/15, rce 5/14,
+    sqli 15/15, xss 6/8; mọi nhãn do tầng 2). Số đo 2 = 2/18 (11,1 %) — KHÔNG ĐẠT; chỉ một luật được ban hành (lfi,
+    `ARGS:q`, token `.../`, bằng chứng tầng 2, 16 mẫu / 3 IP); 0 văn bản đối chứng bị luật chặn (722 request sau khi có
+    luật). Số đo 3: lfi 64 s (29 request đã tới ứng dụng trước đó; sau đó 37 bị chặn, 24 vẫn lọt); rce, sqli, xss không có
+    luật — KHÔNG ĐẠT. Nhật ký rulegen: cụm sqli (45–52 mẫu) và rce (11–12 mẫu) "G2r không có ứng viên an toàn đủ điểm" ở
+    mọi chu kỳ; xss chỉ có 4 payload gieo được gắn nhãn (dưới MIN_CLUSTER). **Quyết định theo bảng ghi trước: giữ
+    `weighted`, ghi giới hạn** — tầng 2 phát hiện được khoảng ba phần tư payload loại này nhưng hầu như chưa chuyển thành
+    chặn. KHÔNG đổi ngưỡng, bộ thử, kịch bản hay cấu hình sau khi thấy kết quả. Kỳ vọng `verify_gate2_min_share = 0.5`
+    của kịch bản 44 vì vậy KHÔNG ĐẠT và được giữ nguyên. Kết quả phụ: Cổng 2 chặn 9 085/9 289 (97,8 %) payload công khai
+    mà regex tầng 1 bỏ lọt.
