@@ -16,7 +16,35 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "train", "notebooks_src")
 
 
+# Notebook chia được cho nhiều phiên Colab chạy cùng lúc: mã nguồn có đúng dòng SHARD_LINE. Với notebook như vậy, ngoài bản
+# thường còn sinh <tên>_phien<i>.ipynb (i = 1..N_SESSIONS, đặt sẵn SHARD = "i") và <tên>_gop.ipynb (SHARD = "gop").
+# Mỗi phiên mở MỘT tệp riêng: mở chung một tệp ở nhiều phiên thì Colab lưu đè lên nhau.
+SHARD_LINE = 'SHARD = os.environ.get("NSM_SHARD", "0")'
+N_SESSIONS = 3
+
+
 def to_ipynb(py_path):
+    return to_ipynb_text(open(py_path, encoding="utf-8").read())
+
+
+def shard_variants(text):
+    """[(hậu tố tên tệp, notebook)] cho các phiên song song và bước gộp; rỗng nếu notebook không chia được."""
+    if SHARD_LINE not in text:
+        return []
+    out = []
+    for tag, val, note in ([(f"phien{i}", str(i), f"**Bản dành cho PHIÊN {i}/{N_SESSIONS}.** Mỗi phiên Colab mở một tệp "
+                             f"`_phien<i>` khác nhau rồi Run all; phiên này chỉ học phần ứng viên của mình và ghi vào "
+                             f"`output/tier2/parts/`. Khi cả {N_SESSIONS} phiên xong mới chạy bước gộp.")
+                            for i in range(1, N_SESSIONS + 1)]
+                           + [("gop", "gop", f"**Bản GỘP.** Chỉ chạy sau khi cả {N_SESSIONS} phiên `_phien<i>` đã xong: đọc "
+                               f"`output/tier2/parts/`, chọn model theo đúng quy tắc của một phiên, lưu kết quả. Không cần GPU.")]):
+        nb = to_ipynb_text(text.replace(SHARD_LINE, f'SHARD = "{val}"'))
+        nb["cells"].insert(0, {"cell_type": "markdown", "metadata": {}, "source": [note]})
+        out.append((tag, nb))
+    return out
+
+
+def to_ipynb_text(text):
     cells, cur, kind = [], [], None
 
     def flush():
@@ -35,7 +63,7 @@ def to_ipynb(py_path):
             cell.update(execution_count=None, outputs=[])
         cells.append(cell)
 
-    for ln in open(py_path, encoding="utf-8").read().splitlines():
+    for ln in text.splitlines():
         if ln.startswith("# %% [markdown]"):
             flush(); cur, kind = [], "markdown"
         elif ln.startswith("# %%"):
@@ -59,6 +87,10 @@ def main():
         out = os.path.join(dst, "notebooks", os.path.basename(py)[:-3] + ".ipynb")
         json.dump(nb, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         print("notebook:", out, f"({len(nb['cells'])} ô)")
+        for tag, nb2 in shard_variants(open(py, encoding="utf-8").read()):
+            out2 = out[:-len(".ipynb")] + f"_{tag}.ipynb"
+            json.dump(nb2, open(out2, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+            print("notebook:", out2, f"({len(nb2['cells'])} ô)")
     for f in glob.glob(os.path.join(ROOT, "train", "data", "*")):
         t = os.path.join(dst, "data", os.path.basename(f))
         if not os.path.exists(t) or os.path.getmtime(t) < os.path.getmtime(f) or os.path.getsize(t) != os.path.getsize(f):

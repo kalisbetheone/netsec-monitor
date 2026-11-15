@@ -34,6 +34,18 @@ cả tải model. Muốn chỉ đo hai model nhỏ thì chọn L4: phần 27B t�
 và `results_large.json` của lần chạy 15/11 được giữ ở `notebooks/03_large_qwen_hallucination_lan2_15-11.ipynb` và
 `output/rulesel_large/results_large_lan2_15-11.json`.
 
+**Notebook 01 chia cho 3 phiên chạy cùng lúc (thêm 15/11/2026).** Thay vì một phiên học lần lượt mọi ứng viên:
+- mở `01_tier2_classifier_phien1.ipynb`, `_phien2.ipynb`, `_phien3.ipynb`, mỗi tệp ở một phiên riêng, rồi Run all ở cả
+  ba (mỗi phiên vẫn phải cài scikit-learn 1.6.1 và Run all lần hai như mục 4 dưới đây). Loại runtime nào cũng được:
+  scikit-learn chỉ dùng CPU, nên L4 chỉ khác ở số CPU và RAM;
+- mỗi phiên học phần ứng viên của mình và ghi vào `output/tier2/parts/<tên ứng viên>.joblib` + `.json`. Không mở chung
+  một tệp notebook ở hai phiên: Colab sẽ lưu đè lên nhau;
+- khi cả ba phiên in "xong phần của mình", chạy bước gộp: `01_tier2_classifier_gop.ipynb` (vài phút, không cần GPU),
+  hoặc trên máy cá nhân: `NSM_SHARD=gop NSM_TRAIN_BASE=<thư mục NSM-train> python train/notebooks_src/01_tier2_classifier.py`.
+  Bước gộp chọn model theo đúng quy tắc của bản một phiên và ghi `tier2_new.joblib`, `metrics.json`,
+  `docker-compose-env.txt` như trước. Thiếu phần của ứng viên nào thì bước gộp dừng và nêu tên;
+- bản một phiên `01_tier2_classifier.ipynb` vẫn chạy như cũ. Phần XGBoost nghiên cứu chỉ có ở bản một phiên.
+
 1. Mở notebook trong Colab (chuột phải → Open with → Google Colaboratory).
 2. Runtime → Change runtime type → chọn như bảng trên.
 3. Runtime → Run all. Ô đầu tiên hỏi quyền truy cập Drive: chấp nhận.

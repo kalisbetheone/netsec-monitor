@@ -38,6 +38,20 @@ os.makedirs(OUTD, exist_ok=True)
 sys.path.insert(0, CODE)
 print("BASE =", BASE, "| SMOKE =", SMOKE)
 
+# ---- Chia việc cho nhiều phiên Colab chạy cùng lúc (thêm 15/11/2026) ----
+# "0"        : một phiên làm hết, như trước.
+# "1".."N"   : phiên song song thứ mấy trong N_SHARDS phiên. Mỗi phiên học phần ứng viên của mình rồi ghi model và số đo
+#              vào output/tier2/parts/<tên ứng viên>.joblib + .json (mỗi ứng viên một tệp riêng nên các phiên không ghi đè nhau).
+# "gop"      : không học gì; đọc mọi tệp trong parts/, chọn model theo ĐÚNG quy tắc của một phiên, rồi lưu kết quả như trước.
+# Các notebook 01_tier2_classifier_phien<i>.ipynb do make_notebooks.py sinh ra chỉ khác đúng dòng SHARD dưới đây.
+SHARD = os.environ.get("NSM_SHARD", "0")
+N_SHARDS = int(os.environ.get("NSM_N_SHARDS", "3"))
+MERGE = SHARD == "gop"
+FINAL = SHARD == "0" or MERGE                       # phiên này có chọn model và lưu kết quả cuối không
+PARTS = f"{OUTD}/parts"
+os.makedirs(PARTS, exist_ok=True)
+print("SHARD =", SHARD, "/", N_SHARDS, "| số CPU:", os.cpu_count())
+
 # %% [markdown]
 # ## 1. Phiên bản thư viện
 # Model sẽ được nạp trong container classifier với **scikit-learn 1.6.1, numpy 2.0.2, scipy 1.13.1**
@@ -85,7 +99,7 @@ LIM = {"train": 30000, "valid": 10000, "test_sites": 10000, "test_srbh": 10000, 
 # (chỉ để kiểm tra, không dùng chọn model). Hai tập này có từ 14/11/2026.
 TESTS = [k for k in ("test_sites", "test_srbh", "test_httpparams", "test_freetext", "test_scenario_text")
          if os.path.exists(f"{LOCAL}/tier2_{k}.jsonl.gz")]
-D = {k: load(k, LIM.get(k)) for k in ["train", "valid"] + TESTS}
+D = {k: load(k, LIM.get(k)) for k in (["valid"] if MERGE else ["train", "valid"] + TESTS)}   # gộp: chỉ cần valid để đo độ trễ
 for k, v in D.items():
     from collections import Counter
     print(f"{k:16} {len(v):8}", dict(Counter(r["ds_class"] for r in v)))
@@ -112,7 +126,7 @@ def featurize(rows):
     return texts, nums, y, t1, gate, loc, nul, free
 
 t0 = time.time()
-F = {k: featurize(v) for k, v in D.items()}
+F = {} if MERGE else {k: featurize(v) for k, v in D.items()}
 print(f"tính đặc trưng: {time.time() - t0:.0f} s")
 
 # %% [markdown]
@@ -190,20 +204,30 @@ def proba_of(model, F_k):
     return model["clf"].predict_proba(X)
 
 RESULTS = {}
-cur_cls = [str(c) for c in cur["clf"].classes_]
-S_cur = {k: tier2_scores(proba_of(cur, F[k]), cur_cls)[0] for k in F}
-RESULTS["M0_hien_tai"] = {k: report(F[k], S_cur[k], "argmax", 0.90, True) for k in F}
-for k, v in RESULTS["M0_hien_tai"].items():
-    print(k, {a: (round(b, 4) if isinstance(b, float) else b) for a, b in v.items()})
-# (tuỳ chọn) model huấn luyện lại LẦN TRƯỚC (12/11, chưa có văn bản tự do): NSM_PREV_MODEL=<đường dẫn joblib>,
-# chạy đúng cấu hình đã triển khai (mass, θ 0,87, cổng tắt) — để thấy tác dụng của dữ liệu văn bản tự do
-if os.environ.get("NSM_PREV_MODEL"):
-    prev = joblib.load(os.environ["NSM_PREV_MODEL"])
-    S_prev = {k: tier2_scores(proba_of(prev, F[k]), [str(c) for c in prev["clf"].classes_])[0] for k in F}
-    RESULTS["M_truoc_12_11"] = {k: report(F[k], S_prev[k], "mass", 0.87, False) for k in F}
-    for k in TESTS + ["valid"]:
-        print("model 12/11:", k, {a: (round(b, 4) if isinstance(b, float) else b) for a, b in RESULTS["M_truoc_12_11"][k].items()
-                                 if a.startswith(("fpr", "det_all", "n_free"))})
+BASELINE_PATH = f"{PARTS}/_baseline.json"
+if SHARD in ("0", "1"):                                 # chia phiên: chỉ phiên 1 đo model hiện tại (mọi phiên sẽ ra cùng số)
+    cur_cls = [str(c) for c in cur["clf"].classes_]
+    S_cur = {k: tier2_scores(proba_of(cur, F[k]), cur_cls)[0] for k in F}
+    RESULTS["M0_hien_tai"] = {k: report(F[k], S_cur[k], "argmax", 0.90, True) for k in F}
+    for k, v in RESULTS["M0_hien_tai"].items():
+        print(k, {a: (round(b, 4) if isinstance(b, float) else b) for a, b in v.items()})
+    # (tuỳ chọn) model huấn luyện lại LẦN TRƯỚC (12/11, chưa có văn bản tự do): NSM_PREV_MODEL=<đường dẫn joblib>,
+    # chạy đúng cấu hình đã triển khai (mass, θ 0,87, cổng tắt) — để thấy tác dụng của dữ liệu văn bản tự do
+    if os.environ.get("NSM_PREV_MODEL"):
+        prev = joblib.load(os.environ["NSM_PREV_MODEL"])
+        S_prev = {k: tier2_scores(proba_of(prev, F[k]), [str(c) for c in prev["clf"].classes_])[0] for k in F}
+        RESULTS["M_truoc_12_11"] = {k: report(F[k], S_prev[k], "mass", 0.87, False) for k in F}
+        for k in TESTS + ["valid"]:
+            print("model 12/11:", k, {a: (round(b, 4) if isinstance(b, float) else b) for a, b in RESULTS["M_truoc_12_11"][k].items()
+                                     if a.startswith(("fpr", "det_all", "n_free"))})
+    if SHARD == "1":
+        with open(BASELINE_PATH, "w", encoding="utf-8") as f:
+            json.dump(RESULTS, f, ensure_ascii=False, indent=1, default=float)
+elif MERGE and os.path.exists(BASELINE_PATH):
+    RESULTS.update(json.load(open(BASELINE_PATH, encoding="utf-8")))
+    print("đọc số đo của model hiện tại từ", BASELINE_PATH)
+else:
+    print("phiên", SHARD, ": bỏ qua phần đo model hiện tại (phiên 1 làm)")
 
 # %% [markdown]
 # ## 6. Huấn luyện các ứng viên (đều thay vào classifier được ngay)
@@ -244,56 +268,100 @@ def train_model(name, text_spec, make_clf, scale_numeric):
     print(f"{name}: {X.shape[1]} đặc trưng, học {time.time() - t0:.0f} s")
     return model
 
-CANDIDATES = {}
+# Danh sách ứng viên theo THỨ TỰ CỐ ĐỊNH (thứ tự này quyết định ứng viên nào được chọn khi hoà điểm, và phiên nào học gì)
+TEXT_BIG = {"ngram_range": (1, 5), "min_df": 3, "max_features": 100000, "sublinear_tf": True}
+SPECS = {}
 if not FAST:
-    CANDIDATES["M1_cong_thuc_cu"] = train_model(
-        "M1", {"ngram_range": (2, 4), "min_df": 5, "max_features": 4000},
-        lambda: LogisticRegression(C=1.0, max_iter=2000, n_jobs=-1), scale_numeric=False)
+    SPECS["M1_cong_thuc_cu"] = ({"ngram_range": (2, 4), "min_df": 5, "max_features": 4000},
+                                lambda: LogisticRegression(C=1.0, max_iter=2000, n_jobs=-1), False)
 for C in ([1.0] if (SMOKE or FAST) else [0.3, 1.0, 3.0]):
-    CANDIDATES[f"M2_lr_C{C}"] = train_model(
-        f"M2 C={C}", {"ngram_range": (1, 5), "min_df": 3, "max_features": 100000, "sublinear_tf": True},
-        lambda C=C: LogisticRegression(C=C, class_weight="balanced", max_iter=3000, n_jobs=-1), scale_numeric=True)
-CANDIDATES["M3_sgd"] = train_model(
-    "M3", {"ngram_range": (1, 5), "min_df": 3, "max_features": 100000, "sublinear_tf": True},
-    lambda: SGDClassifier(loss="modified_huber", penalty="elasticnet", alpha=2e-6, l1_ratio=0.15, class_weight="balanced",
-                          max_iter=30, tol=1e-4, random_state=0), scale_numeric=True)
+    SPECS[f"M2_lr_C{C}"] = (TEXT_BIG, lambda C=C: LogisticRegression(C=C, class_weight="balanced", max_iter=3000, n_jobs=-1), True)
+SPECS["M3_sgd"] = (TEXT_BIG, lambda: SGDClassifier(loss="modified_huber", penalty="elasticnet", alpha=2e-6, l1_ratio=0.15,
+                                                   class_weight="balanced", max_iter=30, tol=1e-4, random_state=0), True)
+NAMES = list(SPECS)
+if SHARD == "0":
+    MINE = NAMES
+elif MERGE:
+    MINE = []
+else:
+    assert SHARD.isdigit() and 1 <= int(SHARD) <= N_SHARDS, f"SHARD phải là 0, gop hoặc 1..{N_SHARDS}"
+    MINE = [n for i, n in enumerate(NAMES) if i % N_SHARDS == int(SHARD) - 1]
+print("mọi ứng viên:", NAMES, "\nphiên này học:", MINE)
+TRAIN_S = {}
+CANDIDATES = {}
+for name in MINE:
+    t0 = time.time()
+    CANDIDATES[name] = train_model(name, *SPECS[name])
+    TRAIN_S[name] = round(time.time() - t0)
 
 # %%
 # ---- 7. Chọn model và ngưỡng trên VALID (không nhìn tập test) ----
 SCORES = {}
-SEL = {}
+SEL = {}            # (ứng viên, cách quyết định, cổng) -> (θ, số đo trên valid)
+REPORTS = {}        # (ứng viên, cách quyết định, cổng) -> {tập: số đo} ở đúng θ đã chọn trên valid
+OPTIONS = [(d, g) for d in ("argmax", "mass") for g in (True, False)]
+
+def show_sel(name, decision, gate, p):
+    print(f"{name:16} {decision:6} cổng={'bật' if gate else 'tắt'}  θ={p[0]:.3f}  "
+          f"valid: phát hiện {p[1]['det_all']:.4f}, tầng 2 thêm báo nhầm {p[1]['fpr_tier2_added']:.5f}")
+
 for name, model in CANDIDATES.items():
     classes = [str(c) for c in model["clf"].classes_]
     SCORES[name] = {k: tier2_scores(proba_of(model, F[k]), classes)[0] for k in F}
-    for decision in ("argmax", "mass"):
-        for gate in (True, False):
-            p = pick_threshold(F["valid"], SCORES[name]["valid"], decision, gate)
-            if p:
-                SEL[(name, decision, gate)] = p
-                print(f"{name:16} {decision:6} cổng={'bật' if gate else 'tắt'}  θ={p[0]:.3f}  "
-                      f"valid: phát hiện {p[1]['det_all']:.4f}, tầng 2 thêm báo nhầm {p[1]['fpr_tier2_added']:.5f}")
-best_key = max(SEL, key=lambda k: (SEL[k][1]["det_all"], -SEL[k][1]["fpr_system"]))
-BEST_NAME, BEST_DEC, BEST_GATE = best_key
-BEST_THETA = SEL[best_key][0]
-print("\n>> CHỌN:", BEST_NAME, "| TIER2_DECISION =", BEST_DEC, "| TIER2_SYNTAX_GATE =", int(BEST_GATE),
-      "| TIER2_THRESHOLD =", BEST_THETA)
+    for decision, gate in OPTIONS:
+        p = pick_threshold(F["valid"], SCORES[name]["valid"], decision, gate)
+        if p:
+            SEL[(name, decision, gate)] = p
+            REPORTS[(name, decision, gate)] = {k: report(F[k], SCORES[name][k], decision, p[0], gate) for k in F}
+            show_sel(name, decision, gate, p)
+    if SHARD != "0":                                    # chia phiên: ghi phần của ứng viên này (tệp .json ghi SAU CÙNG = dấu "đã xong")
+        joblib.dump(model, f"{PARTS}/{name}.joblib", compress=3)
+        part = {"name": name, "shard": SHARD, "train_seconds": TRAIN_S.get(name), "smoke": SMOKE, "n_train": len(D["train"]),
+                "options": [{"decision": d, "gate": g, "theta": SEL[(name, d, g)][0], "valid": SEL[(name, d, g)][1],
+                             "report": REPORTS[(name, d, g)]} for d, g in OPTIONS if (name, d, g) in SEL]}
+        with open(f"{PARTS}/{name}.json", "w", encoding="utf-8") as f:
+            json.dump(part, f, ensure_ascii=False, indent=1, default=float)
+        print("   đã ghi", f"{PARTS}/{name}.json")
+
+if MERGE:                                               # đọc phần của mọi phiên, theo đúng thứ tự NAMES
+    missing = [n for n in NAMES if not os.path.exists(f"{PARTS}/{n}.json")]
+    assert not missing, f"chưa đủ kết quả để gộp — thiếu: {missing} (phiên học các ứng viên này chưa chạy xong)"
+    for name in NAMES:
+        part = json.load(open(f"{PARTS}/{name}.json", encoding="utf-8"))
+        assert part["smoke"] == SMOKE, f"{name}: phần này được học ở chế độ khác (smoke={part['smoke']})"
+        TRAIN_S[name] = part.get("train_seconds")
+        for o in part["options"]:
+            key = (name, o["decision"], bool(o["gate"]))
+            SEL[key] = (o["theta"], o["valid"]); REPORTS[key] = o["report"]
+            show_sel(name, o["decision"], bool(o["gate"]), SEL[key])
+
+if FINAL:
+    best_key = max(SEL, key=lambda k: (SEL[k][1]["det_all"], -SEL[k][1]["fpr_system"]))
+    BEST_NAME, BEST_DEC, BEST_GATE = best_key
+    BEST_THETA = SEL[best_key][0]
+    print("\n>> CHỌN:", BEST_NAME, "| TIER2_DECISION =", BEST_DEC, "| TIER2_SYNTAX_GATE =", int(BEST_GATE),
+          "| TIER2_THRESHOLD =", BEST_THETA)
+else:
+    print(f"\nPhiên {SHARD}/{N_SHARDS} xong phần của mình. Khi cả {N_SHARDS} phiên xong: chạy bước gộp (SHARD = 'gop').")
 
 # %%
 # ---- 8. Báo cáo trên các tập TEST (chỉ báo cáo; đã chọn xong ở bước 7) ----
 def fmt(r):
     return {a: (round(b, 4) if isinstance(b, float) else b) for a, b in r.items()}
-for name in CANDIDATES:
-    RESULTS[name] = {}
-    for (n, d, g), (theta, _) in SEL.items():
-        if n == name and d == BEST_DEC and g == BEST_GATE:
-            RESULTS[name] = {k: report(F[k], SCORES[name][k], d, theta, g) for k in F}
-            RESULTS[name]["_config"] = {"decision": d, "gate": g, "theta": theta}
-print("Model hiện tại (argmax, θ=0.90, cổng bật):")
-for k in TESTS:
-    print("  ", k, fmt(RESULTS["M0_hien_tai"][k]))
-print(f"\nModel chọn {BEST_NAME} ({BEST_DEC}, θ={BEST_THETA}, cổng={'bật' if BEST_GATE else 'tắt'}):")
-for k in TESTS:
-    print("  ", k, fmt(RESULTS[BEST_NAME][k]))
+if FINAL:
+    for name in NAMES:
+        RESULTS[name] = {}
+        key = (name, BEST_DEC, BEST_GATE)
+        if key in SEL:
+            RESULTS[name] = dict(REPORTS[key])
+            RESULTS[name]["_config"] = {"decision": BEST_DEC, "gate": BEST_GATE, "theta": SEL[key][0]}
+    if "M0_hien_tai" in RESULTS:
+        print("Model hiện tại (argmax, θ=0.90, cổng bật):")
+        for k in TESTS:
+            print("  ", k, fmt(RESULTS["M0_hien_tai"][k]))
+    print(f"\nModel chọn {BEST_NAME} ({BEST_DEC}, θ={BEST_THETA}, cổng={'bật' if BEST_GATE else 'tắt'}):")
+    for k in TESTS:
+        print("  ", k, fmt(RESULTS[BEST_NAME][k]))
 
 # %% [markdown]
 # ## 9. Nghiên cứu thêm (không thay vào hệ thống ngay): gradient boosting
@@ -301,7 +369,7 @@ for k in TESTS:
 # Model này không có `coef_` nên không thay trực tiếp vào classifier; chỉ dùng để biết model tuyến tính còn cách trần bao xa.
 
 # %%
-RUN_GBM = not SMOKE and not FAST
+RUN_GBM = not SMOKE and not FAST and SHARD == "0"       # chia phiên: bỏ phần nghiên cứu này (cần model và dữ liệu trong cùng phiên)
 if RUN_GBM:
     import xgboost as xgb
     from sklearn.decomposition import TruncatedSVD
@@ -327,32 +395,35 @@ if RUN_GBM:
 
 # %%
 # ---- 10. Độ trễ khi chạy thật: MỘT request một lần, như classifier gọi ----
-best = CANDIDATES[BEST_NAME]
-sample = D["valid"][:2000]
-t0 = time.perf_counter()
-for r in sample:
-    q = ("?" + r["query"]) if r["query"] else ""
-    xt = best["vectorizer"].transform([make_text(q, r["body"])])
-    f = make_feats(r["uri"], q, r["body"])
-    X = hstack([xt, csr_matrix([[float(f[c]) for c in best["num_cols"]]])]).tocsr()
-    best["clf"].predict_proba(X)
-lat_ms = (time.perf_counter() - t0) / len(sample) * 1000
-print(f"độ trễ trung bình: {lat_ms:.3f} ms/request (model hiện tại cần < ~1 ms để theo kịp ~400 request/giây)")
+if FINAL:
+    best = joblib.load(f"{PARTS}/{BEST_NAME}.joblib") if MERGE else CANDIDATES[BEST_NAME]
+    sample = D["valid"][:2000]
+    t0 = time.perf_counter()
+    for r in sample:
+        q = ("?" + r["query"]) if r["query"] else ""
+        xt = best["vectorizer"].transform([make_text(q, r["body"])])
+        f = make_feats(r["uri"], q, r["body"])
+        X = hstack([xt, csr_matrix([[float(f[c]) for c in best["num_cols"]]])]).tocsr()
+        best["clf"].predict_proba(X)
+    lat_ms = (time.perf_counter() - t0) / len(sample) * 1000
+    print(f"độ trễ trung bình: {lat_ms:.3f} ms/request (model hiện tại cần < ~1 ms để theo kịp ~400 request/giây)")
 
 # %%
 # ---- 11. Lưu model và kết quả ----
-meta = {"trained_at": time.strftime("%Y-%m-%d %H:%M:%S"), "name": BEST_NAME, "sklearn": sklearn.__version__,
-        "decision": BEST_DEC, "syntax_gate": BEST_GATE, "threshold": BEST_THETA, "latency_ms": round(lat_ms, 3),
-        "smoke": SMOKE, "selection": "max valid detection with tier-2 added FPR <= 0.1% on valid benign"}
-out_model = {"vectorizer": best["vectorizer"], "clf": best["clf"], "num_cols": best["num_cols"], "meta": meta}
-joblib.dump(out_model, f"{OUTD}/tier2_new.joblib", compress=3)
-with open(f"{OUTD}/metrics.json", "w", encoding="utf-8") as f:
-    json.dump({"meta": meta, "results": RESULTS,
-               "selection_table": {f"{n}|{d}|gate={g}": {"theta": t, **r} for (n, d, g), (t, r) in SEL.items()}},
-              f, ensure_ascii=False, indent=1, default=float)
-env = (f"TIER2_THRESHOLD: \"{BEST_THETA}\"\nTIER2_DECISION: \"{BEST_DEC}\"\nTIER2_SYNTAX_GATE: \"{int(BEST_GATE)}\"\n")
-open(f"{OUTD}/docker-compose-env.txt", "w").write(env)
-print("Đã lưu vào", OUTD)
-print(env)
-print("Cách dùng: chép tier2_new.joblib thành nsm/models/tier2.joblib, đặt 3 biến trên cho dịch vụ classifier "
-      "trong docker-compose.yml, rồi `docker compose up -d --build classifier`.")
+if FINAL:
+    meta = {"trained_at": time.strftime("%Y-%m-%d %H:%M:%S"), "name": BEST_NAME, "sklearn": sklearn.__version__,
+            "decision": BEST_DEC, "syntax_gate": BEST_GATE, "threshold": BEST_THETA, "latency_ms": round(lat_ms, 3),
+            "smoke": SMOKE, "selection": "max valid detection with tier-2 added FPR <= 0.1% on valid benign",
+            "shards": N_SHARDS if MERGE else 1, "train_seconds": TRAIN_S}
+    out_model = {"vectorizer": best["vectorizer"], "clf": best["clf"], "num_cols": best["num_cols"], "meta": meta}
+    joblib.dump(out_model, f"{OUTD}/tier2_new.joblib", compress=3)
+    with open(f"{OUTD}/metrics.json", "w", encoding="utf-8") as f:
+        json.dump({"meta": meta, "results": RESULTS,
+                   "selection_table": {f"{n}|{d}|gate={g}": {"theta": t, **r} for (n, d, g), (t, r) in SEL.items()}},
+                  f, ensure_ascii=False, indent=1, default=float)
+    env = (f"TIER2_THRESHOLD: \"{BEST_THETA}\"\nTIER2_DECISION: \"{BEST_DEC}\"\nTIER2_SYNTAX_GATE: \"{int(BEST_GATE)}\"\n")
+    open(f"{OUTD}/docker-compose-env.txt", "w").write(env)
+    print("Đã lưu vào", OUTD)
+    print(env)
+    print("Cách dùng: chép tier2_new.joblib thành nsm/models/tier2.joblib, đặt 3 biến trên cho dịch vụ classifier "
+          "trong docker-compose.yml, rồi `docker compose up -d --build classifier`.")
