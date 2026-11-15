@@ -471,3 +471,30 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     5. `bench.sh -r 5 mttr` với kịch bản sqli và rce: 10/10 lần bị chặn, và trung vị "T quyết định" của mỗi kịch bản không lớn hơn
        mốc đo NGAY TRƯỚC khi đổi cấu hình;
     6. CPU của container filebeat (trung bình 10 mẫu `docker stats`) không tăng quá 3 điểm phần trăm so với mốc.
+
+- 16/11/2026 (01:55) — **Khâu chậm trên đường cảnh báo: KẾT QUẢ sau khi đặt `backoff.init: 200ms`, `backoff.max: 1s` cho ba input của
+  Filebeat — cả sáu điều kiện ghi trước đều đạt -> GIỮ thay đổi** (`web/filebeat/filebeat.yml`). Một lượt mỗi cấu hình, cùng buổi.
+
+  | # | Điều kiện | Trước | Sau | Đạt |
+  |---|---|---|---|---|
+  | 1 | nhật ký truy cập tới Kafka, gộp ba pha: trung vị <= 0,5 s, lớn nhất <= 1,0 s | 1,07 s / 1,94 s | 0,27 s / 0,74 s | có |
+  | 2 | nhật ký kiểm toán, pha POST nguội: lớn nhất <= 1,5 s | 5,29 s | 0,86 s | có |
+  | 3 | cảnh báo, pha POST nguội: trung vị <= 1,5 s | 3,33 s | 0,80 s | có |
+  | 4 | không mất dòng | 24/24, 16/16 | 24/24, 16/16 | có |
+  | 5 | bench mttr 5 lần: bị chặn 10/10; trung vị "T quyết định" không tăng | sqli 2,8 s; rce 3,5 s | sqli 2,2 s; rce 2,3 s; 10/10 | có |
+  | 6 | CPU filebeat tăng không quá 3 điểm % | 0,43 % | 1,29 % | có |
+
+  Dữ liệu: `eval/results/alertlat-20261116-010449` (trước), `alertlat-20261116-011915` (sau); bench `bench-results/20261116-011423`
+  (trước), `20261116-012637` (sau). "T tổng" của bench: sqli 3,5 -> 2,5 s, rce 4,0 -> 3,0 s. Khâu thực thi (quyết định -> nginx
+  chặn) KHÔNG đổi và vẫn dao động (0,2–2,9 s trước, 0,2–1,2 s sau): nginx nạp lại danh sách chặn tối đa một lần mỗi 5 giây
+  (`RELOAD_MIN_INTERVAL_S`), chưa đụng tới.
+  - **Phép kiểm an toàn NGOÀI tiêu chí (thêm sau khi thấy sáu điều kiện đạt):** chạy 4 kịch bản 02, 13, 41, 45 với thiết lập mới
+    (`eval/results/alertlatkb-20261116-012955`): 02, 13, 45 đạt; **41 KHÔNG ĐẠT** — luật tự sinh được ban hành rồi bị TỰ GỠ với lý do
+    `benign_hit_live`. Nguyên nhân tìm được: bộ cấp phát IP của công cụ kịch bản phụ thuộc danh sách kịch bản của lượt chạy; ba IP
+    của vai kiểm chứng lần này (10.10.12.173–.175) từng là người dùng hợp lệ trong lượt chạy tối 15/11 (16 sự kiện lành tính mỗi
+    IP trong 24 giờ trước), nên rulegen coi chúng là "nguồn sạch có tiếng" và gỡ luật sau 4 lần luật chặn chúng — đúng thiết kế
+    của lưới an toàn, sai do dữ liệu thử. Kiểm chéo: chạy lại kịch bản 41 từ một bản sao tạm với IP chưa từng dùng (10.10.13.x),
+    cùng thiết lập Filebeat mới (`eval/results/alertlat41-20261116-014833`): ĐẠT 3/3 phép kiểm. Tệp kịch bản 41 trong kho KHÔNG
+    bị sửa; bản sao tạm đã xoá. Chưa chạy lại kịch bản 41 với thiết lập CŨ để đối chiếu trực tiếp.
+  - **Giới hạn mới của công cụ đo (ghi nhận, chưa sửa):** chạy các tổ hợp kịch bản khác nhau trong vòng 24 giờ có thể làm một IP
+    đóng vai hợp lệ ở lượt này và vai tấn công ở lượt sau; cơ chế "nguồn sạch có tiếng" của rulegen khi đó gỡ luật.
