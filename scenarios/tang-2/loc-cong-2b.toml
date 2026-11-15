@@ -1,0 +1,22 @@
+# Bước lọc của bộ thử tầng 2 (không phải kịch bản có kỳ vọng): gửi các ứng viên mà regex tầng 1 bỏ lọt qua Cổng 2 thật,
+# để biết payload nào CRS và luật tầng 1 đồng bộ cũng không chặn. Chỉ đọc mã phản hồi (runs.jsonl). Lưu lượng thử nội bộ.
+# Chạy:  SC_DIR=scenarios/tang-2 SC_OUT_NAME=t2loc bash tools/scenario.sh loc-cong-2b
+title = "Bộ thử tầng 2 — bước lọc (đợt 2): các ứng viên qua Cổng 2 (CRS + luật tầng 1 đồng bộ)"
+case = "công cụ (bộ thử tầng 2)"
+notes = "IP được miễn trừ để gửi hết 300 request. rulegen dừng (mặc định) nên không luật nào sinh từ bước này."
+max_s = 1500
+exempt = ["self"]
+
+[[actor]]
+name = "ứng viên"
+role = "probe"
+ips = 1
+family = "t2test"
+source = "file:/scenarios/ung-vien-2.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 5589
+interval_s = 0.1
+max_s = 1450
+stop_on_block = false

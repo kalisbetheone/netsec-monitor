@@ -14,3 +14,6 @@ __pycache__/
 # đầu ra công cụ đánh giá (sinh lại được)
 eval/t2only_candidates.jsonl
 eval/*.log
+
+# ứng viên của bộ thử tầng 2 (sinh lại được bằng eval/t2test_candidates.py)
+scenarios/tang-2/ung-vien*.jsonl

