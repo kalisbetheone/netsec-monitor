@@ -129,13 +129,13 @@ fi
 finish_step "4. luật tự sinh" "$t" "$ok"
 
 # ---------------------------------------------------------------- bước 5
-banner "BƯỚC 5 — Nhồi tài khoản phân tán và flood: bị khoá và bị giới hạn tốc độ" \
-  "scenario.sh td-5a-nhoi-tai-khoan td-5b-flood-mot-ip" \
+banner "BƯỚC 5 — Nhồi tài khoản vào cổng đặt chỗ và flood: bị khoá và bị giới hạn tốc độ" \
+  "scenario.sh td-5a-nhoi-tai-khoan-cong-dat-cho td-5b-flood-mot-ip" \
   "IP đã bị chặn; Request bị Cổng 1 giới hạn tốc độ (429), theo IP; Request bị Cổng 1 từ chối, theo IP" \
-  "td-5a: phần lớn 50 IP của chiến dịch bị khoá; td-5b: IP flood nhận 429 rồi bị khoá; khách hợp lệ không bị ảnh hưởng"
+  "td-5a: phần lớn 50 IP nhồi tài khoản vào trang đăng nhập booking.local bị khoá; td-5b: IP flood nhận 429 rồi bị khoá; khách hợp lệ không bị ảnh hưởng"
 pause
 t=$(date +%s)
-run_sc "${SC[@]}" td-5a-nhoi-tai-khoan td-5b-flood-mot-ip; rc=$?
+run_sc "${SC[@]}" td-5a-nhoi-tai-khoan-cong-dat-cho td-5b-flood-mot-ip; rc=$?
 finish_step "5. nhồi tài khoản + flood" "$t" "$rc"
 
 # ---------------------------------------------------------------- bước 6

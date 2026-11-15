@@ -260,3 +260,10 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     khi thấy kết quả này.
   - **Sự cố phối hợp:** phiên P1 xong lượt thử 14:44 nhưng không nhả khoá stack; P0 gỡ khoá lúc 15:03 sau khi đọc kết quả.
     Mất khoảng 15 phút; lượt thử lại trình diễn của P3 dời xuống ngay trước các lượt chính thức. Không ảnh hưởng số đo.
+  - **Trình diễn** (`PRESENT_AUTO=1 bash tools/present.sh`, ba lượt chính thức 16:37–17:14; nhật ký
+    `nsm-wip-15-11/present-chinh-thuc-{1,2,3}.log`, kết quả `eval/results/trinhdien-20261115-16*`, `-17*`): ĐẠT 2/3 lượt
+    (718, 732, 726 giây). Lượt 2 sai bước 3: 3/4 IP bị khoá khi còn đang tấn công; cảnh báo của IP thử RCE tới responder
+    chậm khoảng 8 giây (khâu chậm trước responder, chưa xác định); 12/12 request của IP đó vẫn bị Cổng 2 chặn. KHÔNG sửa
+    `present.sh`, kịch bản hay kỳ vọng sau khi thấy kết quả; con số 2/3 được báo nguyên. Thay đổi TRƯỚC ba lượt chính
+    thức: bước 5 đổi từ bản rút gọn của kịch bản 38 (DVWA) sang bản rút gọn của kịch bản 45 (cổng đặt chỗ); lượt thử
+    12:03 (697 giây, đạt) chạy với bản cũ.

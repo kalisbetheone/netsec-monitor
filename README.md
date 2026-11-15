@@ -137,7 +137,7 @@ Công cụ thêm ngày 15/11/2026:
 |---|---|
 | `bash tools/baseline.sh <tên>` | Lượt đo đầy đủ (demo, sectest, parity, tier1sync, bench, mọi kịch bản…), kết quả trong `eval/results/baseline-<tên>/` |
 | `bash tools/present.sh` | Buổi trình diễn 7 bước, không quá 15 phút, từ trạng thái sạch (gọi `reset-all.sh` ở đầu và cuối). `PRESENT_AUTO=1` chạy liền không dừng. Mã thoát khác 0 khi một bước sai hoặc quá 15 phút |
-| `bash tools/ngaynen.sh` | "Ngày nén 12 lần": 24 khung giờ, mỗi khung 5 phút thật, responder ở chế độ chạy thử (kịch bản trong `scenarios/ngay-nen/`) |
+| `bash tools/ngaynen.sh` | Ngày mô phỏng nén 12 lần: 24 khung giờ, mỗi khung khoảng 4 phút thật, mốc thời gian chia 12, responder ở chế độ chạy thử (kịch bản trong `scenarios/ngay-nen/`) |
 | `bash tools/wouldblock.sh <epoch bắt đầu> [epoch kết thúc] [nguon.json] [thư mục ra]` | Đếm quyết định chặn / "sẽ chặn" của responder theo từng IP trong một khoảng thời gian, đối chiếu với danh sách phân vai (hợp lệ / tấn công / thường trú). Chỉ đọc Elasticsearch. Mã thoát 1 khi có quyết định rơi vào IP hợp lệ |
 | `bash tools/d1grace.sh` | Kiểm nhánh hạ cấp chặn của IP dùng chung (`SHARED_GRACE_S`) trên hệ thống thật: một IP thử bị chặn cả IP, rồi được báo là IP dùng chung; phải thấy lệnh chặn hạ xuống (IP, User-Agent). Kết quả trong `eval/results/d1grace-<thời điểm>/` |
 

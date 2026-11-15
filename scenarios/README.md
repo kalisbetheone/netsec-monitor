@@ -46,9 +46,9 @@ Lượt chạy đầy đủ chỉ lấy tệp ở thư mục gốc `scenarios/`,
 - `scenarios/ngay-nen/` — "ngày nén 12 lần": 24 khung giờ của một ngày, mỗi khung 5 phút thật, chạy liền mạch với `SC_CONT=1`
   ở chế độ chạy thử của responder. Công cụ: `tools/ngaynen.sh`, `tools/wouldblock.sh`. Không thay được chạy lâu thật (xem
   `../Danh-sach-gioi-han-NSM.md`, mục 12).
-- `scenarios/trinh-dien/` — bản rút gọn của các kịch bản 03, 34, 36, 37, 38, 41 cho buổi trình diễn (`tools/present.sh`, không
+- `scenarios/trinh-dien/` — bản rút gọn của các kịch bản 03, 34, 36, 37, 41, 45 cho buổi trình diễn (`tools/present.sh`, không
   quá 15 phút). Chỉ giảm số request, số payload mỗi họ, số địa chỉ nguồn và thời gian tối đa so với bản gốc; họ payload và kỳ vọng
-  giữ nguyên. Riêng bản rút gọn của 38 có `bot_offset = 800` để dùng dải IP bí danh riêng. Sinh lại từ bản gốc bằng
+  giữ nguyên. Riêng bản rút gọn của 45 đổi `bot_offset` 700 → 800 để không trùng dải IP bí danh của 45. Sinh lại từ bản gốc bằng
   `nsm-wip-15-11/phoi-hop/p3_make_td.py`.
 
 ## Cấu trúc một kịch bản

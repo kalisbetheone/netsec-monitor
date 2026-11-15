@@ -1,0 +1,42 @@
+# Bản rút gọn của scenarios/45-nhoi-tai-khoan-cong-dat-cho.toml cho tools/present.sh (chỉ giảm số lượng / thời gian).
+title = "Cổng đặt chỗ: nhồi tài khoản vào trang đăng nhập, botnet 100 IP, mỗi IP 4 lần — bản trình diễn (50 IP)"
+case = "C4 mở rộng (cổng đặt chỗ: chiếm tài khoản khách)"
+notes = """Như kịch bản 38 nhưng đích là trang đăng nhập của cổng đặt chỗ (Host booking.local, POST /login.php với email + \
+password; sai thì ứng dụng trả 401). Ứng dụng đặt chỗ là ứng dụng an toàn: kịch bản đo PHẢN ỨNG của hệ thống phòng thủ, không \
+đo việc khai thác. Mỗi IP chỉ thử 4 lần nên không mẫu theo-từng-IP nào thấy; bộ đếm toàn hệ thống của tầng 3 (mẫu \
+'stuffing': mọi POST tới đường dẫn khớp /login và mọi phản hồi 401) phải nhận ra chiến dịch và khoá từng IP tham gia. Một \
+khách hợp lệ tìm chuyến bay trong lúc đó không được bị ảnh hưởng. IP bí danh của botnet: bot_offset 700–799 (dải riêng của \
+kịch bản này)."""
+max_s = 90
+
+[[actor]]
+name = "botnet nhồi tài khoản vào cổng đặt chỗ"
+kind = "botnet"
+bots = 50
+bot_offset = 800              # dải IP bí danh riêng của trình diễn (R6); 45 dùng 700–799
+family = "login"
+host = "booking.local"
+path = "/login.php"
+method = "POST"
+param = "password"
+fields = [["email", "user{n}@example.test"]]
+count = 4
+interval_s = 4
+stop_on_block = true
+
+[[actor]]
+name = "khách tìm chuyến"
+role = "benign"
+family = "benign"
+host = "booking.local"
+path = "/search.php"
+param = "q"
+fields = []
+count = 30
+interval_s = 1
+stop_on_block = false
+
+[expect]
+bots_blocked_min_share = 0.8
+benign_blocked = false
+benign_ok_min_share = 0.99
