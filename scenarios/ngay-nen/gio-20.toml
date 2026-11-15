@@ -1,0 +1,66 @@
+# SINH TỰ ĐỘNG bởi tools/ngaynen.py — không sửa tay; sửa trong ngaynen.py rồi chạy lại `ngaynen.py sinh`.
+title = "Ngày nén — giờ 20 (cao điểm)"
+case = "chạy thử (dryrun), ngày nén 12 lần"
+max_s = 250
+settle_s = 10
+notes = "Khung giờ 20 của ngày nén (loại: cao điểm). Lưu lượng hợp lệ theo hồ sơ của loại khung giờ. Có nguồn thử tấn công (khối 'gieo tấn công' của kịch bản 41) từ hai IP cố định. Từ giây 30: sáu IP mới gửi biến thể chưa thấy (khối thứ hai của kịch bản 41)."
+
+[[actor]]
+name = "khách cao điểm"
+role = "benign"
+kind = "botnet"
+bots = 100
+bot_offset = 600
+families = ["benign", "benign", "benign", "benign_quote"]
+count = 30
+interval_s = 6
+stop_on_block = false
+
+[[actor]]
+name = "khách gõ văn bản khó"
+role = "benign"
+ips = 6
+families = ["benign", "benign_hard"]
+placement = "query"
+count = 20
+interval_s = 8
+stop_on_block = false
+
+[[actor]]
+name = "phát lại lưu lượng thật"
+role = "benign"
+kind = "replay"
+ip = ["10.10.4.4", "10.10.4.5", "10.10.4.6"]
+count = 100
+every = 37
+start = 285000
+interval_s = 2
+
+[[actor]]
+name = "gieo tấn công"
+ip = ["10.10.15.241", "10.10.15.242"]
+family = "rce_seed"
+path = "/vulnerabilities/exec/"
+param = "ip"
+method = "POST"
+count = 8
+interval_s = 0.5
+
+[[actor]]
+name = "IP mới, biến thể chưa thấy"
+role = "verify"
+ip = ["10.10.4.21", "10.10.4.22", "10.10.4.23", "10.10.4.24", "10.10.4.25", "10.10.4.26"]
+start_s = 30
+family = "rce_variant"
+shuffle = true
+path = "/vulnerabilities/exec/"
+param = "ip"
+method = "POST"
+count = 2
+interval_s = 1
+stop_on_block = false
+
+[expect]
+benign_blocked = false
+benign_gate2_max_share = 0.05
+benign_429_max_share = 0.01

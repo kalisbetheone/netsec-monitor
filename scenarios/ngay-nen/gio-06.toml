@@ -1,0 +1,53 @@
+# SINH TỰ ĐỘNG bởi tools/ngaynen.py — không sửa tay; sửa trong ngaynen.py rồi chạy lại `ngaynen.py sinh`.
+title = "Ngày nén — giờ 06 (thường)"
+case = "chạy thử (dryrun), ngày nén 12 lần"
+max_s = 250
+settle_s = 10
+notes = "Khung giờ 06 của ngày nén (loại: thường). Lưu lượng hợp lệ theo hồ sơ của loại khung giờ."
+
+[[actor]]
+name = "khách thường"
+role = "benign"
+ips = 12
+families = ["benign"]
+placement = "query"
+count = 30
+interval_s = 6
+stop_on_block = false
+
+[[actor]]
+name = "khách gõ văn bản khó"
+role = "benign"
+ips = 4
+families = ["benign", "benign_hard"]
+placement = "query"
+count = 20
+interval_s = 8
+stop_on_block = false
+
+[[actor]]
+name = "khách gõ dấu nháy"
+role = "benign"
+ips = 4
+family = "benign_quote"
+path = "/vulnerabilities/sqli/"
+param = "id"
+method = "GET"
+count = 20
+interval_s = 8
+stop_on_block = false
+
+[[actor]]
+name = "phát lại lưu lượng thật"
+role = "benign"
+kind = "replay"
+ip = ["10.10.4.14", "10.10.4.15"]
+count = 100
+every = 37
+start = 117000
+interval_s = 2
+
+[expect]
+benign_blocked = false
+benign_gate2_max_share = 0.05
+benign_429_max_share = 0.01

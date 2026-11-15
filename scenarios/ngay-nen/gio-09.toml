@@ -1,0 +1,52 @@
+# SINH TỰ ĐỘNG bởi tools/ngaynen.py — không sửa tay; sửa trong ngaynen.py rồi chạy lại `ngaynen.py sinh`.
+title = "Ngày nén — giờ 09 (cao điểm)"
+case = "chạy thử (dryrun), ngày nén 12 lần"
+max_s = 250
+settle_s = 10
+notes = "Khung giờ 09 của ngày nén (loại: cao điểm). Lưu lượng hợp lệ theo hồ sơ của loại khung giờ. Có nguồn thử tấn công (khối 'gieo tấn công' của kịch bản 41) từ hai IP cố định."
+
+[[actor]]
+name = "khách cao điểm"
+role = "benign"
+kind = "botnet"
+bots = 150
+bot_offset = 0
+families = ["benign", "benign", "benign", "benign_quote"]
+count = 30
+interval_s = 6
+stop_on_block = false
+
+[[actor]]
+name = "khách gõ văn bản khó"
+role = "benign"
+ips = 6
+families = ["benign", "benign_hard"]
+placement = "query"
+count = 20
+interval_s = 8
+stop_on_block = false
+
+[[actor]]
+name = "phát lại lưu lượng thật"
+role = "benign"
+kind = "replay"
+ip = ["10.10.4.7", "10.10.4.8", "10.10.4.9"]
+count = 100
+every = 37
+start = 153000
+interval_s = 2
+
+[[actor]]
+name = "gieo tấn công"
+ip = ["10.10.15.241", "10.10.15.242"]
+family = "rce_seed"
+path = "/vulnerabilities/exec/"
+param = "ip"
+method = "POST"
+count = 8
+interval_s = 0.5
+
+[expect]
+benign_blocked = false
+benign_gate2_max_share = 0.05
+benign_429_max_share = 0.01

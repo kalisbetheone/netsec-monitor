@@ -1,0 +1,63 @@
+# SINH TỰ ĐỘNG bởi tools/ngaynen.py — không sửa tay; sửa trong ngaynen.py rồi chạy lại `ngaynen.py sinh`.
+title = "Ngày nén — giờ 12 (văn phòng)"
+case = "chạy thử (dryrun), ngày nén 12 lần"
+max_s = 250
+settle_s = 10
+notes = "Khung giờ 12 của ngày nén (loại: văn phòng). Lưu lượng hợp lệ theo hồ sơ của loại khung giờ."
+
+[[actor]]
+name = "khách thường"
+role = "benign"
+ips = 12
+families = ["benign"]
+placement = "query"
+count = 30
+interval_s = 6
+stop_on_block = false
+
+[[actor]]
+name = "khách gõ văn bản khó"
+role = "benign"
+ips = 4
+families = ["benign", "benign_hard"]
+placement = "query"
+count = 20
+interval_s = 8
+stop_on_block = false
+
+[[actor]]
+name = "khách gõ dấu nháy"
+role = "benign"
+ips = 4
+family = "benign_quote"
+path = "/vulnerabilities/sqli/"
+param = "id"
+method = "GET"
+count = 20
+interval_s = 8
+stop_on_block = false
+
+[[actor]]
+name = "phát lại lưu lượng thật"
+role = "benign"
+kind = "replay"
+ip = ["10.10.4.4", "10.10.4.5"]
+count = 100
+every = 37
+start = 189000
+interval_s = 2
+
+[[actor]]
+name = "IP dùng chung, 4 trình duyệt"
+role = "benign"
+ip = "10.10.15.240"
+families = ["benign", "benign", "benign", "benign"]
+user_agents = ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1", "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15"]
+count = 80
+interval_s = 2.5
+stop_on_block = false
+
+[expect]
+benign_blocked = false
+benign_gate2_max_share = 0.05
+benign_429_max_share = 0.01

@@ -1,0 +1,43 @@
+# SINH TỰ ĐỘNG bởi tools/ngaynen.py — không sửa tay; sửa trong ngaynen.py rồi chạy lại `ngaynen.py sinh`.
+title = "Ngày nén — giờ 01 (đêm)"
+case = "chạy thử (dryrun), ngày nén 12 lần"
+max_s = 250
+settle_s = 10
+rulegen = true
+modsec_detection_only_s = 70
+notes = "Khung giờ 01 của ngày nén (loại: đêm). Lưu lượng hợp lệ theo hồ sơ của loại khung giờ. Có nguồn thử tấn công (khối 'gieo tấn công' của kịch bản 41) từ hai IP cố định. 70 giây đầu Cổng 2 chỉ ghi nhận, để bộ sinh luật có đầu vào (như kịch bản 41)."
+
+[[actor]]
+name = "khách thường"
+role = "benign"
+ips = 5
+families = ["benign"]
+placement = "query"
+count = 20
+interval_s = 10
+stop_on_block = false
+
+[[actor]]
+name = "phát lại lưu lượng thật"
+role = "benign"
+kind = "replay"
+ip = ["10.10.4.7"]
+count = 100
+every = 37
+start = 57000
+interval_s = 2
+
+[[actor]]
+name = "gieo tấn công"
+ip = ["10.10.15.241", "10.10.15.242"]
+family = "rce_seed"
+path = "/vulnerabilities/exec/"
+param = "ip"
+method = "POST"
+count = 8
+interval_s = 0.5
+
+[expect]
+benign_blocked = false
+benign_gate2_max_share = 0.05
+benign_429_max_share = 0.01
