@@ -554,7 +554,11 @@ def activate_new(r, now):
 def cycle():
     now = time.time()
     # Mọi truy vấn ES ở ĐẦU chu kỳ: ES lỗi -> ngoại lệ -> không đổi gì, không phát gì (E3: an toàn khi hỏng).
-    attacks = fetch(LOOKBACK, labels=ATTACK_LABELS, floor=not_before())
+    floor = not_before()
+    if floor and floor > now - LOOKBACK:            # mốc đang cắt bớt dữ liệu học: ghi ra để người vận hành thấy (15/11)
+        L.info("mốc not_before đang có hiệu lực: bỏ qua sự kiện tấn công trước %s (%d s trước)",
+               time.strftime("%H:%M:%S", time.localtime(floor)), int(now - floor))
+    attacks = fetch(LOOKBACK, labels=ATTACK_LABELS, floor=floor)
     corpus, n_benign, live_benign = benign_corpus()
     corpus_ok = n_benign >= MIN_BENIGN
     if not corpus_ok:

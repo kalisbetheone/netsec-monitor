@@ -274,9 +274,9 @@ services:
       # thêm <= 0,1 % báo nhầm). 3 giá trị dưới lấy từ output/tier2/docker-compose-env.txt của notebook.
       # Model cũ (run_4) giữ ở models/tier2_run4.joblib; muốn quay lại: chép đè models/tier2.joblib và đặt lại
       # θ=0.90, gate=1, argmax, TIER2_MODE=observe.
-      TIER2_THRESHOLD: "0.67"
+      TIER2_THRESHOLD: "${TIER2_THRESHOLD:-0.67}"
       TIER2_SYNTAX_GATE: "0"
-      TIER2_DECISION: "argmax"      # model 14/11 (có văn bản tự do Tatoeba): argmax, ngưỡng 0,67; model 12/11 giữ ở models/tier2_1211.joblib (mass, 0,87)
+      TIER2_DECISION: "${TIER2_DECISION:-argmax}"      # model 14/11 (có văn bản tự do Tatoeba): argmax, ngưỡng 0,67; model 12/11 giữ ở models/tier2_1211.joblib (mass, 0,87)
       # enforce = nhãn tầng 2 dẫn tới cảnh báo/chặn; observe = chỉ ghi nhận (t2_label); corroborate = chỉ tính khi
       # ModSecurity cũng chặn request đó. Model mới báo nhầm < 1 % trên lưu lượng website thật, NHƯNG gắn nhãn tấn công
       # cho văn bản người dùng gõ tay ("rock 'n' roll", "select a laptop for school", "bàn phím cơ"...): ở enforce, kịch
@@ -285,6 +285,7 @@ services:
       # 15/11/2026: mặc định 'weighted' (chế độ trung gian): nhãn chỉ do model, Cổng 2 không chặn -> cảnh báo nửa trọng
       # số (responder TIER2_WEIGHT), không tính cửa sổ dài, không khoá ngay. Cổng 2 cũng chặn -> tính đủ.
       TIER2_MODE: ${TIER2_MODE:-weighted}
+      MODEL_PATH: "${TIER2_MODEL_PATH:-/models/tier2.joblib}"   # đổi tạm khi đo so sánh model (spec 15/11, I3)
       SCAN_MAX_BYTES: "524288"      # quét tới 512 KB tham số/thân mỗi request; vượt -> nhãn 'uninspected'
 
     volumes: ["./models:/models:ro"]
@@ -329,10 +330,11 @@ services:
       MAX_AGE_S: "600"              # bỏ cảnh báo cũ hơn 10 phút (sau sự cố Kafka)
       THRESHOLD: "5"                # cửa sổ ngắn: k cảnh báo / WINDOW_S
       WINDOW_S: "60"
-      LONG_WINDOW_S: "86400"        # B5: cửa sổ dài 24 giờ cho tấn công rải rác
+      LONG_WINDOW_S: "${LONG_WINDOW_S:-86400}"        # B5: cửa sổ dài 24 giờ cho tấn công rải rác
       LONG_THRESHOLD: "12"          # PHẢI lớn hơn THRESHOLD, nếu không ngưỡng dài luôn đạt trước
-      TTL_STEPS_S: "900,3600,86400" # thời hạn chặn lần 1 / 2 / 3+: 15 phút → 1 giờ → 24 giờ (E4)
-      MAX_TTL_S: "86400"
+      TTL_STEPS_S: "${TTL_STEPS_S:-900,3600,86400}" # thời hạn chặn lần 1 / 2 / 3+: 15 phút → 1 giờ → 24 giờ (E4)
+      MAX_TTL_S: "${MAX_TTL_S:-86400}"
+      SHARED_TTL_S: "${SHARED_TTL_S:-3600}"   # tier3 báo IP dùng chung -> nhớ trong ngần này (ngày nén 15/11 đặt 300)
       SHARED_CIDRS: ${SHARED_CIDRS:-}  # IP dùng chung đã biết (NAT, proxy): chặn theo (IP, User-Agent) — D1
       RESPONDER_MODE: ${RESPONDER_MODE:-enforce}   # dryrun = chạy thử: chỉ ghi "sẽ chặn" (đổi lúc chạy: nsmctl mode ...)
       TIER2_WEIGHT: "0.5"                          # cảnh báo chỉ do tầng 2 (chế độ weighted): nửa trọng số
@@ -362,7 +364,7 @@ services:
       RULE_APPLY: ${RULE_APPLY:-immediate}
       INTERVAL_S: "60"
       SHADOW_S: "900"
-      RULE_TTL_S: "86400"
+      RULE_TTL_S: "${RULE_TTL_S:-86400}"
       REVOKE_S: "21600"
       REVOKE_BENIGN_HITS: "3"
       RULE_BAN_S: "86400"
