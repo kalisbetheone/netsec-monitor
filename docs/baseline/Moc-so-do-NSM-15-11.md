@@ -177,6 +177,8 @@ Nguồn: `nsm-wip-15-11/present-chinh-thuc-1.log`, `-2.log`, `-3.log`; kết qu�
 - Phần chậm nằm trước responder, trên đường Apache → Filebeat → Kafka → classifier. Nhật ký của classifier và responder trong khoảng đó không có lỗi; **chưa xác định được khâu nào chậm.**
 - Kịch bản chấm đúng: kỳ vọng là IP bị khoá khi còn đang tấn công. Đây là giới hạn về độ trễ của đường cảnh báo, cùng loại với mục "flood 2/3" ở 2.3: việc chặn từng request ở Cổng 2 là đồng bộ, còn việc khoá IP đi qua đường không đồng bộ và có lúc chậm vài giây.
 
+**Lượt ngoài kế hoạch (17:17–17:29).** Một script chạy thử đặt hẹn từ trưa tự chạy thêm một lượt sau ba lượt chính thức: đạt, 729 giây, bước 3 khoá 4/4 IP (`nsm-wip-15-11/present-thu-2.log`). Lượt này không nằm trong kế hoạch nên **không tính** vào kết quả 2/3. Nếu tính cả bốn lượt chạy với cùng bản `present.sh` thì là 3/4.
+
 **So với lượt thử trước đó** (12:03, một lượt, bước 5 bản cũ): đạt, 697 giây. Giữa lượt thử và ba lượt chính thức, bước 5 được đổi từ kịch bản nhồi tài khoản vào DVWA sang cổng đặt chỗ (quyết định trước khi chạy ba lượt chính thức).
 
 ## 6. Thay đổi sau commit đo
@@ -188,8 +190,8 @@ Sau commit đo `8498bcd`, nhánh `nang-cap-15-11` có thêm các commit sau. **K
 | `33faba8` | công cụ ngày nén | `tools/ngaynen.sh`, `tools/ngaynen.py`, `tools/wouldblock.sh`, `tools/wouldblock.py`, `scenarios/ngay-nen/` (24 tệp khung giờ và `nguon.json`) |
 | `a59c447` | số đo chốt và nhật ký phương pháp | `docs/baseline/` (báo cáo kịch bản, bench, tổng kết ngày nén, các bản phân tích), `eval/PROTOCOL.md` |
 | `c184cd2` | trình diễn, bước 5 dùng cổng đặt chỗ | `tools/present.sh`, `scenarios/trinh-dien/td-5a-…` (đổi tệp), `scenarios/README.md`, `README.md`, `eval/PROTOCOL.md` |
-| commit tài liệu cuối | bản chốt của tệp này | `docs/baseline/Moc-so-do-NSM-15-11.md` |
+| `3681765`, `b972a1d` và commit tài liệu cuối | bản chốt của tệp này; kết quả lần chạy đầu của kịch bản 45, 46 | `docs/baseline/Moc-so-do-NSM-15-11.md`, `eval/PROTOCOL.md` |
 
 `git diff --stat 8498bcd..c184cd2`: 47 tệp, thêm 7 005 dòng, bớt 37 dòng. Phần lớn là dữ liệu: `scenarios/ngay-nen/nguon.json` (2 087 dòng), báo cáo kịch bản (1 176 dòng) và `wouldblock.json` (780 dòng).
 
-**Kiểm trước khi gộp nhánh.** GitHub chưa ghi nhận workflow nào của kho (Actions chưa chạy lượt nào), nên không có kết quả CI trên GitHub. Các bước của `.github/workflows/tests.yml` đã được chạy tại chỗ ngày 15/11 lúc 16:50, trên cây mã có đủ các thay đổi trên: `tests/test_logic.py` đạt, `tests/test_secrule.py` đạt, cú pháp mọi tệp shell đạt, ba tệp compose hợp lệ.
+**Kiểm trước khi gộp nhánh.** GitHub chưa ghi nhận workflow nào của kho (Actions chưa chạy lượt nào), nên không có kết quả CI trên GitHub. Các bước của `.github/workflows/tests.yml` đã được chạy tại chỗ ngày 15/11 lúc 17:20, trên commit cuối của nhánh (`b972a1d`): `tests/test_logic.py` đạt, `tests/test_secrule.py` đạt, cú pháp mọi tệp shell đạt, ba tệp compose hợp lệ.

@@ -270,3 +270,6 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   - **Kịch bản 45 và 46 — lần chạy đầu** (`eval/results/scenarios-20261115-121620/`, cùng lượt với lần đầu của 47): 45 ĐẠT
     4/4 (100/100 IP của botnet bị khoá, mẫu `stuffing` của tier3; khách 60/60 thành công); 46 ĐẠT 4/4 (IP dò mã bị khoá
     sau 8,0 s, mẫu `recon`). Không sửa gì ở hai kịch bản này sau lần chạy đầu.
+  - **Trình diễn, lượt ngoài kế hoạch:** 17:17–17:29 một script chạy thử đặt hẹn từ trưa (đã ghi là huỷ nhưng tiến trình nền
+    còn) tự chạy thêm một lượt `present.sh` sau ba lượt chính thức: ĐẠT, 729 giây (`nsm-wip-15-11/present-thu-2.log`).
+    Lượt này KHÔNG tính vào kết quả 2/3; ghi lại để không ai chọn nó thay cho lượt 2.
