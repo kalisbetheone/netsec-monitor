@@ -267,3 +267,6 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     `present.sh`, kịch bản hay kỳ vọng sau khi thấy kết quả; con số 2/3 được báo nguyên. Thay đổi TRƯỚC ba lượt chính
     thức: bước 5 đổi từ bản rút gọn của kịch bản 38 (DVWA) sang bản rút gọn của kịch bản 45 (cổng đặt chỗ); lượt thử
     12:03 (697 giây, đạt) chạy với bản cũ.
+  - **Kịch bản 45 và 46 — lần chạy đầu** (`eval/results/scenarios-20261115-121620/`, cùng lượt với lần đầu của 47): 45 ĐẠT
+    4/4 (100/100 IP của botnet bị khoá, mẫu `stuffing` của tier3; khách 60/60 thành công); 46 ĐẠT 4/4 (IP dò mã bị khoá
+    sau 8,0 s, mẫu `recon`). Không sửa gì ở hai kịch bản này sau lần chạy đầu.
