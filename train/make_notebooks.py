@@ -76,7 +76,11 @@ def to_ipynb_text(text):
         else:
             cur.append(ln)
     flush()
-    return {"cells": cells, "metadata": {"accelerator": "GPU", "colab": {"provenance": []},
+    # Notebook dùng torch / Unsloth (02, 03) cần GPU. Notebook 01 chỉ dùng scikit-learn (CPU): KHÔNG xin GPU, để Colab không
+    # mở runtime GPU vô ích; xin máy nhiều RAM ("hm" = High-RAM) vì ma trận TF-IDF 100 000 cột của ~430 000 request khá lớn.
+    gpu = "import torch" in text or "unsloth" in text
+    colab = {"provenance": []} if gpu else {"provenance": [], "machine_shape": "hm"}
+    return {"cells": cells, "metadata": {**({"accelerator": "GPU"} if gpu else {}), "colab": colab,
                                          "kernelspec": {"display_name": "Python 3", "name": "python3"},
                                          "language_info": {"name": "python"}},
             "nbformat": 4, "nbformat_minor": 5}
