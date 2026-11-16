@@ -1,0 +1,23 @@
+commit: 6161e74 0 tệp chưa commit
+bắt đầu: 2026-11-16 15:22:47
+CONTAINER              REPOSITORY                                      TAG                 PLATFORM            IMAGE ID            SIZE                CREATED
+nsm-apache-1           <none>                                          <none>              unknown             117b57ed500c        0B                  N/A
+nsm-attacker-1         curlimages/curl                                 8.10.1              linux/amd64         d9b4541e214b        32MB                2 years ago
+nsm-classifier-1       nsm-classifier                                  latest              linux/amd64         8e26aa29b895        596MB               About an hour ago
+nsm-client-1           curlimages/curl                                 8.10.1              linux/amd64         d9b4541e214b        32MB                2 years ago
+nsm-client-booking-1   curlimages/curl                                 8.10.1              linux/amd64         d9b4541e214b        32MB                2 years ago
+nsm-db-1               mariadb                                         11.4                linux/amd64         d1891ede5a55        451MB               2 weeks ago
+nsm-elasticsearch-1    docker.elastic.co/elasticsearch/elasticsearch   8.15.3              linux/amd64         01c1732062b4        1.96GB              2 years ago
+nsm-enforcer-1         <none>                                          <none>              unknown             1072d8390ebb        0B                  N/A
+nsm-es-init-1          docker.elastic.co/elasticsearch/elasticsearch   8.15.3              linux/amd64         01c1732062b4        1.96GB              2 years ago
+nsm-filebeat-1         docker.elastic.co/beats/filebeat                8.19.25             linux/amd64         3431da8fc454        585MB               10 days ago
+nsm-grafana-1          grafana/grafana                                 11.2.0              linux/amd64         408afb9726de        635MB               2 years ago
+nsm-kafka-1            apache/kafka                                    3.7.2               linux/amd64         8bd63e1bd445        625MB               23 months ago
+nsm-kafka-init-1       apache/kafka                                    3.7.2               linux/amd64         8bd63e1bd445        625MB               23 months ago
+nsm-logsink-1          nsm-logsink                                     latest              linux/amd64         afe00f33f109        596MB               About an hour ago
+nsm-nginx-1            <none>                                          <none>              unknown             12c099608076        0B                  N/A
+nsm-responder-1        nsm-responder                                   latest              linux/amd64         275eeeaa2748        596MB               About an hour ago
+nsm-rulegen-1          nsm-rulegen                                     latest              linux/amd64         8231021843fb        596MB               About an hour ago
+nsm-suricata-1         jasonish/suricata                               7.0                 linux/amd64         6f915ca62512        610MB               5 weeks ago
+nsm-tier3-1            <none>                                          <none>              unknown             31aeadecb824        0B                  N/A
+kết thúc: 2026-11-16 17:23:29

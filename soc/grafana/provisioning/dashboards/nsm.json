@@ -7,7 +7,7 @@
  ],
  "timezone": "browser",
  "schemaVersion": 39,
- "version": 8,
+ "version": 9,
  "refresh": "10s",
  "time": {
   "from": "now-15m",
@@ -60,9 +60,22 @@
     "defaults": {
      "unit": "short",
      "color": {
-      "mode": "fixed",
-      "fixedColor": "red"
-     }
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     },
+     "noValue": "0"
     },
     "overrides": []
    },
@@ -79,7 +92,8 @@
     "textMode": "value_and_name",
     "justifyMode": "auto"
    },
-   "id": 1
+   "id": 1,
+   "description": "Số sự kiện mang nhãn tấn công trong khoảng thời gian đang xem, từ mọi cảm biến: bộ phân loại (tầng 1 và 2), tầng 3 hành vi, Suricata. Một request có thể vừa được đếm ở đây vừa bị Cổng 2 chặn."
   },
   {
    "type": "stat",
@@ -126,9 +140,22 @@
     "defaults": {
      "unit": "short",
      "color": {
-      "mode": "fixed",
-      "fixedColor": "orange"
-     }
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       }
+      ]
+     },
+     "noValue": "0"
     },
     "overrides": []
    },
@@ -145,7 +172,8 @@
     "textMode": "value_and_name",
     "justifyMode": "auto"
    },
-   "id": 2
+   "id": 2,
+   "description": "Số quyết định khoá IP mà responder đã ra. Một IP bị khoá khi đủ 5 cảnh báo trong 60 giây, đủ 12 cảnh báo trong 24 giờ, hoặc ngay khi tầng 3 báo một mẫu hành vi rõ (flood, dò quét, dò mật khẩu, nhồi tài khoản)."
   },
   {
    "type": "stat",
@@ -192,9 +220,22 @@
     "defaults": {
      "unit": "short",
      "color": {
-      "mode": "fixed",
-      "fixedColor": "purple"
-     }
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       },
+       {
+        "color": "purple",
+        "value": 1
+       }
+      ]
+     },
+     "noValue": "0"
     },
     "overrides": []
    },
@@ -211,7 +252,248 @@
     "textMode": "value_and_name",
     "justifyMode": "auto"
    },
-   "id": 3
+   "id": 3,
+   "description": "Số luật tự sinh đang được áp dụng tại Cổng 2 (luật đổi trạng thái trong khoảng thời gian đang xem). Luật do bộ sinh luật viết từ các tấn công đã đi qua Cổng 2, để chặn payload tương tự từ IP mới."
+  },
+  {
+   "id": 10,
+   "type": "stat",
+   "title": "Tấn công LỌT (chưa bị chặn)",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "webevents"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 12,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "source:web AND NOT label:benign AND NOT status:403",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     },
+     "noValue": "0"
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value_and_name",
+    "justifyMode": "auto"
+   },
+   "description": "Số request được bộ phân loại gắn nhãn tấn công mà Cổng 2 KHÔNG trả 403, tức là đã tới ứng dụng. Gồm cả request dò đường dẫn (nhãn recon, ứng dụng trả 404) và nhãn của tầng 2 trên văn bản hợp lệ. Số này tăng CÓ CHỦ Ý ở các bước trình diễn tạm cho Cổng 2 chỉ ghi nhận. Nguồn gửi vẫn có thể bị khoá IP ngay sau đó (xem ô 'Lệnh chặn IP')."
+  },
+  {
+   "id": 11,
+   "type": "stat",
+   "title": "Chặn tại Cổng 2 (ModSec 403)",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "webevents"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 16,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "source:web AND status:403",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       }
+      ]
+     },
+     "noValue": "0"
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value_and_name",
+    "justifyMode": "auto"
+   },
+   "description": "Số request bị Cổng 2 trả 403 ngay, trước khi tới ứng dụng. Cổng 2 là ModSecurity với ba bộ luật: OWASP CRS, luật tầng 1 đồng bộ và luật tự sinh."
+  },
+  {
+   "id": 12,
+   "type": "stat",
+   "title": "Bỏ qua vì IP đã bị chặn",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "auditdec"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 20,
+    "y": 0
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "auditdec"
+     },
+     "query": "decision:skip AND reason:already_blocked",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       },
+       {
+        "color": "blue",
+        "value": 1
+       }
+      ]
+     },
+     "noValue": "0"
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "area",
+    "textMode": "value_and_name",
+    "justifyMode": "auto"
+   },
+   "description": "Số cảnh báo mà responder bỏ qua vì IP nguồn đang bị khoá sẵn. Số lớn nghĩa là nguồn đó vẫn tiếp tục gửi sau khi bị khoá."
   },
   {
    "type": "timeseries",
@@ -222,7 +504,7 @@
    },
    "gridPos": {
     "h": 8,
-    "w": 12,
+    "w": 6,
     "x": 0,
     "y": 4
    },
@@ -293,7 +575,209 @@
      "mode": "multi"
     }
    },
-   "id": 4
+   "id": 4,
+   "description": "Sự kiện mang nhãn tấn công theo thời gian, tách theo lớp: sqli, xss, lfi, rce, recon (dò đường dẫn), behaviour (tầng 3) và các lớp khác."
+  },
+  {
+   "type": "bargauge",
+   "title": "Phát hiện theo tầng",
+   "id": 40,
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "webevents"
+   },
+   "description": "Lớp phòng thủ nào đã thấy tấn công trong khoảng thời gian đang xem. Cổng 2 chặn đồng bộ, ngay trên request. Tầng 1 (luật regex), tầng 2 (học máy), tầng 3 (hành vi) và Suricata phát hiện sau, qua nhật ký, và dẫn tới khoá IP. Một request có thể được đếm ở nhiều dòng, ví dụ vừa bị Cổng 2 chặn vừa được tầng 1 gắn nhãn. Nhãn của tầng 2 chỉ được tính khi tham số có cấu trúc tấn công rõ.",
+   "gridPos": {
+    "h": 8,
+    "w": 6,
+    "x": 6,
+    "y": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "source:web AND status:403",
+     "alias": "Cổng 2 chặn (403)",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "source:web AND tier:1 AND NOT label:benign",
+     "alias": "Tầng 1 — luật regex",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "source:web AND tier:2 AND NOT label:benign",
+     "alias": "Tầng 2 — học máy",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "source:behaviour AND NOT label:benign",
+     "alias": "Tầng 3 — hành vi",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    },
+    {
+     "refId": "E",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "source:net AND NOT label:info AND NOT label:benign",
+     "alias": "Suricata (mạng)",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "date_histogram",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "auto",
+        "min_doc_count": "0"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0,
+     "noValue": "0",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "text",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "orientation": "horizontal",
+    "displayMode": "basic",
+    "valueMode": "color",
+    "showUnfilled": true,
+    "namePlacement": "auto",
+    "sizing": "auto",
+    "minVizWidth": 8,
+    "minVizHeight": 16,
+    "maxVizHeight": 300,
+    "legend": {
+     "showLegend": false,
+     "displayMode": "list",
+     "placement": "bottom",
+     "calcs": []
+    }
+   }
   },
   {
    "type": "timeseries",
@@ -304,7 +788,7 @@
    },
    "gridPos": {
     "h": 8,
-    "w": 12,
+    "w": 6,
     "x": 12,
     "y": 4
    },
@@ -375,7 +859,37 @@
      "mode": "multi"
     }
    },
-   "id": 5
+   "id": 5,
+   "description": "Số sự kiện ghi vào Elasticsearch theo nguồn: web (nhật ký Apache), net (Suricata), behaviour (tầng 3). Đường 'web' đều đặn cho thấy khách hợp lệ vẫn đang được phục vụ."
+  },
+  {
+   "type": "alertlist",
+   "title": "Cảnh báo đang bật",
+   "id": 41,
+   "description": "Các luật cảnh báo của Grafana đang báo hoặc đang chờ báo: có IP mới bị chặn, luật tự sinh vừa được ban hành, có thay đổi thủ công (nsmctl), dịch vụ mất nhịp tim, đường ống ứ đọng. Trống nghĩa là không cảnh báo nào đang bật.",
+   "gridPos": {
+    "h": 8,
+    "w": 6,
+    "x": 18,
+    "y": 4
+   },
+   "options": {
+    "alertInstanceLabelFilter": "",
+    "alertName": "NSM",
+    "dashboardAlerts": false,
+    "groupBy": [],
+    "groupMode": "default",
+    "maxItems": 20,
+    "sortOrder": 1,
+    "stateFilter": {
+     "error": true,
+     "firing": true,
+     "noData": false,
+     "normal": false,
+     "pending": true
+    },
+    "viewMode": "list"
+   }
   },
   {
    "type": "table",
@@ -385,7 +899,7 @@
     "uid": "auditdec"
    },
    "gridPos": {
-    "h": 9,
+    "h": 8,
     "w": 12,
     "x": 0,
     "y": 12
@@ -403,7 +917,7 @@
        "id": "1",
        "type": "raw_data",
        "settings": {
-        "size": "50"
+        "size": "200"
        }
       }
      ],
@@ -458,7 +972,8 @@
      }
     ]
    },
-   "id": 6
+   "id": 6,
+   "description": "Các lệnh khoá IP trong khoảng thời gian đang xem, mới nhất ở trên: thời hạn khoá, lần vi phạm thứ mấy, lớp tấn công và lý do. Đây là NHẬT KÝ lệnh khoá, không phải danh sách đang khoá: IP đã được gỡ vẫn còn dòng ở đây. Danh sách đang khoá: bash tools/nsmctl.sh blocks."
   },
   {
    "id": 7,
@@ -469,7 +984,7 @@
     "uid": "auditdec"
    },
    "gridPos": {
-    "h": 9,
+    "h": 8,
     "w": 12,
     "x": 12,
     "y": 12
@@ -487,7 +1002,7 @@
        "id": "1",
        "type": "raw_data",
        "settings": {
-        "size": "50"
+        "size": "200"
        }
       }
      ],
@@ -542,84 +1057,8 @@
       "desc": true
      }
     ]
-   }
-  },
-  {
-   "id": 9,
-   "type": "table",
-   "title": "Trạng thái IP nguồn (sạch / đã tấn công)",
-   "datasource": {
-    "type": "elasticsearch",
-    "uid": "webevents"
    },
-   "gridPos": {
-    "h": 9,
-    "w": 24,
-    "x": 0,
-    "y": 21
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "elasticsearch",
-      "uid": "webevents"
-     },
-     "query": "*",
-     "metrics": [
-      {
-       "id": "1",
-       "type": "count"
-      }
-     ],
-     "bucketAggs": [
-      {
-       "id": "2",
-       "type": "terms",
-       "field": "src_ip.keyword",
-       "settings": {
-        "size": "100",
-        "order": "desc",
-        "orderBy": "_count",
-        "min_doc_count": "1"
-       }
-      },
-      {
-       "id": "3",
-       "type": "terms",
-       "field": "label.keyword",
-       "settings": {
-        "size": "10",
-        "order": "desc",
-        "orderBy": "_count",
-        "min_doc_count": "1"
-       }
-      }
-     ],
-     "timeField": "@timestamp"
-    }
-   ],
-   "transformations": [
-    {
-     "id": "organize",
-     "options": {
-      "excludeByName": {},
-      "indexByName": {},
-      "renameByName": {
-       "src_ip.keyword": "IP nguồn",
-       "label.keyword": "Nhãn",
-       "Count": "Số request"
-      }
-     }
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {},
-    "overrides": []
-   },
-   "options": {
-    "showHeader": true
-   }
+   "description": "Mọi quyết định của responder: khoá (block), 'sẽ khoá' ở chế độ chạy thử (would_block), gỡ (unblock) và đếm cảnh báo chưa đủ ngưỡng (count)."
   },
   {
    "id": 8,
@@ -630,10 +1069,10 @@
     "uid": "rulestatus"
    },
    "gridPos": {
-    "h": 8,
-    "w": 24,
+    "h": 7,
+    "w": 14,
     "x": 0,
-    "y": 30
+    "y": 20
    },
    "targets": [
     {
@@ -707,153 +1146,22 @@
       "desc": true
      }
     ]
-   }
+   },
+   "description": "Từng luật tự sinh và trạng thái của nó: chạy thử (shadow), đang áp dụng (active), đã gỡ hoặc hết hạn; kèm lớp, đích của luật và số mẫu trong cụm sinh ra nó."
   },
   {
-   "id": 10,
-   "type": "stat",
-   "title": "Tấn công LỌT (chưa bị chặn)",
-   "datasource": {
-    "type": "elasticsearch",
-    "uid": "webevents"
-   },
-   "gridPos": {
-    "h": 4,
-    "w": 4,
-    "x": 12,
-    "y": 0
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "elasticsearch",
-      "uid": "webevents"
-     },
-     "query": "source:web AND NOT label:benign AND NOT status:403",
-     "metrics": [
-      {
-       "id": "1",
-       "type": "count"
-      }
-     ],
-     "bucketAggs": [
-      {
-       "id": "2",
-       "type": "date_histogram",
-       "field": "@timestamp",
-       "settings": {
-        "interval": "auto",
-        "min_doc_count": "0"
-       }
-      }
-     ],
-     "timeField": "@timestamp"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "color": {
-      "mode": "fixed",
-      "fixedColor": "red"
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "sum"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "colorMode": "value",
-    "graphMode": "area",
-    "textMode": "value_and_name",
-    "justifyMode": "auto"
-   }
-  },
-  {
-   "id": 11,
-   "type": "stat",
-   "title": "Chặn tại Cổng 2 (ModSec 403)",
-   "datasource": {
-    "type": "elasticsearch",
-    "uid": "webevents"
-   },
-   "gridPos": {
-    "h": 4,
-    "w": 4,
-    "x": 16,
-    "y": 0
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "elasticsearch",
-      "uid": "webevents"
-     },
-     "query": "source:web AND status:403",
-     "metrics": [
-      {
-       "id": "1",
-       "type": "count"
-      }
-     ],
-     "bucketAggs": [
-      {
-       "id": "2",
-       "type": "date_histogram",
-       "field": "@timestamp",
-       "settings": {
-        "interval": "auto",
-        "min_doc_count": "0"
-       }
-      }
-     ],
-     "timeField": "@timestamp"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "unit": "short",
-     "color": {
-      "mode": "fixed",
-      "fixedColor": "orange"
-     }
-    },
-    "overrides": []
-   },
-   "options": {
-    "reduceOptions": {
-     "calcs": [
-      "sum"
-     ],
-     "fields": "",
-     "values": false
-    },
-    "colorMode": "value",
-    "graphMode": "area",
-    "textMode": "value_and_name",
-    "justifyMode": "auto"
-   }
-  },
-  {
-   "id": 12,
-   "type": "stat",
-   "title": "Bỏ qua vì IP đã bị chặn",
+   "id": 32,
+   "type": "table",
+   "title": "Thao tác trên luật và đổi chế độ (kiểm toán)",
    "datasource": {
     "type": "elasticsearch",
     "uid": "auditdec"
    },
    "gridPos": {
-    "h": 4,
-    "w": 4,
-    "x": 20,
-    "y": 0
+    "h": 7,
+    "w": 10,
+    "x": 14,
+    "y": 20
    },
    "targets": [
     {
@@ -862,14 +1170,124 @@
       "type": "elasticsearch",
       "uid": "auditdec"
      },
-     "query": "decision:skip AND reason:already_blocked",
+     "query": "decision:rule_revoke OR decision:rule_revoke_all OR decision:mode",
      "metrics": [
       {
        "id": "1",
-       "type": "count"
+       "type": "raw_data",
+       "settings": {
+        "size": "50"
+       }
+      }
+     ],
+     "bucketAggs": [],
+     "timeField": "@timestamp"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "_id": true,
+       "_index": true,
+       "_type": true,
+       "highlight": true,
+       "alert_id": true,
+       "sort": true
+      },
+      "indexByName": {
+       "@timestamp": 0,
+       "decision": 1,
+       "reason": 2,
+       "rule_id": 3,
+       "cls": 4,
+       "token": 5,
+       "mode": 6,
+       "decided_by": 7
+      },
+      "renameByName": {
+       "@timestamp": "Thời gian",
+       "decision": "Thao tác",
+       "reason": "Lý do (manual = người vận hành; benign_hit_live = tự gỡ)",
+       "rule_id": "Mã luật",
+       "cls": "Lớp",
+       "token": "Nội dung luật",
+       "mode": "Chế độ mới",
+       "decided_by": "Bên thi hành"
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "sortBy": [
+     {
+      "displayName": "Thời gian",
+      "desc": true
+     }
+    ]
+   },
+   "description": "Nhật ký kiểm toán các thao tác trên luật và chế độ: gỡ một luật, gỡ mọi luật, đổi giữa chặn thật (enforce) và chạy thử (dryrun). Cột lý do cho biết người vận hành làm hay hệ thống tự gỡ."
+  },
+  {
+   "id": 20,
+   "type": "row",
+   "title": "Cổng 1 — giới hạn tốc độ, và IP đang bị chặn vẫn làm gì (nhật ký nginx, gom mỗi 10 giây)",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 27
+   },
+   "collapsed": false,
+   "panels": []
+  },
+  {
+   "id": 33,
+   "type": "timeseries",
+   "title": "Request bị Cổng 1 giới hạn tốc độ (429), theo IP",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "gateevents"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 7,
+    "x": 0,
+    "y": 28
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "gateevents"
+     },
+     "query": "reason:limit",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "sum",
+       "field": "count"
       }
      ],
      "bucketAggs": [
+      {
+       "id": "3",
+       "type": "terms",
+       "field": "src_ip.keyword",
+       "settings": {
+        "size": "10",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      },
       {
        "id": "2",
        "type": "date_histogram",
@@ -885,40 +1303,33 @@
    ],
    "fieldConfig": {
     "defaults": {
-     "unit": "short",
-     "color": {
-      "mode": "fixed",
-      "fixedColor": "blue"
-     }
+     "custom": {
+      "drawStyle": "bars",
+      "fillOpacity": 70,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      },
+      "lineWidth": 1,
+      "pointSize": 5
+     },
+     "unit": "short"
     },
     "overrides": []
    },
    "options": {
-    "reduceOptions": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right",
      "calcs": [
       "sum"
-     ],
-     "fields": "",
-     "values": false
+     ]
     },
-    "colorMode": "value",
-    "graphMode": "area",
-    "textMode": "value_and_name",
-    "justifyMode": "auto"
-   }
-  },
-  {
-   "id": 20,
-   "type": "row",
-   "title": "Cổng 1 — IP đang bị chặn vẫn làm gì (nhật ký nginx, gom mỗi 10 giây)",
-   "gridPos": {
-    "h": 1,
-    "w": 24,
-    "x": 0,
-    "y": 38
+    "tooltip": {
+     "mode": "multi"
+    }
    },
-   "collapsed": false,
-   "panels": []
+   "description": "Request bị Cổng 1 (nginx) trả 429 vì một IP gửi vượt giới hạn tốc độ; gom mỗi 10 giây."
   },
   {
    "id": 13,
@@ -930,9 +1341,9 @@
    },
    "gridPos": {
     "h": 8,
-    "w": 10,
-    "x": 0,
-    "y": 39
+    "w": 7,
+    "x": 7,
+    "y": 28
    },
    "targets": [
     {
@@ -1001,7 +1412,8 @@
     "tooltip": {
      "mode": "multi"
     }
-   }
+   },
+   "description": "Request bị Cổng 1 (nginx) từ chối, theo IP: request của IP đang bị khoá (403) và request vượt giới hạn tốc độ (429); gom mỗi 10 giây."
   },
   {
    "id": 14,
@@ -1013,9 +1425,9 @@
    },
    "gridPos": {
     "h": 8,
-    "w": 14,
-    "x": 10,
-    "y": 39
+    "w": 10,
+    "x": 14,
+    "y": 28
    },
    "targets": [
     {
@@ -1085,184 +1497,8 @@
       "desc": true
      }
     ]
-   }
-  },
-  {
-   "id": 21,
-   "type": "row",
-   "title": "Nhật ký lỗi của Apache (error.log: ModSecurity, PHP, máy chủ — gom mỗi 10 giây)",
-   "gridPos": {
-    "h": 1,
-    "w": 24,
-    "x": 0,
-    "y": 47
    },
-   "collapsed": false,
-   "panels": []
-  },
-  {
-   "id": 15,
-   "type": "timeseries",
-   "title": "Dòng error.log theo mã luật ModSecurity",
-   "datasource": {
-    "type": "elasticsearch",
-    "uid": "apacheerr"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 10,
-    "x": 0,
-    "y": 48
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "elasticsearch",
-      "uid": "apacheerr"
-     },
-     "query": "module:security2",
-     "metrics": [
-      {
-       "id": "1",
-       "type": "sum",
-       "field": "count"
-      }
-     ],
-     "bucketAggs": [
-      {
-       "id": "3",
-       "type": "terms",
-       "field": "rule_id.keyword",
-       "settings": {
-        "size": "10",
-        "order": "desc",
-        "orderBy": "_count",
-        "min_doc_count": "1"
-       }
-      },
-      {
-       "id": "2",
-       "type": "date_histogram",
-       "field": "@timestamp",
-       "settings": {
-        "interval": "auto",
-        "min_doc_count": "0"
-       }
-      }
-     ],
-     "timeField": "@timestamp"
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {
-     "custom": {
-      "drawStyle": "bars",
-      "fillOpacity": 70,
-      "stacking": {
-       "mode": "normal",
-       "group": "A"
-      },
-      "lineWidth": 1,
-      "pointSize": 5
-     },
-     "unit": "short"
-    },
-    "overrides": []
-   },
-   "options": {
-    "legend": {
-     "displayMode": "table",
-     "placement": "right",
-     "calcs": [
-      "sum"
-     ]
-    },
-    "tooltip": {
-     "mode": "multi"
-    }
-   }
-  },
-  {
-   "id": 16,
-   "type": "table",
-   "title": "Dòng error.log gần nhất",
-   "datasource": {
-    "type": "elasticsearch",
-    "uid": "apacheerr"
-   },
-   "gridPos": {
-    "h": 8,
-    "w": 14,
-    "x": 10,
-    "y": 48
-   },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "elasticsearch",
-      "uid": "apacheerr"
-     },
-     "query": "*",
-     "metrics": [
-      {
-       "id": "1",
-       "type": "raw_data",
-       "settings": {
-        "size": "50"
-       }
-      }
-     ],
-     "bucketAggs": [],
-     "timeField": "@timestamp"
-    }
-   ],
-   "transformations": [
-    {
-     "id": "organize",
-     "options": {
-      "excludeByName": {
-       "_id": true,
-       "_index": true,
-       "_type": true,
-       "highlight": true,
-       "sort": true
-      },
-      "indexByName": {
-       "@timestamp": 0,
-       "module": 1,
-       "level": 2,
-       "src_ip": 3,
-       "rule_id": 4,
-       "count": 5,
-       "message": 6
-      },
-      "renameByName": {
-       "@timestamp": "Thời gian",
-       "module": "Module",
-       "level": "Mức",
-       "src_ip": "IP",
-       "rule_id": "Mã luật",
-       "message": "Nội dung",
-       "count": "Số lần"
-      }
-     }
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {},
-    "overrides": []
-   },
-   "options": {
-    "showHeader": true,
-    "sortBy": [
-     {
-      "displayName": "Thời gian",
-      "desc": true
-     }
-    ]
-   }
+   "description": "Các IP bị Cổng 1 từ chối đang gửi gì: số request, số URL khác nhau, URL nhiều nhất và User-Agent."
   },
   {
    "id": 22,
@@ -1272,7 +1508,7 @@
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 57
+    "y": 36
    },
    "collapsed": false,
    "panels": []
@@ -1289,7 +1525,7 @@
     "h": 8,
     "w": 14,
     "x": 0,
-    "y": 58
+    "y": 37
    },
    "targets": [
     {
@@ -1396,7 +1632,8 @@
    },
    "options": {
     "showHeader": true
-   }
+   },
+   "description": "Mỗi dịch vụ phân tích tự ghi một nhịp tim 30 giây một lần. Dòng nào có 'Nhịp tim cuối' cũ hơn vài phút nghĩa là dịch vụ đó đã dừng."
   },
   {
    "id": 18,
@@ -1410,7 +1647,7 @@
     "h": 8,
     "w": 10,
     "x": 14,
-    "y": 58
+    "y": 37
    },
    "targets": [
     {
@@ -1479,20 +1716,99 @@
     "tooltip": {
      "mode": "multi"
     }
-   }
+   },
+   "description": "Số thông điệp Kafka mà từng dịch vụ chưa đọc kịp. Tăng liên tục nghĩa là đường ống xử lý chậm hơn lưu lượng vào."
   },
   {
    "id": 30,
    "type": "row",
-   "title": "Chạy thử, gỡ luật và giới hạn tốc độ (từ 15/11/2026)",
+   "title": "Nguồn truy cập và chế độ chạy thử",
    "collapsed": false,
    "gridPos": {
     "h": 1,
     "w": 24,
     "x": 0,
-    "y": 66
+    "y": 45
    },
    "panels": []
+  },
+  {
+   "id": 9,
+   "type": "table",
+   "title": "Trạng thái IP nguồn (sạch / đã tấn công)",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "webevents"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 14,
+    "x": 0,
+    "y": 46
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "webevents"
+     },
+     "query": "*",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "count"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "id": "2",
+       "type": "terms",
+       "field": "src_ip.keyword",
+       "settings": {
+        "size": "100",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      },
+      {
+       "id": "3",
+       "type": "terms",
+       "field": "label.keyword",
+       "settings": {
+        "size": "10",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      }
+     ],
+     "timeField": "@timestamp"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {},
+      "indexByName": {},
+      "renameByName": {
+       "src_ip.keyword": "IP nguồn",
+       "label.keyword": "Nhãn",
+       "Count": "Số request"
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true
+   },
+   "description": "Mỗi IP nguồn và số request của nó theo nhãn. IP chỉ có nhãn benign là nguồn sạch."
   },
   {
    "id": 31,
@@ -1504,9 +1820,9 @@
    },
    "gridPos": {
     "h": 8,
-    "w": 8,
-    "x": 0,
-    "y": 67
+    "w": 10,
+    "x": 14,
+    "y": 46
    },
    "targets": [
     {
@@ -1574,114 +1890,44 @@
       "desc": true
      }
     ]
-   }
+   },
+   "description": "Ở chế độ chạy thử (dryrun), responder chỉ ghi quyết định 'sẽ khoá' mà không khoá thật. Bảng này trống khi hệ thống ở chế độ chặn thật."
   },
   {
-   "id": 32,
-   "type": "table",
-   "title": "Thao tác trên luật và đổi chế độ (kiểm toán)",
-   "datasource": {
-    "type": "elasticsearch",
-    "uid": "auditdec"
-   },
+   "id": 21,
+   "type": "row",
+   "title": "Nhật ký lỗi của Apache (error.log: ModSecurity, PHP, máy chủ — gom mỗi 10 giây)",
    "gridPos": {
-    "h": 8,
-    "w": 8,
-    "x": 8,
-    "y": 67
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 54
    },
-   "targets": [
-    {
-     "refId": "A",
-     "datasource": {
-      "type": "elasticsearch",
-      "uid": "auditdec"
-     },
-     "query": "decision:rule_revoke OR decision:rule_revoke_all OR decision:mode",
-     "metrics": [
-      {
-       "id": "1",
-       "type": "raw_data",
-       "settings": {
-        "size": "50"
-       }
-      }
-     ],
-     "bucketAggs": [],
-     "timeField": "@timestamp"
-    }
-   ],
-   "transformations": [
-    {
-     "id": "organize",
-     "options": {
-      "excludeByName": {
-       "_id": true,
-       "_index": true,
-       "_type": true,
-       "highlight": true,
-       "alert_id": true,
-       "sort": true
-      },
-      "indexByName": {
-       "@timestamp": 0,
-       "decision": 1,
-       "reason": 2,
-       "rule_id": 3,
-       "cls": 4,
-       "token": 5,
-       "mode": 6,
-       "decided_by": 7
-      },
-      "renameByName": {
-       "@timestamp": "Thời gian",
-       "decision": "Thao tác",
-       "reason": "Lý do (manual = người vận hành; benign_hit_live = tự gỡ)",
-       "rule_id": "Mã luật",
-       "cls": "Lớp",
-       "token": "Nội dung luật",
-       "mode": "Chế độ mới",
-       "decided_by": "Bên thi hành"
-      }
-     }
-    }
-   ],
-   "fieldConfig": {
-    "defaults": {},
-    "overrides": []
-   },
-   "options": {
-    "showHeader": true,
-    "sortBy": [
-     {
-      "displayName": "Thời gian",
-      "desc": true
-     }
-    ]
-   }
+   "collapsed": false,
+   "panels": []
   },
   {
-   "id": 33,
+   "id": 15,
    "type": "timeseries",
-   "title": "Request bị Cổng 1 giới hạn tốc độ (429), theo IP",
+   "title": "Dòng error.log theo mã luật ModSecurity",
    "datasource": {
     "type": "elasticsearch",
-    "uid": "gateevents"
+    "uid": "apacheerr"
    },
    "gridPos": {
     "h": 8,
-    "w": 8,
-    "x": 16,
-    "y": 67
+    "w": 10,
+    "x": 0,
+    "y": 55
    },
    "targets": [
     {
      "refId": "A",
      "datasource": {
       "type": "elasticsearch",
-      "uid": "gateevents"
+      "uid": "apacheerr"
      },
-     "query": "reason:limit",
+     "query": "module:security2",
      "metrics": [
       {
        "id": "1",
@@ -1693,7 +1939,7 @@
       {
        "id": "3",
        "type": "terms",
-       "field": "src_ip.keyword",
+       "field": "rule_id.keyword",
        "settings": {
         "size": "10",
         "order": "desc",
@@ -1741,7 +1987,90 @@
     "tooltip": {
      "mode": "multi"
     }
-   }
+   },
+   "description": "Số dòng error.log của Apache do ModSecurity ghi, theo mã luật: cho biết luật nào đang khớp nhiều nhất."
+  },
+  {
+   "id": 16,
+   "type": "table",
+   "title": "Dòng error.log gần nhất",
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "apacheerr"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 14,
+    "x": 10,
+    "y": 55
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "apacheerr"
+     },
+     "query": "*",
+     "metrics": [
+      {
+       "id": "1",
+       "type": "raw_data",
+       "settings": {
+        "size": "50"
+       }
+      }
+     ],
+     "bucketAggs": [],
+     "timeField": "@timestamp"
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "_id": true,
+       "_index": true,
+       "_type": true,
+       "highlight": true,
+       "sort": true
+      },
+      "indexByName": {
+       "@timestamp": 0,
+       "module": 1,
+       "level": 2,
+       "src_ip": 3,
+       "rule_id": 4,
+       "count": 5,
+       "message": 6
+      },
+      "renameByName": {
+       "@timestamp": "Thời gian",
+       "module": "Module",
+       "level": "Mức",
+       "src_ip": "IP",
+       "rule_id": "Mã luật",
+       "message": "Nội dung",
+       "count": "Số lần"
+      }
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "showHeader": true,
+    "sortBy": [
+     {
+      "displayName": "Thời gian",
+      "desc": true
+     }
+    ]
+   },
+   "description": "Các dòng error.log gần nhất của Apache (ModSecurity, PHP, máy chủ); dòng trùng nhau đã được gom lại."
   }
  ]
 }

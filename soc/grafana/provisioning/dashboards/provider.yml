@@ -7,4 +7,7 @@ providers:
     disableDeletion: false
     editable: true
     options:
-      path: /etc/grafana/provisioning/dashboards
+      # Phải trùng nơi soc/grafana/start.sh chép thư mục provisioning tới (DST=/tmp/provisioning). Trước 16/11/2026 dòng này
+      # trỏ /etc/grafana/provisioning/dashboards — thư mục rỗng của image, vì compose gắn nguồn vào
+      # /etc/grafana/provisioning-src — nên Grafana không nạp dashboard nào.
+      path: /tmp/provisioning/dashboards

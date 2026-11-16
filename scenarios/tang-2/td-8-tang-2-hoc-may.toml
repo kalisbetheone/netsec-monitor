@@ -1,0 +1,93 @@
+# Bản trình diễn của scenarios/tang-2/44-chi-tang-2-thay.toml (rút số vòng và thời gian; cùng bộ payload và cùng tham số q).
+# Cho thấy ĐƯỜNG DUY NHẤT để tầng 2 (học máy) dẫn tới chặn: payload mà Cổng 2 (CRS + luật tầng 1) bỏ lọt -> tầng 2 gắn nhãn sau
+# khi request đã được phục vụ -> bộ sinh luật viết luật từ các nhãn đó -> Cổng 2 chặn payload cùng dạng, kể cả từ IP mới.
+# Tầng 2 KHÔNG chặn request đầu tiên và KHÔNG tự khoá IP (T2_SOLO_BLOCK=0). Mọi request là lưu lượng thử gửi vào hệ thống của dự án.
+# Chạy:  bash tools/demo-tang2.sh     (hoặc: SC_DIR=scenarios/tang-2 SC_OUT_NAME=trinhdien bash tools/scenario.sh td-8-tang-2-hoc-may)
+title = "Tầng 2 (học máy): payload Cổng 2 bỏ lọt -> tầng 2 gắn nhãn -> luật tự sinh -> IP mới bị Cổng 2 chặn một phần — bản trình diễn"
+case = "tầng 2 (trình diễn)"
+notes = """Bộ payload của kịch bản 44 (52 payload công khai mà CRS và regex tầng 1 đều bỏ lọt: 34 gieo, 18 giữ lại). Pha 1: ba IP \
+gửi phần gieo, mỗi IP một thứ tự, 1 request/giây, 2 vòng (68 giây). Cổng 2 để lọt, tầng 2 gắn nhãn, rulegen (chu kỳ rút còn 15 \
+giây như td-4; áp dụng ngay) sinh luật từ bằng chứng của tầng 2. Pha 2 (giây 110): một IP MỚI gửi 18 payload giữ lại, chưa từng \
+gửi -> một phần bị Cổng 2 chặn (kịch bản 44 ngày 16/11: 6/18). Một khách hợp lệ gõ văn bản thường vào cùng tham số suốt kịch bản: \
+không được bị chặn. Các IP thử được miễn trừ để gửi hết request. Ngưỡng dưới đây là ngưỡng TRÌNH DIỄN (đặt thấp, sau khi đã biết \
+kết quả của kịch bản 44), không phải ngưỡng đánh giá: ngưỡng đánh giá của kịch bản 44 là 50 % và hệ thống KHÔNG đạt."""
+max_s = 170
+rulegen = true
+exempt = ["self"]
+
+[override.rulegen]
+RULE_APPLY = "immediate"
+INTERVAL_S = "15"
+LOOKBACK_S = "900"
+
+[[actor]]
+name = "gieo, thứ tự a"
+role = "gieo"
+ips = 1
+family = "t2test"
+source = "file:/scenarios/gieo-a.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 68
+interval_s = 1
+stop_on_block = false
+
+[[actor]]
+name = "gieo, thứ tự b"
+role = "gieo"
+ips = 1
+family = "t2test"
+source = "file:/scenarios/gieo-b.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 68
+interval_s = 1
+stop_on_block = false
+
+[[actor]]
+name = "gieo, thứ tự c"
+role = "gieo"
+ips = 1
+family = "t2test"
+source = "file:/scenarios/gieo-c.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 68
+interval_s = 1
+stop_on_block = false
+
+[[actor]]
+name = "khách hợp lệ gõ văn bản thường"
+role = "benign"
+ips = 1
+family = "t2ctl"
+source = "file:/scenarios/doi-chung-4a.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 130
+interval_s = 1
+stop_on_block = false
+
+[[actor]]
+name = "IP mới, payload chưa từng gửi"
+role = "verify"
+ips = 1
+start_s = 110
+family = "t2test"
+source = "file:/scenarios/giu-lai.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 18
+interval_s = 1
+stop_on_block = false
+
+[expect]
+gieo_classifier_min_share = 0.6
+verify_gate2_min_share = 0.2
+benign_blocked = false
+benign_gate2_max_share = 0.01
