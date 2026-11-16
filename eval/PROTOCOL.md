@@ -830,7 +830,7 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     định mới (phải đặt `TIER3_LOGIN_2XX_FAILED=1`, khi đó đăng nhập đúng trả 200 lại bị đếm); khách thật gõ sai từ 3 lần trong 60
     giây giữa lúc có chiến dịch vẫn bị khoá; mỗi kịch bản một lượt; bản hai máy không đo.
 
-- 16/11/2026 (14:30) — **Tầng 3, bộ đếm chiến dịch, vòng 1: KẾT QUẢ — TRƯỢT điều 1 và 3 -> `failed` (bản vòng 1) KHÔNG được nhận.
+- 16/11/2026 (14:22) — **Tầng 3, bộ đếm chiến dịch, vòng 1: KẾT QUẢ — TRƯỢT điều 1 và 3 -> `failed` (bản vòng 1) KHÔNG được nhận.
   Vòng 2: tiêu chí ghi trước.** Đo 13:53–14:20 (`eval/results/t3all-20261116-135349`, `t3failed-20261116-140118`).
 
   | # | Điều kiện | Kết quả vòng 1 |
@@ -855,3 +855,23 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   - Giới hạn biết trước của bản vòng 2: ứng dụng báo đăng nhập ĐÚNG bằng 200 tại đường dẫn khớp `/login` vẫn bị đếm như cũ (trừ khi
     đặt `TIER3_LOGIN_2XX_OK=1`, khi đó đăng nhập sai trả 200 không được thấy); khách thật có từ 3 lần đăng nhập KHÔNG thành công
     trong 60 giây giữa lúc có chiến dịch vẫn bị khoá; mẫu `bruteforce` theo-từng-IP không phân biệt đăng nhập đúng với sai.
+
+- 16/11/2026 (14:50) — **Tầng 3, bộ đếm chiến dịch, vòng 2: KẾT QUẢ — đạt cả năm điều; `TIER3_LOGIN_COUNT=failed` là mặc định.**
+  Đo 14:22–14:46 (`eval/results/t3all2-20261116-142326`, `t3failed2-20261116-142628`).
+
+  | # | Điều kiện | Kết quả |
+  |---|---|---|
+  | 1 | KB 48 với `failed` đạt; >= 11/12 lần đăng nhập của khách trả 302 | đạt: 100/100 bot bị khoá, khách không bị khoá, 12/12 trả 302 |
+  | 2 | KB 48 với `all`: khách bị khoá | đạt: khách bị Cổng 1 chặn sau 5 lần đăng nhập (7/12 request nhận 403) |
+  | 3 | KB 45, 10, 38 với `failed` đạt, không thấp hơn lượt `all` quá 5 điểm | đạt: 100/100, 50/50, 200/200 (lượt `all` vòng 1: đạt, 50/50, đạt) |
+  | 4 | KB 09, 02, 13 với `failed` đạt | đạt |
+  | 5 | Không quyết định khoá nào với 10.10.10.21 trong lượt `failed` | đạt: 0 (lượt `all` cùng buổi: 1 quyết định khoá) |
+
+  - Giá trị `loc` thực tế: cổng đặt chỗ đăng nhập đúng `302 -> profile.php`, sai `401`; DVWA với botnet của kịch bản (không phiên,
+    không mã CSRF) `200`, không có `Location`.
+  - Đã làm: `docker-compose.yml` đặt `TIER3_LOGIN_COUNT` mặc định `failed`; tier3 tạo lại; `stack.sh check` kiểm thêm giá trị này.
+    Quay lại cách cũ: `TIER3_LOGIN_COUNT=all`.
+  - Giới hạn còn lại (như đã ghi trước): đăng nhập đúng được báo bằng 200 tại đường dẫn khớp `/login` vẫn bị đếm; khách có từ 3 lần
+    đăng nhập không thành công trong 60 giây giữa chiến dịch vẫn bị khoá; mẫu `bruteforce` theo-từng-IP (>= 30 POST/phút, hầu hết
+    là POST) không phân biệt đúng / sai — khách của kịch bản 48 bản đầu (30 lần đăng nhập đúng/phút) bị khoá vì mẫu này; mỗi
+    kịch bản một lượt; bản hai máy không đo.

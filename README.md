@@ -214,6 +214,7 @@ bash tools/tier1sync.sh                          # đối chiếu luật ModSecu
 | rulegen | `MIN_BENIGN` | 100 | Corpus lành tính tối thiểu; thiếu thì không sinh/ban hành luật |
 | rulegen | `EPSILON` | 0 | Tỷ lệ lưu lượng lành tính được phép khớp một ứng viên luật |
 | nginx | `RELOAD_MIN_INTERVAL_S` | 2 | Tối đa một lần nạp lại blocklist mỗi N giây (16/11: 5 -> 2 sau khi đo; `eval/PROTOCOL.md`) |
+| tier3 | `TIER3_LOGIN_COUNT` / `TIER3_LOGIN_2XX_OK` | failed / 0 | Bộ đếm chiến dịch nhồi tài khoản: không đếm lần đăng nhập rõ ràng thành công (16/11); `all` = cách cũ; `2XX_OK=1` cho ứng dụng báo thành công bằng 200 |
 | nginx (`nginx.conf`) | `limit_req` | 20 r/s (vượt ngắn 40) mỗi IP; POST `/login…` 30/phút (vượt ngắn 10) mỗi IP; tổng 350 r/s | Giới hạn tốc độ ở Cổng 1 (sau khi áp bản vá). Vượt hạn mức → 429. Nguồn miễn trừ (`exempt.geo`, do enforcer ghi từ `EXEMPT_CIDRS` và `nsmctl exempt-add`) không bị giới hạn |
 | apache | `LOG_MAX_MB` | 200 | Xoay `access.json` / `modsec_audit.json` / `error.log` khi vượt kích thước này (giữ 1 bản cũ) |
 | apache, nginx | `LOG_ROTATE_CHECK_S` | 60 | Chu kỳ kiểm kích thước nhật ký (giây) |
