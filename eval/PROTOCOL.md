@@ -575,3 +575,13 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   - Tôi KHÔNG xem hai tấn công nào và năm mẫu khó nào của bench gây ra kết quả ở điều 2 và 4, để bench còn dùng được cho lần đo
     sau. Không sửa bộ biểu thức, ngưỡng, danh sách hay quy tắc sau khi thấy kết quả. Năm kịch bản không chạy vì không cấu hình nào
     sắp được chọn. `stack.sh check` sạch lúc 10:11.
+
+- 16/11/2026 (10:25) — **Tầng 2, cổng cấu trúc: CHỦ DỰ ÁN quyết định bật cấu hình A2 dù nó trượt hai điều kiện ghi trước.**
+  Người dùng chọn "Bật cấu hình A2" sau khi đọc bảng kết quả ở mục trên (A2 trượt điều 2: bench mẫu khó 8 -> 5, cần <= 4; và điều 4:
+  bench, bộ phân loại bắt tấn công 63 -> 61). Đây là quyết định SAU KHI ĐÃ THẤY KẾT QUẢ, không phải kết quả của quy tắc ghi trước;
+  quy tắc cho kết quả "giữ A0". Lý do được nêu khi quyết định: nhãn của tầng 2 không tự khoá IP; hai tấn công mất nhãn tầng 2 vẫn
+  bị Cổng 2 chặn; nhãn nhầm trên ba danh sách đối chứng 35/180 -> 11/180; bộ thử 40/52 -> 49/52.
+  - Trước khi đặt A2 làm mặc định: chạy 5 kịch bản 02, 13, 25, 41, 42 với A2 (điều 6 của quy tắc, kèm điều khoản về kịch bản 41 và
+    IP đã có lịch sử). Một kịch bản không đạt vì lý do khác -> KHÔNG bật, báo lại người dùng.
+  - Đo thêm, không thuộc điều kiện nào: kịch bản 44 (tầng 2 -> luật tự sinh) với A2, một lượt, để biết cổng cấu trúc có đổi được
+    việc "phát hiện nhưng không thành luật" hay không (lượt 15/11: chỉ lớp LFI có luật, 2/18 payload giữ lại bị chặn).
