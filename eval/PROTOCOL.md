@@ -789,3 +789,22 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   - Nhận xét về dữ liệu, ghi trước khi đo lượt sau: tập openappsec ghi MỌI request của trình duyệt khi duyệt một website, kể cả
     request tới máy chủ của bên thứ ba (Google Analytics, Facebook Pixel, Chrome UMA). Một website được bảo vệ không nhận các
     request đó, nên 4,3 % và 3,8 % là số cao hơn mức một website thật sẽ thấy; tỉ lệ này không tách riêng được từ dữ liệu.
+
+- 16/11/2026 (13:40) — **Cổng 2, ngoại lệ CRS ứng viên: KẾT QUẢ — TRƯỢT điều 1 -> BỎ thay đổi, giữ tinh chỉnh ngày 14/11.**
+  Lượt sau: `tools/crsdo.sh sau`, 13:17–13:31 (`eval/results/crs-sau.txt`; bảng: `tools/crsdo.py`).
+
+  | # | Số đo | Lượt nền | Có ngoại lệ | Điều kiện | Kết quả |
+  |---|---|---|---|---|---|
+  | 1 | Mẫu KIỂM TRA: request hợp lệ bị Cổng 2 chặn | 76/2 000 (3,80 %) | 71/2 000 (3,55 %) | giảm >= 20 % (<= 60) | **KHÔNG (giảm 6,6 %)** |
+  | 2 | Bench: Cổng 2 chặn tấn công; mẫu hợp lệ bị chặn | 65/65 | 65/65, không tăng | không đổi | đạt |
+  | 3 | Kịch bản 01; GoTestWAF; waf-bypass (bị chặn) | 925; 317; 5 076 | 925; 317; 5 076 | không giảm quá 2; 3; 0,5 % | đạt |
+  | 4 | Kịch bản 36, 47 | đạt | đạt | đạt | đạt |
+
+  Số kèm: mẫu quan sát (ngoại lệ viết từ chính nó) 86 -> 61 trên 2 000 (4,30 % -> 3,05 %); bộ thử báo nhầm của GoTestWAF 13/141 và
+  FALSED của waf-bypass 3 — không đổi. Khoảng tin cậy 95 % của mẫu kiểm tra: 3,0–4,7 % và 2,8–4,5 % (chồng lên nhau gần hết).
+  - **Theo quy tắc: bỏ.** Ngoại lệ viết từ các website nửa đầu bảng chữ cái hầu như không có tác dụng trên các website nửa sau: mỗi
+    website chặn nhầm ở tham số và kiểu nội dung riêng của nó. Trong mẫu quan sát, cho phép `application/csp-report` cũng chỉ gỡ được
+    2/5 request: khi thân được tách thành JSON, luật 941170 và 932370 khớp nội dung báo cáo.
+  - Đã làm: hai tệp `web/apache/crs/nsm-tuning-*.conf` trả về bản ngày 14/11 (bản ứng viên còn trong commit `1afcd4a`); image apache
+    dựng lại, container tạo lại 13:31; kiểm lại: mẫu quan sát 86/2 000 như lượt nền, bench Cổng 2 65/65; `stack.sh check` sạch 13:38.
+  - Không viết thêm ngoại lệ sau khi thấy lượt sau. Tôi không xem bảng luật của mẫu kiểm tra, nên mẫu đó còn dùng được cho lần sau.
