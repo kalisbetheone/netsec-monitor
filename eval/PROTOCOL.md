@@ -689,3 +689,30 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   - Một điều không đạt -> bỏ thay đổi, giữ tinh chỉnh ngày 14/11, báo lại. Không viết thêm ngoại lệ sau khi đã thấy lượt đo sau.
   - Giới hạn biết trước: lưu lượng phát lại là của website khác (đường dẫn không tồn tại trên DVWA, đa số trả 404) nên chỉ đo việc
     CRS chặn, không đo ứng dụng; lưu lượng của hai khách thường trú là do script sinh, ít đa dạng; mỗi cấu hình một lượt.
+
+- 16/11/2026 (12:25) — **Tầng 2, bộ quy tắc bổ sung v2: KẾT QUẢ ngoại tuyến — TRƯỢT điều 6 -> v2 KHÔNG được nhận. Vòng 2 (v2b): tiêu chí
+  ghi trước.** Chưa đo gì trên hệ thống thật.
+  - Điều 6 và 7 của mục 12:05, cấu hình A2, bộ gốc -> v2 (`GSANM/nghien-cuu-tang-2/nc5-*.json`):
+
+    | Tập | Số đo | Bộ gốc | v2 | Giới hạn | Kết quả |
+    |---|---|---|---|---|---|
+    | `test_hardtext` (5 028) | nhãn nhầm | 1,91 % | 1,97 % | tăng <= 0,5 điểm | đạt |
+    | `test_freetext` (10 000) | nhãn nhầm | 0,08 % | 0,13 % | tăng <= 0,1 điểm | đạt |
+    | `test_sites` (mẫu 150 000) | nhãn nhầm | 391 (0,261 %) | 437 (0,291 %) | tăng <= 0,02 điểm | **KHÔNG (0,031 điểm)** |
+    | HttpParams (31 067) | tấn công được tầng 1 + 2 bắt | 93,61 % | 97,48 % | >= bộ gốc | đạt |
+
+    Số kèm: `test_residual` 71,8 % -> 71,8 %; `test_srbh` (mẫu 150 000) 53,19 % -> 53,63 %, nhãn nhầm 35 -> 35.
+  - **Theo quy tắc: v2 không được nhận.** Sau khi có kết quả tôi xem 46 nhãn nhầm mới của `test_sites`: 45 do MỘT biểu thức (lệnh
+    đứng sau dấu xuống dòng và theo sau chỉ là một dấu xuống dòng — khớp dòng `id` của mọi truy vấn GraphQL), 1 do biểu thức nối
+    chuỗi `"||`.
+  - **Vòng 2 — bản "v2b"** = v2 với đúng biểu thức đó bị thu hẹp (lệnh sau dấu xuống dòng chỉ được tính khi theo sau là tham số hoặc
+    dấu nối `| ; &`; các biểu thức khác giữ nguyên). v2b nằm giữa bộ gốc và v2 (mọi thứ v2b khớp thì v2 cũng khớp), nên trên mỗi tập
+    đã đo: nhãn nhầm của v2b <= v2 và tấn công bắt được >= bộ gốc. Trên train / valid: payload có cấu trúc 27 286 -> 27 285 và
+    6 791 -> 6 791 (không đổi đáng kể).
+  - Vì bản sửa được viết SAU khi xem mẫu 150 000 của `test_sites`, mẫu đó không còn dùng được để xác nhận. **Điều 6 của vòng 2 đo
+    trên phần CÒN LẠI của `test_sites`** (các request không nằm trong mẫu 150 000 đã xem; lấy ngẫu nhiên 150 000 trong số đó, hạt
+    giống 20261117): nhãn nhầm của v2b không cao hơn bộ gốc quá 0,02 điểm. Ba tập còn lại của điều 6 và điều 7 đo lại, giới hạn như
+    cũ (đã từng xem một lần với v2 — ghi rõ).
+  - Các điều 1–5 (hệ thống thật, R1 = bộ gốc, R2 = v2b) giữ nguyên như mục 12:05. `TIER2_CONSTRUCT_RULES=2` từ commit này nghĩa là
+    v2b; v2 chưa từng chạy trên hệ thống.
+  - Một điều không đạt -> giữ bộ gốc, KHÔNG có vòng 3 trong buổi này.

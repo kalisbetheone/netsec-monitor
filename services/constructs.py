@@ -38,7 +38,7 @@ _EXTRA_V2 = {
         r"[&|;`][\s+]*(?:netstat|ipconfig|ifconfig|nslookup|phpinfo)\b"
         # xuống dòng (thật hoặc viết \n) rồi tới lệnh: có đường dẫn /bin, hoặc có tham số / dấu nối theo sau
         r"|(?:[\n\r]|\\[nr])\s*/(?:usr/)?s?bin/\w+"
-        r"|(?:[\n\r]|\\[nr])\s*" + _CMD + r"(?:\s+[-/.~$]|\s*(?:[|;&\n\r]|\\[nr]))"
+        r"|(?:[\n\r]|\\[nr])\s*" + _CMD + r"(?:\s+[-/.~$]|\s*[|;&])"      # v2b: theo sau CHỈ là xuống dòng thì không tính (dòng 'id' của GraphQL)
         # cả giá trị chỉ là (xuống dòng +) một lệnh
         r"|^\s*(?:(?:[\n\r]|\\[nr])\s*)+" + _CMD + r"\s*$"
         r"|^\s*(?:ipconfig|ifconfig|netstat|whoami|uname)\s+[-/]\w+"

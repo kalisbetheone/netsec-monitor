@@ -1051,6 +1051,8 @@ for v in ("ifconfig", "ipconfig", "ls", "id", "D:\\photos\\2025", "The students'
           "select a laptop for school", "true or false", "Tom and Jerry", "&#272;&#224; N&#7861;ng", "union", "delete", "50% off today",
           "ping", "netstat", "a || b", "/home/dashboard", "report.log"):
     check(f"v2 KHÔNG khớp: {v!r}", not K.constructs(v, "2"))
+check("v2b KHÔNG khớp truy vấn GraphQL (dòng 'id' đứng một mình)",
+      not K.constructs("query {\n  userInfo {\n    id\n    hashedEmail\n    __typename\n  }\n}", "2"))
 check("mặc định dùng bộ gốc (TIER2_CONSTRUCT_RULES chưa đặt)", K.RULESET == "1" or bool(os.environ.get("TIER2_CONSTRUCT_RULES")))
 check("xét TỪNG giá trị: chú thích SQL ở cuối một giá trị vẫn được thấy dù còn tham số khác", K.any_construct(["hello", "7 asc  -- ", "1"]))
 check("giá trị dài bị cắt ở 2 000 ký tự (không quét vô hạn)", not K.constructs("a" * 2500 + "<script>alert(1)</script>"))
