@@ -19,8 +19,11 @@ def conf(p):
 def labels(nhan_dir):
     out = {}
     # kịch bản do-nhan: 3 tác nhân; do-nhan-3 (16/11): thêm danh sách đối chứng thứ ba ở vị trí 1
-    scn = "do-nhan-3" if os.path.isdir(os.path.join(ROOT, nhan_dir, "do-nhan-3")) else "do-nhan"
-    actors = ([(0, "bo_thu", "bo-thu.jsonl"), (1, "doi_chung_3", "doi-chung-3.jsonl"), (2, "doi_chung_moi", "doi-chung-2.jsonl"), (3, "doi_chung_cu", "doi-chung.jsonl")]
+    scn = next((s for s in ("do-nhan-4", "do-nhan-3") if os.path.isdir(os.path.join(ROOT, nhan_dir, s))), "do-nhan")
+    actors = ([(0, "bo_thu", "bo-thu.jsonl"), (1, "doi_chung_4a_thuong", "doi-chung-4a.jsonl"), (2, "doi_chung_4b_ky_thuat", "doi-chung-4b.jsonl"),
+               (3, "doi_chung_3", "doi-chung-3.jsonl"), (4, "doi_chung_moi", "doi-chung-2.jsonl"), (5, "doi_chung_cu", "doi-chung.jsonl")]
+              if scn == "do-nhan-4" else
+              [(0, "bo_thu", "bo-thu.jsonl"), (1, "doi_chung_3", "doi-chung-3.jsonl"), (2, "doi_chung_moi", "doi-chung-2.jsonl"), (3, "doi_chung_cu", "doi-chung.jsonl")]
               if scn == "do-nhan-3" else [(0, "bo_thu", "bo-thu.jsonl"), (1, "doi_chung_moi", "doi-chung-2.jsonl"), (2, "doi_chung_cu", "doi-chung.jsonl")])
     bo = T.jl(os.path.join(ROOT, "scenarios", "tang-2", "bo-thu.jsonl"))
     for actor, name, src in actors:

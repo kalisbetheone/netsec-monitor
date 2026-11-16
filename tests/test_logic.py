@@ -1040,6 +1040,18 @@ for v in ("1' UNION SELECT user,password FROM users-- -", "x&sleep$mc 15&", "+|+
 for v in ("order by price", "select a laptop for school", "ls", "dir", "true or false", "1=1", "C# and C++", "4.2.6'", "delete",
           "laptop gaming 15 inch", "Nguyễn Văn An", "rock 'n' roll", "50% off today", ""):
     check(f"KHÔNG có cấu trúc tấn công: {v!r}", not K.constructs(v))
+# bộ bổ sung v2 (TIER2_CONSTRUCT_RULES=2): bộ gốc KHÔNG khớp, v2 khớp
+for v in ("') or ('a'='a", "1 and left(version(),1)=4", "' || myappadmin.adduser('admin', 'newpass') || '", "exec master..xp_cmdshell 'net users'",
+          "1' ORDER BY 1,2,3--+", "select current_setting('config_file');", "\nid", "\n/usr/bin/id\n", "; netstat -an", "ipconfig /all",
+          ";phpinfo();//", "Li4vLi4vLi4vZXRjL3Bhc3N3ZA==", "..2f..2f..2fvar2flog2faccess.log", "/var/log/apache/error.log", "/usr/local/php5/lib/php.ini",
+          "&#x00003c", "&lt;A HREF=&quot;http://www.google.com&quot;&gt;XSS&lt;/A&gt;", "confirm?.(document?.cookie)", "<iframe src=http://x.test/a.html <"):
+    check(f"v2 thêm: bộ gốc không khớp, bộ bổ sung khớp: {v!r}", not K.constructs(v, "1") and bool(K.constructs(v, "2")))
+# bộ bổ sung vẫn hẹp: các chuỗi hợp lệ dễ nhầm này KHÔNG được khớp
+for v in ("ifconfig", "ipconfig", "ls", "id", "D:\\photos\\2025", "The students' union runs a bar on campus.", "order by 12 March", "order by price",
+          "select a laptop for school", "true or false", "Tom and Jerry", "&#272;&#224; N&#7861;ng", "union", "delete", "50% off today",
+          "ping", "netstat", "a || b", "/home/dashboard", "report.log"):
+    check(f"v2 KHÔNG khớp: {v!r}", not K.constructs(v, "2"))
+check("mặc định dùng bộ gốc (TIER2_CONSTRUCT_RULES chưa đặt)", K.RULESET == "1" or bool(os.environ.get("TIER2_CONSTRUCT_RULES")))
 check("xét TỪNG giá trị: chú thích SQL ở cuối một giá trị vẫn được thấy dù còn tham số khác", K.any_construct(["hello", "7 asc  -- ", "1"]))
 check("giá trị dài bị cắt ở 2 000 ký tự (không quét vô hạn)", not K.constructs("a" * 2500 + "<script>alert(1)</script>"))
 _t2, _con, _mode = C.tier2, C.T2_CONSTRUCT, C.T2_MODE

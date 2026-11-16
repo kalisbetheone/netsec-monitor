@@ -2,6 +2,7 @@
 # tools/t2model.sh — ĐO MỘT MODEL TẦNG 2 (kèm cấu hình quyết định) trên stack đang chạy. Chạy trên HOST, từ thư mục nsm:
 #   bash tools/t2model.sh <nhãn> <tệp trong models/> <ngưỡng> <argmax|mass> <cổng 0|1> [kb]
 #   TIER2_CONSTRUCT_GATE=1 bash tools/t2model.sh ...     bật thêm cổng cấu trúc (services/constructs.py)
+#   TIER2_CONSTRUCT_RULES=2 ...                          cổng cấu trúc dùng thêm bộ quy tắc bổ sung v2 (mặc định 1)
 #   bash tools/t2model.sh restore            trả classifier về mặc định trong docker-compose.yml
 # Ví dụ:  bash tools/t2model.sh v4 tier2_v4_ungvien.joblib 0.91 mass 0 kb
 # Mỗi lượt: đặt model và cấu hình cho classifier (biến môi trường, export cho MỌI lệnh con) -> bench pha detect -> kịch bản đếm
@@ -19,20 +20,20 @@ wait_classifier(){
   echo "!! classifier không khởi động lại được" >&2; return 1
 }
 if [ "${1:-}" = "restore" ]; then
-  unset TIER2_MODEL_PATH TIER2_THRESHOLD TIER2_DECISION TIER2_SYNTAX_GATE TIER2_CONSTRUCT_GATE
+  unset TIER2_MODEL_PATH TIER2_THRESHOLD TIER2_DECISION TIER2_SYNTAX_GATE TIER2_CONSTRUCT_GATE TIER2_CONSTRUCT_RULES
   "${CP[@]}" up -d classifier >/dev/null 2>&1; wait_classifier
   "${CP[@]}" logs classifier 2>/dev/null | grep "tier2 model loaded" | tail -1 | cut -c1-200
-  "${CP[@]}" exec -T classifier env | grep -E '^(MODEL_PATH|TIER2_THRESHOLD|TIER2_DECISION|TIER2_SYNTAX_GATE|TIER2_CONSTRUCT_GATE)=' | tr '\r\n' '  '; echo
+  "${CP[@]}" exec -T classifier env | grep -E '^(MODEL_PATH|TIER2_THRESHOLD|TIER2_DECISION|TIER2_SYNTAX_GATE|TIER2_CONSTRUCT_GATE|TIER2_CONSTRUCT_RULES)=' | tr '\r\n' '  '; echo
   exit 0
 fi
 [ $# -ge 5 ] || { sed -n 2,5p "${BASH_SOURCE[0]}"; exit 2; }
 tag="$1"; model="$2"; theta="$3"; dec="$4"; gate="$5"; kb="${6:-}"
 [ -f "$D/models/$model" ] || { echo "!! không có models/$model" >&2; exit 2; }
-cg="${TIER2_CONSTRUCT_GATE:-0}"; scn="${T2_DONHAN:-do-nhan-3}"     # cổng cấu trúc (16/11) lấy từ biến môi trường; kịch bản đếm nhãn
-export TIER2_MODEL_PATH="/models/$model" TIER2_THRESHOLD="$theta" TIER2_DECISION="$dec" TIER2_SYNTAX_GATE="$gate" TIER2_CONSTRUCT_GATE="$cg"
+cg="${TIER2_CONSTRUCT_GATE:-0}"; cr="${TIER2_CONSTRUCT_RULES:-1}"; scn="${T2_DONHAN:-do-nhan-3}"     # cổng cấu trúc (16/11) lấy từ biến môi trường; kịch bản đếm nhãn
+export TIER2_MODEL_PATH="/models/$model" TIER2_THRESHOLD="$theta" TIER2_DECISION="$dec" TIER2_SYNTAX_GATE="$gate" TIER2_CONSTRUCT_GATE="$cg" TIER2_CONSTRUCT_RULES="$cr"
 cd "$D" || exit 1
-want="MODEL_PATH=/models/$model TIER2_CONSTRUCT_GATE=$cg TIER2_DECISION=$dec TIER2_SYNTAX_GATE=$gate TIER2_THRESHOLD=$theta"
-cfg(){ "${CP[@]}" exec -T classifier env | grep -E '^(MODEL_PATH|TIER2_THRESHOLD|TIER2_DECISION|TIER2_SYNTAX_GATE|TIER2_CONSTRUCT_GATE)=' | tr -d '\r' | sort | tr '\n' ' ' | sed 's/ $//'; }
+want="MODEL_PATH=/models/$model TIER2_CONSTRUCT_GATE=$cg TIER2_CONSTRUCT_RULES=$cr TIER2_DECISION=$dec TIER2_SYNTAX_GATE=$gate TIER2_THRESHOLD=$theta"
+cfg(){ "${CP[@]}" exec -T classifier env | grep -E '^(MODEL_PATH|TIER2_THRESHOLD|TIER2_DECISION|TIER2_SYNTAX_GATE|TIER2_CONSTRUCT_GATE|TIER2_CONSTRUCT_RULES)=' | tr -d '\r' | sort | tr '\n' ' ' | sed 's/ $//'; }
 "${CP[@]}" up -d classifier >/dev/null 2>&1; wait_classifier || exit 1
 got="$(cfg)"; [ "$got" = "$want" ] || { echo "!! classifier đang chạy với [$got], không phải [$want]" >&2; exit 1; }
 "${CP[@]}" logs classifier 2>/dev/null | grep "tier2 model loaded" | tail -1 | cut -c1-200
@@ -49,4 +50,4 @@ if [ "$kb" = "kb" ]; then
   kb_dir="$(ls -1d eval/results/t2model${tag}kb-2*/ 2>/dev/null | tail -1)"
 fi
 got="$(cfg)"; [ "$got" = "$want" ] || echo "!! SAU LƯỢT ĐO classifier đang chạy với [$got] — kết quả lượt này KHÔNG dùng được"
-printf 'gate=%s (%s, %s, θ=%s, cổng cấu trúc=%s)\nbench=%s\nnhan=%s\nkichban=%s\nclassifier_sau=%s\n' "$gate" "$model" "$dec" "$theta" "$cg" "$bench_dir" "$nhan_dir" "$kb_dir" "$got" | tee "eval/results/t2model-$tag.txt"
+printf 'gate=%s (%s, %s, θ=%s, cổng cấu trúc=%s, bộ quy tắc=%s)\nbench=%s\nnhan=%s\nkichban=%s\nclassifier_sau=%s\n' "$gate" "$model" "$dec" "$theta" "$cg" "$cr" "$bench_dir" "$nhan_dir" "$kb_dir" "$got" | tee "eval/results/t2model-$tag.txt"

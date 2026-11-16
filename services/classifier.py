@@ -197,7 +197,8 @@ if os.path.exists(MODEL_PATH):
     _benign_i = _classes.index("benign") if "benign" in _classes else -1
     try: _names = _vec.get_feature_names_out()
     except Exception: _names = None
-    L.info("tier2 model loaded: %s | decision=%s θ=%.2f gate=%s construct=%s", _classes, T2_DECISION, T2_THRESHOLD, T2_GATE, T2_CONSTRUCT)
+    L.info("tier2 model loaded: %s | decision=%s θ=%.2f gate=%s construct=%s rules=%s", _classes, T2_DECISION, T2_THRESHOLD, T2_GATE,
+           T2_CONSTRUCT, constructs.RULESET)
 else:
     L.info("no tier2 model — tier 1 only")
 

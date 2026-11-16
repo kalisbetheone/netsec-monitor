@@ -636,3 +636,29 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     đổi gì, báo lại.
   - Giới hạn biết trước: T thực thi chỉ chính xác tới khoảng cách giữa hai request (0,5 giây ở phép đo lần lượt, 0,25 giây ở phép
     đo so le); mỗi kịch bản một lượt; cùng một máy chạy cả hệ thống lẫn công cụ đo.
+
+- 16/11/2026 (12:05) — **Tầng 2: bộ quy tắc cấu trúc BỔ SUNG "v2" — TIÊU CHÍ GHI TRƯỚC KHI ĐO trên hệ thống thật và trên các tập test.**
+  - Mục đích: lấy lại các tấn công mà cổng cấu trúc (A2) đang bỏ vì không khớp bộ quy tắc gốc. Model, ngưỡng, cách quyết định KHÔNG đổi.
+  - Cách viết v2: tôi đọc các payload của phần TRAIN mà bộ gốc không khớp (`train/data_src/pool_g2`, `pool_extra_g2`, cờ `pass_weak` và
+    `block`), viết biểu thức cho các dạng lặp lại, bỏ ba biểu thức khớp văn bản hợp lệ khó của phần train (đường dẫn ổ đĩa thường,
+    dấu nháy + "union", tên lệnh trần). Không đọc phần test, không xem mẫu nào của bench. Mã: `services/constructs.py`
+    (`TIER2_CONSTRUCT_RULES`, mặc định 1 = chỉ bộ gốc); bản nháp và công cụ kiểm: `GSANM/nghien-cuu-tang-2/nc5_*.py`.
+  - Số đã thấy khi phát triển (phần VALID, ngoại tuyến, A2): payload chưa bị regex tầng 1 bắt có cấu trúc 96,9 % -> 99,3 % (6 627 -> 6 791
+    trên 6 837); request tấn công được tầng 1 + 2 bắt 95,86 % -> 97,56 % (không cổng: 98,22 %); nhãn nhầm trên request hợp lệ
+    221 -> 224 trên 85 603; văn bản hợp lệ khó của valid khớp thêm 0/4 548.
+  - Danh sách đối chứng thứ tư, lập TRƯỚC khi đo, sau khi đã viết v2 (tôi biết các quy tắc khi soạn): `doi-chung-4a.jsonl` (32 văn bản
+    thường: đặt vé, mua hàng) và `doi-chung-4b.jsonl` (30 văn bản kỹ thuật CỐ Ý gần các quy tắc mới; 19 khớp v2, 0 khớp bộ gốc).
+  - **Đo trên hệ thống thật**, cùng buổi, một lượt mỗi cấu hình: R1 = A2 với bộ gốc, R2 = A2 với v2 (`tools/t2model.sh`, kịch bản đếm
+    nhãn `do-nhan-4`). **v2 được đặt làm mặc định khi đạt CẢ bảy điều:**
+    1. Bộ thử 52 payload: R2 >= R1.
+    2. Bench, tấn công bộ phân loại bắt: R2 >= R1 (số báo cáo kèm: có về lại 63/65 của cấu hình trước A2 không).
+    3. Bench, mẫu hợp lệ khó và mẫu thường bị gắn nhãn: R2 <= R1 ở cả hai.
+    4. Ba danh sách đối chứng cũ (180 văn bản): R2 <= R1; danh sách 4a (32 văn bản thường): R2 <= R1.
+    5. Năm kịch bản 02, 13, 25, 41, 42 đạt với R2 (kịch bản 41: điều khoản về IP đã có lịch sử như mục 16/11 10:00).
+    6. Ngoại tuyến, các tập test (đã từng được xem khi nghiên cứu bộ gốc, KHÔNG dùng để viết v2): nhãn nhầm của v2 không cao hơn bộ
+       gốc quá 0,5 điểm phần trăm trên `test_hardtext`, quá 0,1 điểm trên `test_freetext`, quá 0,02 điểm trên `test_sites` (mẫu 150 000).
+    7. Ngoại tuyến, HttpParams: tỉ lệ tấn công được tầng 1 + 2 bắt của v2 >= bộ gốc.
+  - Số báo cáo, KHÔNG thuộc điều kiện: danh sách 4b (cố ý bất lợi cho v2), `test_residual`, `test_srbh`, lớp RCE / XSS của bộ thử.
+  - Một điều không đạt -> giữ bộ gốc (`TIER2_CONSTRUCT_RULES=1`), báo lại. Không sửa quy tắc, danh sách hay ngưỡng sau khi thấy kết quả.
+  - Giới hạn biết trước: quy tắc viết tay từ hai nguồn payload công khai (SecLists, open-appsec) nên có thể khớp quá sát cách viết của
+    hai nguồn đó; danh sách 4 do chính người viết quy tắc soạn; mỗi cấu hình một lượt.
