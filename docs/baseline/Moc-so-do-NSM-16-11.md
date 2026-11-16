@@ -114,6 +114,8 @@ Nguồn: `bench-results/20261116-171909/report.md`; bản chép: `bench-20261116
 
 ## 4. Sau commit đo
 
-Sau `6161e74` chỉ có commit tài liệu (tệp này, các bản chép trong `docs/baseline/`, mục "lượt đo chốt" ngày 16/11 của `eval/PROTOCOL.md`). Không commit nào chạm vào `services`, `web`, `soc`, `models`, `docker-compose.yml`, `nginx.conf`, `scenarios`, `tools`.
+Sau `6161e74` chỉ có commit tài liệu (tệp này, các bản chép trong `docs/baseline/`, mục "lượt đo chốt" ngày 16/11 của `eval/PROTOCOL.md`). Không commit nào chạm vào `services`, `web`, `models`, `docker-compose.yml`, `nginx.conf`, `scenarios`, `tools`.
+
+Một ngoại lệ, ngoài đường xử lý request: lúc 18:12 ngày 16/11 sửa `soc/grafana/provisioning/dashboards/provider.yml` (một dòng). Tệp này trỏ sai thư mục nên Grafana không nạp dashboard nào, ít nhất từ 12/11; lượt đo chốt vì vậy chạy khi **không có dashboard** (nguồn dữ liệu và luật cảnh báo vẫn nạp đúng, nên kịch bản 30 và 41 không bị ảnh hưởng). Sau khi sửa: dashboard `nsm-overview` được nạp; chạy `tools/demo.sh` thì truy vấn của cả 21 panel trả số, không lỗi (tấn công 0 → 48, lệnh chặn IP 0 → 6). Không số đo nào ở mục 2 phụ thuộc dashboard.
 
 Danh sách đầy đủ các giới hạn: `Danh-sach-gioi-han-NSM.md` và `Bao-cao-chot-NSM-16-11.md` (thư mục `GSANM`, ngoài kho mã).
