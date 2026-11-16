@@ -1,0 +1,17 @@
+# Việc 4 (16/11/2026): phát lại lưu lượng hợp lệ THẬT của các website khác để biết luật CRS nào chặn nhầm (tools/crsfp.sh).
+# Không có kỳ vọng: kịch bản CHỈ ĐO. Chạy:  SC_DIR=scenarios/crs SC_OUT_NAME=crs bash tools/scenario.sh quan-sat kiem-tra
+title = "Phát lại 2 000 request hợp lệ THẬT — mẫu QUAN SÁT (dòng 20 000 trở đi, cách 350 dòng)"
+case = "A1 (dữ liệu thật, khảo sát chặn nhầm của CRS)"
+notes = """Tập openappsec Legitimate, phần test_sites, từ dòng 20 000 (hai lượt trước, kịch bản 32 và 42, chỉ lấy tới khoảng dòng 17 000). \nDữ liệu xếp theo tên website, nên mẫu này trải trên các website nửa đầu bảng chữ cái. Dùng để XEM luật CRS nào chặn nhầm và viết ngoại lệ."""
+max_s = 400
+exempt = ["self"]
+
+[[actor]]
+name = "phát lại"
+role = "benign"
+kind = "replay"
+ips = 4
+count = 500
+every = 350
+start = 20000
+interval_s = 0.05

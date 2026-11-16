@@ -662,3 +662,30 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   - Một điều không đạt -> giữ bộ gốc (`TIER2_CONSTRUCT_RULES=1`), báo lại. Không sửa quy tắc, danh sách hay ngưỡng sau khi thấy kết quả.
   - Giới hạn biết trước: quy tắc viết tay từ hai nguồn payload công khai (SecLists, open-appsec) nên có thể khớp quá sát cách viết của
     hai nguồn đó; danh sách 4 do chính người viết quy tắc soạn; mỗi cấu hình một lượt.
+
+- 16/11/2026 (12:15) — **Cổng 2: khảo sát chặn nhầm của CRS trên lưu lượng thật và tinh chỉnh — TIÊU CHÍ GHI TRƯỚC KHI ĐO.**
+  - Lab không có lưu lượng thật của chính ứng dụng. Hai nguồn dùng thay: (a) lưu lượng hợp lệ đã tích luỹ của hai khách thường trú
+    (`client` 10.10.10.20, `client-booking` 10.10.10.21) trong Elasticsearch — chỉ đọc; (b) phát lại lưu lượng hợp lệ THẬT của các
+    website khác (tập openappsec Legitimate, phần `test_sites`), hai mẫu MỚI chưa từng phát: `scenarios/crs/quan-sat` (từ dòng
+    20 000) và `scenarios/crs/kiem-tra` (từ dòng 380 000), mỗi mẫu 2 000 request; dữ liệu xếp theo tên website nên hai mẫu gần như
+    không chung website. Hai lượt cũ (kịch bản 32, 42) chỉ lấy tới khoảng dòng 17 000.
+  - Đã thấy trước khi ghi mục này: bảng luật của lượt kịch bản 42 sáng nay (`t2modelcgA2kbkb-20261116-101927`: 35/1000 bị chặn, 13
+    lần do luật 942550) khi thử công cụ `tools/crsfp.sh`; và số của hai khách thường trú (0 request bị Cổng 2 chặn trên 34 936 và
+    43 225). Chưa phát mẫu `quan-sat` hay `kiem-tra` lần nào.
+  - Cách làm: đo nền (`tools/crsdo.sh truoc`) -> đọc chi tiết theo luật CHỈ của mẫu quan sát -> viết ngoại lệ -> dựng lại apache ->
+    đo lại (`tools/crsdo.sh sau`). Mẫu kiểm tra chỉ được đọc con số tổng (`crsfp.sh --tong`).
+  - Ngoại lệ được phép: hẹp theo (luật × tham số hoặc kiểu nội dung cụ thể). KHÔNG tắt hẳn luật nào, không đổi mức paranoia, không
+    đổi ngưỡng điểm bất thường. Các lần chặn do thiếu `Content-Type` (920340, 920640) không được tinh chỉnh: tập dữ liệu không ghi
+    lại header này cho 0,6 % request có thân, nên không biết request gốc có thiếu thật không.
+  - **Thay đổi tinh chỉnh được giữ khi đạt CẢ bốn điều:**
+    1. Mẫu KIỂM TRA: số request hợp lệ bị Cổng 2 chặn giảm ít nhất 20 % so với lượt nền (ngoại lệ phải có tác dụng trên website
+       không dùng để viết nó; nếu không thì ngoại lệ chỉ khớp riêng vài website và không đáng đổi lấy rủi ro).
+    2. Bench pha detect: Cổng 2 vẫn chặn đủ số tấn công như lượt nền (65/65), số mẫu hợp lệ bị Cổng 2 chặn không tăng.
+    3. Kịch bản 01: số request tấn công bị Cổng 2 chặn không giảm quá 2 (trên 1 152); GoTestWAF: số tấn công bị chặn không giảm quá 3
+       (trên 675); waf-bypass: số cặp bị chặn không giảm quá 0,5 %.
+    4. Kịch bản 36 và 47 đạt.
+  - Số báo cáo kèm: mẫu quan sát trước / sau (lạc quan vì ngoại lệ viết từ chính nó), khoảng tin cậy 95 % (Wilson) của các tỉ lệ,
+    số chặn nhầm (FALSED) của waf-bypass và bộ thử báo nhầm của GoTestWAF.
+  - Một điều không đạt -> bỏ thay đổi, giữ tinh chỉnh ngày 14/11, báo lại. Không viết thêm ngoại lệ sau khi đã thấy lượt đo sau.
+  - Giới hạn biết trước: lưu lượng phát lại là của website khác (đường dẫn không tồn tại trên DVWA, đa số trả 404) nên chỉ đo việc
+    CRS chặn, không đo ứng dụng; lưu lượng của hai khách thường trú là do script sinh, ít đa dạng; mỗi cấu hình một lượt.
