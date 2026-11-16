@@ -1,0 +1,87 @@
+# Đếm nhãn của bộ phân loại (không phải kịch bản có kỳ vọng): gửi bộ thử 52 payload mà Cổng 2 bỏ lọt và năm danh sách văn bản
+# hợp lệ, mỗi giá trị một lần, rồi đọc nhãn của từng request trong Elasticsearch. Dùng để so cấu hình tầng 2 (tools/t2gate.sh).
+# rulegen dừng (mặc định) nên không luật nào sinh từ bước này. Lưu lượng thử nội bộ, gửi vào hệ thống của dự án.
+# Chạy:  SC_DIR=scenarios/tang-2 SC_OUT_NAME=t2gate bash tools/scenario.sh do-nhan-4
+title = "Đếm nhãn tầng 2: bộ thử 52 payload và năm danh sách văn bản hợp lệ"
+case = "công cụ (so cấu hình tầng 2)"
+notes = "IP được miễn trừ để gửi hết request. Mỗi giá trị gửi đúng một lần vào tham số q."
+max_s = 360
+exempt = ["self"]
+
+[[actor]]
+name = "bộ thử 52 payload"
+role = "probe"
+ips = 1
+family = "t2test"
+source = "file:/scenarios/bo-thu.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 52
+interval_s = 0.5
+stop_on_block = false
+
+[[actor]]
+name = "đối chứng thứ tư, phần thường (doi-chung-4a, lập 16/11)"
+role = "benign"
+ips = 1
+family = "t2ctl"
+source = "file:/scenarios/doi-chung-4a.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 32
+interval_s = 0.5
+stop_on_block = false
+
+[[actor]]
+name = "đối chứng thứ tư, phần kỹ thuật gần quy tắc mới (doi-chung-4b, lập 16/11)"
+role = "benign"
+ips = 1
+family = "t2ctl"
+source = "file:/scenarios/doi-chung-4b.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 30
+interval_s = 0.5
+stop_on_block = false
+
+[[actor]]
+name = "đối chứng thứ ba (doi-chung-3, lập 16/11)"
+role = "benign"
+ips = 1
+family = "t2ctl"
+source = "file:/scenarios/doi-chung-3.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 60
+interval_s = 0.5
+stop_on_block = false
+
+[[actor]]
+name = "đối chứng mới (doi-chung-2)"
+role = "benign"
+ips = 1
+family = "t2ctl"
+source = "file:/scenarios/doi-chung-2.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 60
+interval_s = 0.5
+stop_on_block = false
+
+[[actor]]
+name = "đối chứng cũ (doi-chung)"
+role = "benign"
+ips = 1
+family = "t2ctl"
+source = "file:/scenarios/doi-chung.jsonl"
+path = "/index.php"
+param = "q"
+method = "GET"
+count = 60
+interval_s = 0.5
+stop_on_block = false

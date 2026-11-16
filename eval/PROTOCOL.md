@@ -609,3 +609,269 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     0, chế độ corroborate): cấu hình A2 chưa được đo ở chế độ đó.
   - Hệ quả cho các số đã công bố: các số tầng 2 của lượt chốt 15/11 (bench mẫu khó 8/27, mẫu thường 2/28, bộ phân loại 63/65,
     kịch bản 42 gắn nhãn 0,9 %) thuộc cấu hình cũ; số của A2 là 5/27, 0/28, 61/65; kịch bản 42 đạt, số đo nằm trong thư mục trên.
+
+- 16/11/2026 (11:55) — **Cổng 1: khoảng nạp lại danh sách chặn 5 giây -> 2 giây — TIÊU CHÍ GHI TRƯỚC KHI ĐO.** Chưa đo gì.
+  - Bối cảnh: `web/nginx/entrypoint.sh` nạp lại nginx tối đa một lần mỗi `RELOAD_MIN_INTERVAL_S` (5) giây. Khi một thay đổi đến
+    trong khoảng đó, vòng chờ hiện tại ngủ 1 giây rồi quay lại `inotifywait -t 2`, nên có thể chờ lâu hơn 5 giây tới 2 giây.
+    Lượt đo 16/11 01:26: T thực thi 0,2–1,2 giây khi các lần khoá cách nhau ~5,5 giây; trước đó từng ghi tới 2,9 giây.
+  - Thay đổi mã để đo được (không đổi hành vi mặc định): `RELOAD_MIN_INTERVAL_S` nhận từ biến môi trường (mặc định 5); công tắc
+    mới `RELOAD_EXACT_WAIT` (mặc định 0 = như cũ; 1 = ngủ đúng phần còn lại rồi nạp); `bench.sh` thêm `BENCH_MTTR_STAGGER_S` và
+    `BENCH_MTTR_INTERVAL`; công cụ `tools/reloadcfg.sh`.
+  - Bốn cấu hình, cùng buổi, thứ tự: **N5** (5 giây, như cũ — mốc), **N2** (2 giây), **N5e** (5 giây, chờ đúng), **N2e** (2 giây,
+    chờ đúng). Cuối buổi lặp lại phép đo so le của N5 để biết độ trôi.
+  - Mỗi cấu hình đo: (a) `bench.sh -r 5 mttr`, kịch bản sqli và rce, lần lượt: 10 lần khoá; (b) hai lượt so le: 16 IP bắt đầu
+    cách nhau 1 giây, mỗi IP 4 request/giây (`BENCH_MTTR_STAGGER_S=1 BENCH_MTTR_INTERVAL=0.25`, `-r 8`): 32 lần khoá; (c) kịch bản
+    39 (300 IP bị khoá dồn dập, có một người dùng hợp lệ), kèm lấy mẫu số tiến trình và bộ nhớ của container nginx và đếm số lần
+    nạp lại; (d) kịch bản 45.
+  - **Một cấu hình ứng viên (N2, N5e, N2e) được chọn thay N5 khi đạt CẢ năm điều:**
+    1. Mọi lần chạy mttr đều bị khoá (10/10 và 32/32).
+    2. Đo so le (gộp hai lượt): trung vị T thực thi thấp hơn N5 ít nhất 0,5 giây, và giá trị lớn nhất không cao hơn N5.
+    3. Đo lần lượt: trung vị T thực thi không cao hơn N5 quá 0,25 giây.
+    4. Kịch bản 39 và 45 đạt; ở kịch bản 39 số request của người dùng hợp lệ không nhận 200 không nhiều hơn N5 quá 2 (trên 60).
+    5. Trong kịch bản 39: đỉnh số tiến trình của container nginx không quá 2 lần N5, đỉnh bộ nhớ không quá 1,5 lần N5, nhật ký
+       nginx không có dòng `[emerg]`, `[alert]` hay "nginx -t failed".
+  - Nhiều ứng viên cùng đạt: chọn trung vị so le thấp nhất; chênh nhau dưới 0,25 giây thì chọn cấu hình nạp lại ít lần hơn ở kịch
+    bản 39. Không ứng viên nào đạt: giữ N5.
+  - **Độ trôi:** nếu trung vị so le của lượt N5 lặp cuối buổi lệch lượt N5 đầu buổi quá 0,5 giây, phép so không đáng tin: không
+    đổi gì, báo lại.
+  - Giới hạn biết trước: T thực thi chỉ chính xác tới khoảng cách giữa hai request (0,5 giây ở phép đo lần lượt, 0,25 giây ở phép
+    đo so le); mỗi kịch bản một lượt; cùng một máy chạy cả hệ thống lẫn công cụ đo.
+
+- 16/11/2026 (12:05) — **Tầng 2: bộ quy tắc cấu trúc BỔ SUNG "v2" — TIÊU CHÍ GHI TRƯỚC KHI ĐO trên hệ thống thật và trên các tập test.**
+  - Mục đích: lấy lại các tấn công mà cổng cấu trúc (A2) đang bỏ vì không khớp bộ quy tắc gốc. Model, ngưỡng, cách quyết định KHÔNG đổi.
+  - Cách viết v2: tôi đọc các payload của phần TRAIN mà bộ gốc không khớp (`train/data_src/pool_g2`, `pool_extra_g2`, cờ `pass_weak` và
+    `block`), viết biểu thức cho các dạng lặp lại, bỏ ba biểu thức khớp văn bản hợp lệ khó của phần train (đường dẫn ổ đĩa thường,
+    dấu nháy + "union", tên lệnh trần). Không đọc phần test, không xem mẫu nào của bench. Mã: `services/constructs.py`
+    (`TIER2_CONSTRUCT_RULES`, mặc định 1 = chỉ bộ gốc); bản nháp và công cụ kiểm: `GSANM/nghien-cuu-tang-2/nc5_*.py`.
+  - Số đã thấy khi phát triển (phần VALID, ngoại tuyến, A2): payload chưa bị regex tầng 1 bắt có cấu trúc 96,9 % -> 99,3 % (6 627 -> 6 791
+    trên 6 837); request tấn công được tầng 1 + 2 bắt 95,86 % -> 97,56 % (không cổng: 98,22 %); nhãn nhầm trên request hợp lệ
+    221 -> 224 trên 85 603; văn bản hợp lệ khó của valid khớp thêm 0/4 548.
+  - Danh sách đối chứng thứ tư, lập TRƯỚC khi đo, sau khi đã viết v2 (tôi biết các quy tắc khi soạn): `doi-chung-4a.jsonl` (32 văn bản
+    thường: đặt vé, mua hàng) và `doi-chung-4b.jsonl` (30 văn bản kỹ thuật CỐ Ý gần các quy tắc mới; 19 khớp v2, 0 khớp bộ gốc).
+  - **Đo trên hệ thống thật**, cùng buổi, một lượt mỗi cấu hình: R1 = A2 với bộ gốc, R2 = A2 với v2 (`tools/t2model.sh`, kịch bản đếm
+    nhãn `do-nhan-4`). **v2 được đặt làm mặc định khi đạt CẢ bảy điều:**
+    1. Bộ thử 52 payload: R2 >= R1.
+    2. Bench, tấn công bộ phân loại bắt: R2 >= R1 (số báo cáo kèm: có về lại 63/65 của cấu hình trước A2 không).
+    3. Bench, mẫu hợp lệ khó và mẫu thường bị gắn nhãn: R2 <= R1 ở cả hai.
+    4. Ba danh sách đối chứng cũ (180 văn bản): R2 <= R1; danh sách 4a (32 văn bản thường): R2 <= R1.
+    5. Năm kịch bản 02, 13, 25, 41, 42 đạt với R2 (kịch bản 41: điều khoản về IP đã có lịch sử như mục 16/11 10:00).
+    6. Ngoại tuyến, các tập test (đã từng được xem khi nghiên cứu bộ gốc, KHÔNG dùng để viết v2): nhãn nhầm của v2 không cao hơn bộ
+       gốc quá 0,5 điểm phần trăm trên `test_hardtext`, quá 0,1 điểm trên `test_freetext`, quá 0,02 điểm trên `test_sites` (mẫu 150 000).
+    7. Ngoại tuyến, HttpParams: tỉ lệ tấn công được tầng 1 + 2 bắt của v2 >= bộ gốc.
+  - Số báo cáo, KHÔNG thuộc điều kiện: danh sách 4b (cố ý bất lợi cho v2), `test_residual`, `test_srbh`, lớp RCE / XSS của bộ thử.
+  - Một điều không đạt -> giữ bộ gốc (`TIER2_CONSTRUCT_RULES=1`), báo lại. Không sửa quy tắc, danh sách hay ngưỡng sau khi thấy kết quả.
+  - Giới hạn biết trước: quy tắc viết tay từ hai nguồn payload công khai (SecLists, open-appsec) nên có thể khớp quá sát cách viết của
+    hai nguồn đó; danh sách 4 do chính người viết quy tắc soạn; mỗi cấu hình một lượt.
+
+- 16/11/2026 (12:15) — **Cổng 2: khảo sát chặn nhầm của CRS trên lưu lượng thật và tinh chỉnh — TIÊU CHÍ GHI TRƯỚC KHI ĐO.**
+  - Lab không có lưu lượng thật của chính ứng dụng. Hai nguồn dùng thay: (a) lưu lượng hợp lệ đã tích luỹ của hai khách thường trú
+    (`client` 10.10.10.20, `client-booking` 10.10.10.21) trong Elasticsearch — chỉ đọc; (b) phát lại lưu lượng hợp lệ THẬT của các
+    website khác (tập openappsec Legitimate, phần `test_sites`), hai mẫu MỚI chưa từng phát: `scenarios/crs/quan-sat` (từ dòng
+    20 000) và `scenarios/crs/kiem-tra` (từ dòng 380 000), mỗi mẫu 2 000 request; dữ liệu xếp theo tên website nên hai mẫu gần như
+    không chung website. Hai lượt cũ (kịch bản 32, 42) chỉ lấy tới khoảng dòng 17 000.
+  - Đã thấy trước khi ghi mục này: bảng luật của lượt kịch bản 42 sáng nay (`t2modelcgA2kbkb-20261116-101927`: 35/1000 bị chặn, 13
+    lần do luật 942550) khi thử công cụ `tools/crsfp.sh`; và số của hai khách thường trú (0 request bị Cổng 2 chặn trên 34 936 và
+    43 225). Chưa phát mẫu `quan-sat` hay `kiem-tra` lần nào.
+  - Cách làm: đo nền (`tools/crsdo.sh truoc`) -> đọc chi tiết theo luật CHỈ của mẫu quan sát -> viết ngoại lệ -> dựng lại apache ->
+    đo lại (`tools/crsdo.sh sau`). Mẫu kiểm tra chỉ được đọc con số tổng (`crsfp.sh --tong`).
+  - Ngoại lệ được phép: hẹp theo (luật × tham số hoặc kiểu nội dung cụ thể). KHÔNG tắt hẳn luật nào, không đổi mức paranoia, không
+    đổi ngưỡng điểm bất thường. Các lần chặn do thiếu `Content-Type` (920340, 920640) không được tinh chỉnh: tập dữ liệu không ghi
+    lại header này cho 0,6 % request có thân, nên không biết request gốc có thiếu thật không.
+  - **Thay đổi tinh chỉnh được giữ khi đạt CẢ bốn điều:**
+    1. Mẫu KIỂM TRA: số request hợp lệ bị Cổng 2 chặn giảm ít nhất 20 % so với lượt nền (ngoại lệ phải có tác dụng trên website
+       không dùng để viết nó; nếu không thì ngoại lệ chỉ khớp riêng vài website và không đáng đổi lấy rủi ro).
+    2. Bench pha detect: Cổng 2 vẫn chặn đủ số tấn công như lượt nền (65/65), số mẫu hợp lệ bị Cổng 2 chặn không tăng.
+    3. Kịch bản 01: số request tấn công bị Cổng 2 chặn không giảm quá 2 (trên 1 152); GoTestWAF: số tấn công bị chặn không giảm quá 3
+       (trên 675); waf-bypass: số cặp bị chặn không giảm quá 0,5 %.
+    4. Kịch bản 36 và 47 đạt.
+  - Số báo cáo kèm: mẫu quan sát trước / sau (lạc quan vì ngoại lệ viết từ chính nó), khoảng tin cậy 95 % (Wilson) của các tỉ lệ,
+    số chặn nhầm (FALSED) của waf-bypass và bộ thử báo nhầm của GoTestWAF.
+  - Một điều không đạt -> bỏ thay đổi, giữ tinh chỉnh ngày 14/11, báo lại. Không viết thêm ngoại lệ sau khi đã thấy lượt đo sau.
+  - Giới hạn biết trước: lưu lượng phát lại là của website khác (đường dẫn không tồn tại trên DVWA, đa số trả 404) nên chỉ đo việc
+    CRS chặn, không đo ứng dụng; lưu lượng của hai khách thường trú là do script sinh, ít đa dạng; mỗi cấu hình một lượt.
+
+- 16/11/2026 (12:25) — **Tầng 2, bộ quy tắc bổ sung v2: KẾT QUẢ ngoại tuyến — TRƯỢT điều 6 -> v2 KHÔNG được nhận. Vòng 2 (v2b): tiêu chí
+  ghi trước.** Chưa đo gì trên hệ thống thật.
+  - Điều 6 và 7 của mục 12:05, cấu hình A2, bộ gốc -> v2 (`GSANM/nghien-cuu-tang-2/nc5-*.json`):
+
+    | Tập | Số đo | Bộ gốc | v2 | Giới hạn | Kết quả |
+    |---|---|---|---|---|---|
+    | `test_hardtext` (5 028) | nhãn nhầm | 1,91 % | 1,97 % | tăng <= 0,5 điểm | đạt |
+    | `test_freetext` (10 000) | nhãn nhầm | 0,08 % | 0,13 % | tăng <= 0,1 điểm | đạt |
+    | `test_sites` (mẫu 150 000) | nhãn nhầm | 391 (0,261 %) | 437 (0,291 %) | tăng <= 0,02 điểm | **KHÔNG (0,031 điểm)** |
+    | HttpParams (31 067) | tấn công được tầng 1 + 2 bắt | 93,61 % | 97,48 % | >= bộ gốc | đạt |
+
+    Số kèm: `test_residual` 71,8 % -> 71,8 %; `test_srbh` (mẫu 150 000) 53,19 % -> 53,63 %, nhãn nhầm 35 -> 35.
+  - **Theo quy tắc: v2 không được nhận.** Sau khi có kết quả tôi xem 46 nhãn nhầm mới của `test_sites`: 45 do MỘT biểu thức (lệnh
+    đứng sau dấu xuống dòng và theo sau chỉ là một dấu xuống dòng — khớp dòng `id` của mọi truy vấn GraphQL), 1 do biểu thức nối
+    chuỗi `"||`.
+  - **Vòng 2 — bản "v2b"** = v2 với đúng biểu thức đó bị thu hẹp (lệnh sau dấu xuống dòng chỉ được tính khi theo sau là tham số hoặc
+    dấu nối `| ; &`; các biểu thức khác giữ nguyên). v2b nằm giữa bộ gốc và v2 (mọi thứ v2b khớp thì v2 cũng khớp), nên trên mỗi tập
+    đã đo: nhãn nhầm của v2b <= v2 và tấn công bắt được >= bộ gốc. Trên train / valid: payload có cấu trúc 27 286 -> 27 285 và
+    6 791 -> 6 791 (không đổi đáng kể).
+  - Vì bản sửa được viết SAU khi xem mẫu 150 000 của `test_sites`, mẫu đó không còn dùng được để xác nhận. **Điều 6 của vòng 2 đo
+    trên phần CÒN LẠI của `test_sites`** (các request không nằm trong mẫu 150 000 đã xem; lấy ngẫu nhiên 150 000 trong số đó, hạt
+    giống 20261117): nhãn nhầm của v2b không cao hơn bộ gốc quá 0,02 điểm. Ba tập còn lại của điều 6 và điều 7 đo lại, giới hạn như
+    cũ (đã từng xem một lần với v2 — ghi rõ).
+  - Các điều 1–5 (hệ thống thật, R1 = bộ gốc, R2 = v2b) giữ nguyên như mục 12:05. `TIER2_CONSTRUCT_RULES=2` từ commit này nghĩa là
+    v2b; v2 chưa từng chạy trên hệ thống.
+  - Một điều không đạt -> giữ bộ gốc, KHÔNG có vòng 3 trong buổi này.
+
+- 16/11/2026 (13:10) — **Cổng 1, khoảng nạp lại danh sách chặn: KẾT QUẢ — chọn N2 (2 giây, vòng chờ như cũ); đã đặt làm mặc định.**
+  Đo 11:52–12:30, một buổi (`eval/results/reload-N5.txt`, `-N2`, `-N5e`, `-N2e`, `-N5lap`; bảng: `tools/reloadcfg.py`).
+
+  | Cấu hình | Lần lượt, 10 lần khoá: T thực thi (s) | So le, 32 lần khoá: T thực thi (s) | KB 39: nạp lại | KB 39: người dùng không-200 | Đỉnh tiến trình / bộ nhớ nginx |
+  |---|---|---|---|---|---|
+  | N5 (mốc) | 0,30 (0,2–2,7) | 2,60 (0,2–5,8) | 4 | 4/60 | 21 / 44 MiB |
+  | N2 | 0,50 (0,2–2,6) | 1,15 (0,2–3,6) | 9 | 5/60 | 21 / 43 MiB |
+  | N5e | 0,45 (0,2–0,7) | 3,10 (0,2–5,4) | 6 | 7/60 | 23 / 46 MiB |
+  | N2e | 0,30 (0,2–0,8) | 1,40 (0,2–3,3) | 12 | 4/60 | 21 / 43 MiB |
+  | N5 lặp cuối buổi | — | 2,35 (0,2–8,8) | — | — | — |
+
+  Giá trị: trung vị (nhỏ nhất–lớn nhất). Mọi cấu hình: 10/10 và 32/32 lần bị khoá; kịch bản 39 và 45 đạt; 300/300 bot bị khoá; 0 dòng
+  lỗi của nginx.
+  - Độ trôi: N5 lặp 2,35 so với 2,60 (lệch 0,25 <= 0,5) -> phép so dùng được.
+  - Điều 1–5: N2 đạt cả năm; N2e đạt cả năm; N5e trượt điều 2 (3,10 > 2,10). Giữa N2 và N2e: trung vị so le 1,15 và 1,40 (chênh đúng
+    0,25, không dưới 0,25) -> chọn trung vị thấp hơn = N2; N2 cũng nạp lại ít lần hơn (9 so với 12).
+  - Số kèm, không thuộc quy tắc: thời gian tới khi bot bị chặn ở kịch bản 39 (trung vị) 29,7 / 29,1 / 35,0 / 30,4 giây — không đổi theo
+    cấu hình (phần lớn là thời gian tầng 3 phát hiện). Ở phép đo lần lượt, N5 và N2 mỗi cấu hình có một lần 2,6–2,7 giây, hai cấu hình
+    "chờ đúng" không có; 10 lần mỗi cấu hình là quá ít để kết luận về điều đó.
+  - Đã làm: `docker-compose.yml` đặt `RELOAD_MIN_INTERVAL_S` mặc định 2 (`RELOAD_EXACT_WAIT` giữ 0); nginx tạo lại lúc 13:11;
+    `stack.sh check` nay kiểm thêm giá trị này. Quay lại: `RELOAD_MIN_INTERVAL_S=5`.
+
+- 16/11/2026 (13:10) — **Tầng 2, bộ quy tắc bổ sung, vòng 2 (v2b): KẾT QUẢ — đạt cả bảy điều; đã đặt làm mặc định.**
+  - Điều 6, 7 (ngoại tuyến, `GSANM/nghien-cuu-tang-2/nc5-vong2.log`, `nc5-vong2-sites-con-lai.json`):
+
+    | Tập | Số đo | Bộ gốc | v2b | Giới hạn |
+    |---|---|---|---|---|
+    | `test_sites`, phần chưa xem (150 000 / 240 309) | nhãn nhầm | 377 | 380 (+0,002 điểm) | tăng <= 0,02 điểm |
+    | `test_hardtext` (5 028) | nhãn nhầm | 96 (1,91 %) | 96 (1,91 %) | tăng <= 0,5 điểm |
+    | `test_freetext` (10 000) | nhãn nhầm | 8 | 9 | tăng <= 0,1 điểm |
+    | HttpParams (31 067) | tấn công được tầng 1 + 2 bắt | 93,61 % | 97,48 % | >= bộ gốc |
+
+  - Điều 1–5 (hệ thống thật, 12:32–12:52, `eval/results/t2model-crR1.txt`, `-crR2.txt`):
+
+    | # | Số đo | R1 (bộ gốc) | R2 (v2b) | Kết quả |
+    |---|---|---|---|---|
+    | 1 | Bộ thử 52 payload | 49/52 | 49/52 | đạt |
+    | 2 | Bench: tấn công bộ phân loại bắt | 61/65 | 63/65 | đạt (về lại mức trước A2) |
+    | 3 | Bench: mẫu hợp lệ khó / thường bị gắn nhãn | 5/27, 0/28 | 5/27, 0/28 | đạt |
+    | 4 | Ba danh sách đối chứng cũ; danh sách 4a | 11/180; 0/32 | 11/180; 0/32 | đạt |
+    | 5 | Kịch bản 02, 13, 25, 41, 42 | — | đều ĐẠT | đạt |
+
+  - Số báo cáo, không thuộc điều kiện: danh sách 4b (30 văn bản kỹ thuật cố ý gần quy tắc mới) 0/30 -> 12/30 bị gắn nhãn (10/30 trong
+    đó vốn đã bị Cổng 2 chặn ở cả hai cấu hình). Đây là cái giá biết trước của v2b: văn bản kỹ thuật kiểu "phpinfo() hiển thị gì",
+    "log file ở /var/log/nginx bị đầy" nay qua được cổng cấu trúc và bị model gắn nhãn (nửa trọng số, không tự khoá IP).
+  - Đã làm: `docker-compose.yml` đặt `TIER2_CONSTRUCT_RULES` mặc định 2; classifier tạo lại lúc 13:11 (nhật ký: `construct=True
+    rules=2`); `stack.sh check` kiểm thêm giá trị này. Quay lại bộ gốc: `TIER2_CONSTRUCT_RULES=1`.
+  - Hệ quả cho số đã công bố: với A2 + v2b, bench bộ phân loại bắt 63/65 (A2 với bộ gốc: 61/65).
+
+- 16/11/2026 (13:20) — **Cổng 2, khảo sát chặn nhầm: SỐ NỀN và các ngoại lệ được viết (chưa đo lượt "sau").**
+  - (a) Lưu lượng hợp lệ đã tích luỹ, từ 15/11 01:21: `client` 10.10.10.20: 34 936 request, 0 bị Cổng 2 chặn; `client-booking`
+    10.10.10.21: 43 225 request, 0 bị Cổng 2 chặn. Nhãn tầng 2 trên `client`: 2 358/33 039 (7,1 %, đều là tìm kiếm "order by price")
+    trước khi bật A2; 0/1 907 từ khi bật A2. **Phát hiện ngoài CRS:** `client-booking` (không miễn trừ) bị responder khoá 7 lần
+    (`immediate:behaviour`, 15 phút mỗi lần); 6 lần trùng thời điểm kịch bản nhồi tài khoản 10, 38, 45 chạy — bộ đếm chiến dịch của
+    tầng 3 tính mọi POST tới /login (kể cả đăng nhập thành công) nên khách thật đăng nhập >= 3 lần/phút bị coi là thành viên chiến dịch.
+  - (b) Lượt nền `tools/crsdo.sh truoc` (12:53–13:07): mẫu quan sát 86/2 000 (4,30 %), mẫu kiểm tra 76/2 000 (3,80 %); bench Cổng 2
+    chặn 65/65; kịch bản 01: 925/1 152; 36: 32/32, đạt; 47: đạt; GoTestWAF 317/675 bị chặn, bộ thử báo nhầm 13/141 bị chặn;
+    waf-bypass 5 076 bị chặn, 1 663 lọt, 3 FALSED. Bảng luật của lượt nền không đọc được (công cụ lỗi với thân nhị phân, nhật ký
+    kiểm toán bị xoay mất sau đó); phát lại mẫu quan sát lần nữa lúc 13:09 (`crstruoc2-20261116-130927`): lại đúng 86/2 000.
+  - Luật gây chặn nhầm trên mẫu quan sát (số request bị chặn có luật đó): 920420 kiểu nội dung không cho phép 17; 943120 tham số
+    sessionid không có Referer 14; 932235 chèn lệnh Unix 10 (8 ở `query` của GraphQL); 931120 RFI 9 (đều ở `dl`); 942100 libinjection 6;
+    920340 + 920640 thiếu Content-Type 6; 942550 SQLi dạng JSON 4 (`data`); 921130 3; 942190 3; 930120 3; còn lại mỗi luật 1–2.
+  - **Ngoại lệ được viết** (`web/apache/crs/nsm-tuning-config.conf`, `-before.conf`; dải id 1000110–1000113):
+    (1) cho phép `application/csp-report`, `application/vnd.api+json`, `text/ping`, hai kiểu JSON được giao cho bộ xử lý JSON;
+    (2) thêm 932235 vào ngoại lệ GraphQL sẵn có (cùng phạm vi); (3) gỡ 942550 khỏi `data` / `options` khi giá trị là tài liệu JSON;
+    (4) gỡ 931120 khỏi `dl`, 921130 khỏi `nt_protocol` và `ak.proto`.
+  - **Cố ý KHÔNG tinh chỉnh:** 943120 (14) và 920340/920640 (6) — phụ thuộc header `Referer` / `Content-Type` mà tập dữ liệu không
+    ghi, không biết request gốc có thiếu thật không; 942100, 942190, 930120, 930130, 911100 (phương thức PUT), 920480 và các kiểu nội
+    dung riêng của một dịch vụ — không có ngoại lệ hẹp nào đủ an toàn hoặc chỉ khớp một dịch vụ.
+  - Nhận xét về dữ liệu, ghi trước khi đo lượt sau: tập openappsec ghi MỌI request của trình duyệt khi duyệt một website, kể cả
+    request tới máy chủ của bên thứ ba (Google Analytics, Facebook Pixel, Chrome UMA). Một website được bảo vệ không nhận các
+    request đó, nên 4,3 % và 3,8 % là số cao hơn mức một website thật sẽ thấy; tỉ lệ này không tách riêng được từ dữ liệu.
+
+- 16/11/2026 (13:40) — **Cổng 2, ngoại lệ CRS ứng viên: KẾT QUẢ — TRƯỢT điều 1 -> BỎ thay đổi, giữ tinh chỉnh ngày 14/11.**
+  Lượt sau: `tools/crsdo.sh sau`, 13:17–13:31 (`eval/results/crs-sau.txt`; bảng: `tools/crsdo.py`).
+
+  | # | Số đo | Lượt nền | Có ngoại lệ | Điều kiện | Kết quả |
+  |---|---|---|---|---|---|
+  | 1 | Mẫu KIỂM TRA: request hợp lệ bị Cổng 2 chặn | 76/2 000 (3,80 %) | 71/2 000 (3,55 %) | giảm >= 20 % (<= 60) | **KHÔNG (giảm 6,6 %)** |
+  | 2 | Bench: Cổng 2 chặn tấn công; mẫu hợp lệ bị chặn | 65/65 | 65/65, không tăng | không đổi | đạt |
+  | 3 | Kịch bản 01; GoTestWAF; waf-bypass (bị chặn) | 925; 317; 5 076 | 925; 317; 5 076 | không giảm quá 2; 3; 0,5 % | đạt |
+  | 4 | Kịch bản 36, 47 | đạt | đạt | đạt | đạt |
+
+  Số kèm: mẫu quan sát (ngoại lệ viết từ chính nó) 86 -> 61 trên 2 000 (4,30 % -> 3,05 %); bộ thử báo nhầm của GoTestWAF 13/141 và
+  FALSED của waf-bypass 3 — không đổi. Khoảng tin cậy 95 % của mẫu kiểm tra: 3,0–4,7 % và 2,8–4,5 % (chồng lên nhau gần hết).
+  - **Theo quy tắc: bỏ.** Ngoại lệ viết từ các website nửa đầu bảng chữ cái hầu như không có tác dụng trên các website nửa sau: mỗi
+    website chặn nhầm ở tham số và kiểu nội dung riêng của nó. Trong mẫu quan sát, cho phép `application/csp-report` cũng chỉ gỡ được
+    2/5 request: khi thân được tách thành JSON, luật 941170 và 932370 khớp nội dung báo cáo.
+  - Đã làm: hai tệp `web/apache/crs/nsm-tuning-*.conf` trả về bản ngày 14/11 (bản ứng viên còn trong commit `1afcd4a`); image apache
+    dựng lại, container tạo lại 13:31; kiểm lại: mẫu quan sát 86/2 000 như lượt nền, bench Cổng 2 65/65; `stack.sh check` sạch 13:38.
+  - Không viết thêm ngoại lệ sau khi thấy lượt sau. Tôi không xem bảng luật của mẫu kiểm tra, nên mẫu đó còn dùng được cho lần sau.
+
+- 16/11/2026 (13:52) — **Tầng 3, bộ đếm chiến dịch nhồi tài khoản: chỉ đếm lần đăng nhập KHÔNG thành công — TIÊU CHÍ GHI TRƯỚC KHI ĐO.**
+  Người dùng duyệt sửa ("Có, sửa tầng 3") sau phát hiện ở mục 13:20 (a). Chưa đo gì.
+  - Thay đổi: `services/tier3.py` thêm `login_attempt()` và `TIER3_LOGIN_COUNT` (`failed` | `all`; trong commit này compose vẫn đặt
+    `all` = cách cũ); nhật ký truy cập của Apache thêm trường `loc` (header `Location` của phản hồi) để phân biệt chuyển hướng
+    quay lại trang đăng nhập (sai) với chuyển hướng đi trang khác (đúng). Một POST tới đường dẫn đăng nhập được đếm khi phản hồi
+    >= 400 hoặc 3xx quay lại trang đăng nhập; 2xx và 3xx tới trang khác không đếm (`TIER3_LOGIN_2XX_FAILED=1` để đếm 2xx).
+  - Kịch bản mới 48: như 45 (botnet 100 IP × 4 lần sai vào `booking.local`) thêm một khách thật đăng nhập ĐÚNG 30 lần cách nhau 2 giây.
+  - Đo cùng buổi, hai chế độ: `all` (cũ): kịch bản 48, 45, 10, 38; `failed` (mới): 48, 45, 10, 38, 09, 02, 13.
+  - **`failed` được đặt làm mặc định khi đạt CẢ năm điều:**
+    1. Kịch bản 48 với `failed` đạt (>= 80 % bot bị khoá, khách thật không bị khoá) VÀ ít nhất 29/30 lần đăng nhập của khách thật
+       trả 302 (tức kịch bản thật sự đăng nhập đúng).
+    2. Kịch bản 48 với `all`: khách thật BỊ khoá (kịch bản tái hiện được lỗi). Nếu không bị khoá thì kịch bản không kiểm được bản
+       sửa: không đổi mặc định dựa trên lượt này, báo lại.
+    3. Kịch bản 45, 10, 38 với `failed` đạt; tỉ lệ bot / IP tấn công bị khoá không thấp hơn lượt `all` quá 5 điểm phần trăm.
+    4. Kịch bản 09, 02, 13 với `failed` đạt.
+    5. Trong các lượt `failed`, responder không ra quyết định khoá nào với `client-booking` (10.10.10.21).
+  - Số báo cáo kèm: quyết định khoá với 10.10.10.21 trong lượt `all`; giá trị `loc` thực tế của POST đăng nhập ở DVWA và cổng đặt chỗ.
+  - Giới hạn biết trước: ứng dụng trả 200 kèm thông báo lỗi khi sai mật khẩu sẽ KHÔNG được bộ đếm chiến dịch thấy ở chế độ mặc
+    định mới (phải đặt `TIER3_LOGIN_2XX_FAILED=1`, khi đó đăng nhập đúng trả 200 lại bị đếm); khách thật gõ sai từ 3 lần trong 60
+    giây giữa lúc có chiến dịch vẫn bị khoá; mỗi kịch bản một lượt; bản hai máy không đo.
+
+- 16/11/2026 (14:22) — **Tầng 3, bộ đếm chiến dịch, vòng 1: KẾT QUẢ — TRƯỢT điều 1 và 3 -> `failed` (bản vòng 1) KHÔNG được nhận.
+  Vòng 2: tiêu chí ghi trước.** Đo 13:53–14:20 (`eval/results/t3all-20261116-135349`, `t3failed-20261116-140118`).
+
+  | # | Điều kiện | Kết quả vòng 1 |
+  |---|---|---|
+  | 1 | KB 48 với `failed` đạt; >= 29/30 lần đăng nhập của khách trả 302 | **KHÔNG**: 30/30 trả 302, bot bị khoá, nhưng khách bị khoá MUỘN |
+  | 2 | KB 48 với `all`: khách bị khoá | đạt (bị Cổng 1 chặn sau 11 lần đăng nhập) |
+  | 3 | KB 45, 10, 38 với `failed` đạt | **KHÔNG**: 45 đạt; 10: 0/50 IP bị khoá; 38: 0/200 bot bị khoá |
+  | 4 | KB 09, 02, 13 với `failed` đạt | đạt |
+  | 5 | Không quyết định khoá nào với 10.10.10.21 trong lượt `failed` | đạt (0; lượt `all`: 2 quyết định khoá) |
+
+  - Hai nguyên nhân, xem sau khi có kết quả: (a) với botnet của kịch bản 10 và 38, DVWA trả **200** cho POST đăng nhập sai (không
+    có phiên và mã CSRF: trang đăng nhập hiện lại), mà bản vòng 1 coi 2xx là thành công — đúng giới hạn đã ghi trước ở mục 13:52,
+    nhưng tôi đã không kiểm rằng chính DVWA rơi vào đó; (b) khách của kịch bản 48 gửi 30 POST trong 60 giây và chạm mẫu
+    `bruteforce` THEO-TỪNG-IP của tầng 3 (>= 30 POST, >= 80 % là POST, <= 2 đường dẫn) — một bộ phát hiện khác; kịch bản thiết kế sai.
+  - Theo quy tắc: compose giữ `TIER3_LOGIN_COUNT=all`. Stack sạch 14:20.
+  - **Vòng 2:** (a) `login_attempt()` chỉ KHÔNG đếm lần RÕ RÀNG thành công (3xx tới trang khác trang đăng nhập); 2xx được đếm
+    (mơ hồ), `TIER3_LOGIN_2XX_OK=1` cho ứng dụng báo thành công bằng 200; (b) khách của kịch bản 48 đăng nhập đúng 12 lần cách nhau
+    5 giây (dưới ngưỡng 30 POST của mẫu `bruteforce`, vẫn >= 3 lần/phút nên cách đếm cũ phải khoá).
+  - Đo: `all`: kịch bản 48; `failed`: 48, 45, 10, 38, 09, 02, 13. **Năm điều kiện giữ nguyên như mục 13:52**, với điều 1 đổi thành
+    ">= 11/12 lần đăng nhập của khách trả 302" và điều 3 so với lượt `all` của vòng 1 (45: đạt; 10: 50/50; 38: đạt).
+  - Một điều không đạt -> giữ `all`, KHÔNG có vòng 3 trong buổi này; ghi lại làm giới hạn.
+  - Giới hạn biết trước của bản vòng 2: ứng dụng báo đăng nhập ĐÚNG bằng 200 tại đường dẫn khớp `/login` vẫn bị đếm như cũ (trừ khi
+    đặt `TIER3_LOGIN_2XX_OK=1`, khi đó đăng nhập sai trả 200 không được thấy); khách thật có từ 3 lần đăng nhập KHÔNG thành công
+    trong 60 giây giữa lúc có chiến dịch vẫn bị khoá; mẫu `bruteforce` theo-từng-IP không phân biệt đăng nhập đúng với sai.
+
+- 16/11/2026 (14:50) — **Tầng 3, bộ đếm chiến dịch, vòng 2: KẾT QUẢ — đạt cả năm điều; `TIER3_LOGIN_COUNT=failed` là mặc định.**
+  Đo 14:22–14:46 (`eval/results/t3all2-20261116-142326`, `t3failed2-20261116-142628`).
+
+  | # | Điều kiện | Kết quả |
+  |---|---|---|
+  | 1 | KB 48 với `failed` đạt; >= 11/12 lần đăng nhập của khách trả 302 | đạt: 100/100 bot bị khoá, khách không bị khoá, 12/12 trả 302 |
+  | 2 | KB 48 với `all`: khách bị khoá | đạt: khách bị Cổng 1 chặn sau 5 lần đăng nhập (7/12 request nhận 403) |
+  | 3 | KB 45, 10, 38 với `failed` đạt, không thấp hơn lượt `all` quá 5 điểm | đạt: 100/100, 50/50, 200/200 (lượt `all` vòng 1: đạt, 50/50, đạt) |
+  | 4 | KB 09, 02, 13 với `failed` đạt | đạt |
+  | 5 | Không quyết định khoá nào với 10.10.10.21 trong lượt `failed` | đạt: 0 (lượt `all` cùng buổi: 1 quyết định khoá) |
+
+  - Giá trị `loc` thực tế: cổng đặt chỗ đăng nhập đúng `302 -> profile.php`, sai `401`; DVWA với botnet của kịch bản (không phiên,
+    không mã CSRF) `200`, không có `Location`.
+  - Đã làm: `docker-compose.yml` đặt `TIER3_LOGIN_COUNT` mặc định `failed`; tier3 tạo lại; `stack.sh check` kiểm thêm giá trị này.
+    Quay lại cách cũ: `TIER3_LOGIN_COUNT=all`.
+  - Giới hạn còn lại (như đã ghi trước): đăng nhập đúng được báo bằng 200 tại đường dẫn khớp `/login` vẫn bị đếm; khách có từ 3 lần
+    đăng nhập không thành công trong 60 giây giữa chiến dịch vẫn bị khoá; mẫu `bruteforce` theo-từng-IP (>= 30 POST/phút, hầu hết
+    là POST) không phân biệt đúng / sai — khách của kịch bản 48 bản đầu (30 lần đăng nhập đúng/phút) bị khoá vì mẫu này; mỗi
+    kịch bản một lượt; bản hai máy không đo.

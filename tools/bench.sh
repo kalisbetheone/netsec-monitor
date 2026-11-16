@@ -13,6 +13,9 @@
 # Kết quả: bench-results/<thời điểm>/report.md (kèm dữ liệu thô .json), nằm trong thư mục dự án.
 # Biến tuỳ chọn: BENCH_PERF_S (giây mỗi mức tải, mặc định 15), BENCH_SCENARIOS (mặc định "sqli rce flood recon"),
 #   BENCH_IMAGE (image Python dùng để chạy đo, mặc định nsm-classifier).
+#   BENCH_MTTR_STAGGER_S=1   pha mttr: các lần chạy bắt đầu SO LE nhau từng ấy giây và chạy song song (nhiều IP bị khoá sát
+#                            nhau, để đo việc nginx gom các lần nạp lại). Không đặt: chạy lần lượt như cũ.
+#   BENCH_MTTR_INTERVAL=0.25 pha mttr: khoảng cách giữa hai request của mỗi IP (mặc định theo kịch bản: sqli/rce 0,5 giây).
 # LƯU Ý: pha mttr/slow XOÁ blocklist hiện tại lúc bắt đầu (giống tools/reset.sh). Bench tự khôi phục cấu hình
 #   responder khi kết thúc hoặc bị ngắt (Ctrl-C).
 set -u
@@ -158,13 +161,20 @@ fi
 if has mttr; then
   log "pha mttr: [$SCENARIOS] × $REPS lần, mỗi lần một IP mới ..."
   : > "$OUT/mttr.jsonl"
-  i=0
+  i=0; mp=""
+  MIV=(); [ -n "${BENCH_MTTR_INTERVAL:-}" ] && MIV=(--interval "$BENCH_MTTR_INTERVAL")
   for s in $SCENARIOS; do
     for r in $(seq 1 "$REPS"); do
-      py_ext "10.10.10.$((160 + i))" mttr --scenario "$s" --rep "$r" >> "$OUT/mttr.jsonl"
-      i=$((i + 1)); sleep 2
+      if [ -n "${BENCH_MTTR_STAGGER_S:-}" ]; then
+        py_ext "10.10.10.$((160 + i))" mttr --scenario "$s" --rep "$r" "${MIV[@]}" > "$OUT/mttr-$(printf %02d "$i").part" &
+        mp="$mp $!"; i=$((i + 1)); sleep "$BENCH_MTTR_STAGGER_S"
+      else
+        py_ext "10.10.10.$((160 + i))" mttr --scenario "$s" --rep "$r" "${MIV[@]}" >> "$OUT/mttr.jsonl"
+        i=$((i + 1)); sleep 2
+      fi
     done
   done
+  if [ -n "$mp" ]; then wait $mp; cat "$OUT"/mttr-*.part >> "$OUT/mttr.jsonl"; rm -f "$OUT"/mttr-*.part; fi
 fi
 
 # ---------------------------------------------------------------- perf

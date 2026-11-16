@@ -77,7 +77,11 @@ services:
     build: ./web/nginx
     restart: unless-stopped
     environment:
-      RELOAD_MIN_INTERVAL_S: "5"                # E5: gom các thay đổi blocklist, tối đa 1 lần nạp lại / 5 giây
+      # E5: gom các thay đổi blocklist, tối đa 1 lần nạp lại / N giây. 16/11/2026: 5 -> 2 (đo bốn cấu hình, eval/PROTOCOL.md mục
+      # 16/11 11:55 và 13:10): khi nhiều IP bị khoá sát nhau, thời gian từ quyết định tới lúc nginx chặn giảm 2,6 -> 1,15 giây
+      # (trung vị); kịch bản 39 nạp lại 9 lần thay vì 4, tiến trình và bộ nhớ của nginx không đổi. Quay lại: RELOAD_MIN_INTERVAL_S=5.
+      RELOAD_MIN_INTERVAL_S: "${RELOAD_MIN_INTERVAL_S:-2}"
+      RELOAD_EXACT_WAIT: "${RELOAD_EXACT_WAIT:-0}"           # 1 = khi phải chờ thì chờ ĐÚNG phần còn lại rồi nạp (đã đo 16/11: không hơn, giữ 0)
       LOG_MAX_MB: "50"                          # xoay gate1.json (request bị Cổng 1 từ chối) khi vượt kích thước này (giữ 1 bản cũ)
     volumes:
       - blocklist:/etc/nginx/blocklist
@@ -282,6 +286,10 @@ services:
       # cổng CẤU TRÚC (16/11/2026): nhãn của model chỉ được tính khi một giá trị tham số có cấu trúc tấn công rõ
       # (services/constructs.py); 0 = không dùng cổng này. Đo bằng tools/t2model.sh.
       TIER2_CONSTRUCT_GATE: "${TIER2_CONSTRUCT_GATE:-1}"
+      # 16/11/2026 13:10: bộ quy tắc cấu trúc bổ sung "v2b" là mặc định (đạt bảy điều kiện ghi trước, eval/PROTOCOL.md mục 16/11
+      # 12:05, 12:25, 13:10): bench, tấn công bộ phân loại bắt 61 -> 63 trên 65; HttpParams 93,6 % -> 97,5 %; nhãn nhầm trên ba danh
+      # sách đối chứng không đổi (11/180). Quay lại bộ gốc: TIER2_CONSTRUCT_RULES=1.
+      TIER2_CONSTRUCT_RULES: "${TIER2_CONSTRUCT_RULES:-2}"   # 1 = bộ quy tắc cấu trúc gốc; 2 = thêm bộ bổ sung v2b (services/constructs.py)
       TIER2_SYNTAX_GATE: "${TIER2_SYNTAX_GATE:-0}"   # cổng cú pháp của tầng 2; đổi tạm bằng biến môi trường khi đo (tools/t2gate.sh)
       TIER2_DECISION: "${TIER2_DECISION:-mass}"        # model 14/11 (có văn bản tự do Tatoeba). Trước 16/11: argmax, ngưỡng 0,67; model 12/11 giữ ở models/tier2_1211.joblib (mass, 0,87)
       # enforce = nhãn tầng 2 dẫn tới cảnh báo/chặn; observe = chỉ ghi nhận (t2_label); corroborate = chỉ tính khi
@@ -315,6 +323,12 @@ services:
       INTERNAL_CIDRS: "10.10.30.0/24,10.10.10.10/32,172.16.0.0/12"
       TIER3_MIN_REQ: "15"
       TIER3_COOLDOWN_S: "120"
+      # bộ đếm chiến dịch nhồi tài khoản: failed = không đếm lần đăng nhập RÕ RÀNG thành công (3xx tới trang khác trang đăng nhập);
+      # all = cách cũ (mọi POST /login). Mặc định failed từ 16/11/2026 14:50 (đạt năm điều kiện ghi trước ở vòng 2, eval/PROTOCOL.md):
+      # khách thật đăng nhập đúng giữa chiến dịch không còn bị khoá, kịch bản 10, 38, 45 vẫn khoá đủ botnet.
+      # Ứng dụng báo đăng nhập ĐÚNG bằng 200 tại /login: đặt thêm TIER3_LOGIN_2XX_OK=1.
+      TIER3_LOGIN_COUNT: "${TIER3_LOGIN_COUNT:-failed}"
+      TIER3_LOGIN_2XX_OK: "${TIER3_LOGIN_2XX_OK:-0}"
     volumes: ["./models:/models:ro"]
     networks: [monitor_net]
     depends_on:

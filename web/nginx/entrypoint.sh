@@ -3,6 +3,7 @@ DIR=/etc/nginx/blocklist
 MAP="$DIR/blocklist.map"
 FPMAP="$DIR/blockfp.map"                 # D1: khoá "<ip>|<User-Agent>"
 MIN="${RELOAD_MIN_INTERVAL_S:-5}"     # E5: tối đa 1 lần nạp lại mỗi MIN giây (gom các thay đổi dồn dập)
+EXACT="${RELOAD_EXACT_WAIT:-0}"       # 1 = còn trong MIN giây thì ngủ đúng phần còn lại rồi nạp; 0 = ngủ 1 giây rồi quay lại vòng chờ
 EXGEO="$DIR/exempt.geo"                 # dải miễn trừ (không giới hạn tốc độ), do enforcer ghi
 mkdir -p "$DIR"; [ -f "$MAP" ] || : > "$MAP"; [ -f "$FPMAP" ] || : > "$FPMAP"; [ -f "$EXGEO" ] || : > "$EXGEO"
 if grep -qvE '^(#.*|[0-9A-Fa-f:.]+(/[0-9]{1,3})? 1;|[[:space:]]*)$' "$EXGEO"; then
@@ -39,7 +40,15 @@ mkdir -p "$CERT"
     cur=$(cat "$MAP" "$FPMAP" "$EXGEO" 2>/dev/null | md5sum) || continue
     [ "$cur" = "$applied" ] && continue
     now=$(date +%s)
-    if [ $((now - last)) -lt "$MIN" ]; then sleep 1; continue; fi
+    if [ $((now - last)) -lt "$MIN" ]; then
+      # Cách cũ (EXACT=0): ngủ 1 giây rồi quay lại inotifywait (chờ tới 2 giây nếu không có thay đổi mới), nên một thay đổi
+      # đến ngay sau lần nạp trước có thể phải chờ lâu hơn MIN tới 2 giây. EXACT=1: ngủ đúng phần còn lại, đọc lại nội dung, nạp.
+      if [ "$EXACT" != 1 ]; then sleep 1; continue; fi
+      sleep $((MIN - (now - last)))
+      cur=$(cat "$MAP" "$FPMAP" "$EXGEO" 2>/dev/null | md5sum) || continue
+      [ "$cur" = "$applied" ] && continue
+      now=$(date +%s)
+    fi
     if nginx -t -q 2>/dev/null; then nginx -s reload && echo "[watch] blocklist reloaded"
     else echo "[watch] nginx -t failed, giữ cấu hình cũ"; fi
     applied=$cur; last=$now

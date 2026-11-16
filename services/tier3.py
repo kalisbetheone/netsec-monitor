@@ -57,13 +57,43 @@ MIN_429, F429 = E("TIER3_MIN_429", "40"), E("TIER3_FRAC_429", "0.3")
 # (kịch bản 10: 50 IP × 4 lần, 0 IP bị chặn). Bộ đếm này nhìn TOÀN HỆ THỐNG: trong một cửa sổ, nếu có >= STUFF_MIN_IPS
 # địa chỉ mà MỖI địa chỉ thử đăng nhập >= STUFF_PER_IP lần, và tổng số lần thử của chúng >= STUFF_MIN_TOTAL, thì từng địa
 # chỉ đó bị báo (mẫu 'stuffing'). Một người gõ sai mật khẩu vài lần KHÔNG bị báo trừ khi đang có cả chiến dịch.
-# "Thử đăng nhập" = POST tới đường dẫn khớp TIER3_LOGIN_RE, hoặc bất kỳ phản hồi 401 nào (API trả 401 khi sai mật khẩu).
+# "Thử đăng nhập" = POST tới đường dẫn khớp TIER3_LOGIN_RE, hoặc bất kỳ phản hồi 401 nào (API trả 401 khi sai mật khẩu);
+# từ 16/11/2026 lần đăng nhập rõ ràng thành công không được đếm (xem login_attempt bên dưới).
 import re
 LOGIN_RE = re.compile(os.getenv("TIER3_LOGIN_RE", r"/login"), re.I)
 STUFF_PER_IP = int(E("TIER3_STUFF_PER_IP", "3"))
 STUFF_MIN_IPS = int(E("TIER3_STUFF_MIN_IPS", "8"))
 STUFF_MIN_TOTAL = int(E("TIER3_STUFF_MIN_TOTAL", "40"))
-login_ev = deque(maxlen=200000)      # (ts, ip, ua) của mọi lần thử đăng nhập, toàn hệ thống
+# 16/11/2026 — KHÔNG ĐẾM LẦN ĐĂNG NHẬP RÕ RÀNG THÀNH CÔNG (TIER3_LOGIN_COUNT=failed). Trước đó mọi POST tới /login đều được
+# đếm, kể cả đăng nhập đúng, nên khi đang có chiến dịch thì khách thật đăng nhập >= 3 lần/phút bị khoá cùng botnet
+# (client-booking bị khoá 7 lần trong hai ngày; Danh-sach-gioi-han, mục 23). Một POST tới đường dẫn đăng nhập:
+#   - KHÔNG đếm khi RÕ RÀNG thành công: 3xx chuyển hướng tới trang KHÁC trang đăng nhập (profile.php, index.php);
+#   - ĐẾM trong mọi trường hợp còn lại: >= 400 (401, 403, 429...), 3xx QUAY LẠI trang đăng nhập (DVWA: Location: login.php),
+#     và 2xx — trang đăng nhập được trả lại kèm thông báo lỗi là cách báo sai mật khẩu phổ biến (DVWA trả 200 cho botnet của
+#     kịch bản 10 và 38; vòng đo đầu ngày 16/11 coi 2xx là thành công nên bỏ lọt cả hai chiến dịch).
+# Ứng dụng báo đăng nhập ĐÚNG bằng 200 (API trả token tại /login) thì đặt TIER3_LOGIN_2XX_OK=1. Cần trường "loc" (header
+# Location của phản hồi) trong nhật ký truy cập — web/apache/logjson.conf; dòng nhật ký chưa có trường này thì 3xx được đếm
+# như trước. TIER3_LOGIN_COUNT=all = cách đếm cũ.
+LOGIN_COUNT = os.getenv("TIER3_LOGIN_COUNT", "failed")
+LOGIN_2XX_OK = os.getenv("TIER3_LOGIN_2XX_OK", "0") == "1"
+_LOC_HOST = re.compile(r"^[a-z][a-z0-9+.-]*://[^/]*", re.I)
+
+def login_attempt(ev, status):
+    """True nếu sự kiện là một lần thử đăng nhập được ĐẾM vào bộ đếm chiến dịch."""
+    post_login = (ev.get("method") or "").upper() == "POST" and bool(LOGIN_RE.search(ev.get("uri") or ""))
+    if LOGIN_COUNT == "all": return status == 401 or post_login
+    if status == 401: return True
+    if not post_login: return False
+    if status >= 400: return True
+    if 300 <= status < 400:
+        if "loc" not in ev: return True               # nhật ký định dạng cũ: không biết chuyển hướng đi đâu -> đếm như trước
+        loc = str(ev.get("loc") or "")
+        if loc in ("", "-"): return False
+        p = _LOC_HOST.sub("", loc.split("?", 1)[0].split("#", 1)[0])
+        return bool(LOGIN_RE.search(p if p.startswith("/") else "/" + p))
+    return not LOGIN_2XX_OK                           # 2xx (và 1xx): mơ hồ -> đếm, trừ khi ứng dụng báo thành công bằng 200
+
+login_ev = deque(maxlen=200000)      # (ts, ip, ua) của mọi lần thử đăng nhập ĐƯỢC ĐẾM, toàn hệ thống
 camp = {"last_alert": {}, "since": 0, "last_eval": 0.0, "max_ts": 0.0}
 
 def attack_shape(d, c):
@@ -205,7 +235,7 @@ def add(ev, prod, es_buf):
     ts = float(ev.get("ts_ms") or now * 1000) / 1000.0
     try: st_ = int(ev.get("status") or 0)
     except (TypeError, ValueError): st_ = 0
-    if st_ == 401 or ((ev.get("method") or "").upper() == "POST" and LOGIN_RE.search(ev.get("uri") or "")):
+    if login_attempt(ev, st_):
         ua_ = ev.get("ua") or ""
         login_ev.append((ts, ip, "" if ua_ == "-" else ua_[:256]))
         camp["since"] += 1

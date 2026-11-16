@@ -183,6 +183,7 @@ bash tools/tier1sync.sh                          # đối chiếu luật ModSecu
 | Dịch vụ | Tham số | Giá trị | Ý nghĩa |
 |---|---|---|---|
 | classifier | `TIER2_THRESHOLD` / `TIER2_DECISION` / `TIER2_CONSTRUCT_GATE` | 0.50 / mass / 1 | Cấu hình tầng 2 từ 16/11: nhãn của model chỉ được tính khi một giá trị tham số có cấu trúc tấn công rõ (`services/constructs.py`); ngưỡng 0,50 kiểu `mass`. Cấu hình trước: 0.67 / argmax / 0. Model là bản 14/11 (bản 12/11 giữ ở `models/tier2_1211.joblib`). Ngưỡng này khác thang θ: điểm vượt ngưỡng được đổi sang 0,90–1,00 trước khi gửi responder (`TIER2_CONF_FLOOR`), điểm gốc lưu ở `t2_conf` |
+| classifier | `TIER2_CONSTRUCT_RULES` | 2 | Bộ quy tắc cấu trúc: 1 = bộ gốc, 2 = thêm bộ bổ sung v2b (mặc định từ 16/11 13:10; `services/constructs.py`) |
 | classifier | `TIER2_SYNTAX_GATE` | 0 | 1 = chỉ hỏi model khi giá trị tham số có ký tự cú pháp tấn công |
 | classifier | `TIER2_MODE` | weighted | `observe`: nhãn tầng 2 chỉ ghi vào `t2_label`. `corroborate`: chỉ tính khi Cổng 2 cũng chặn request đó. `weighted` (15/11, mặc định sau khi áp bản vá): nhãn chỉ do model vẫn thành cảnh báo nhưng mang cờ `weighted` — responder tính nửa trọng số, không tính cửa sổ dài, không khoá ngay; Cổng 2 cũng chặn thì tính đủ. `enforce`: tính đủ mọi nhãn |
 | classifier | `ATTACK_ARCHIVE` | 1 | Ghi thêm sự kiện có nhãn tấn công vào `attack-events-*` (giữ 1 năm) |
@@ -212,7 +213,8 @@ bash tools/tier1sync.sh                          # đối chiếu luật ModSecu
 | rulegen | `INTERVAL_S` / `SHADOW_S` | 60 / 900 | Chu kỳ (60 giây sau khi áp bản vá; trước đó 300) và thời gian chạy thử khi `RULE_APPLY=shadow` (**giá trị lab**; triển khai thật: 86400) |
 | rulegen | `MIN_BENIGN` | 100 | Corpus lành tính tối thiểu; thiếu thì không sinh/ban hành luật |
 | rulegen | `EPSILON` | 0 | Tỷ lệ lưu lượng lành tính được phép khớp một ứng viên luật |
-| nginx | `RELOAD_MIN_INTERVAL_S` | 5 | Tối đa một lần nạp lại blocklist mỗi N giây |
+| nginx | `RELOAD_MIN_INTERVAL_S` | 2 | Tối đa một lần nạp lại blocklist mỗi N giây (16/11: 5 -> 2 sau khi đo; `eval/PROTOCOL.md`) |
+| tier3 | `TIER3_LOGIN_COUNT` / `TIER3_LOGIN_2XX_OK` | failed / 0 | Bộ đếm chiến dịch nhồi tài khoản: không đếm lần đăng nhập rõ ràng thành công (16/11); `all` = cách cũ; `2XX_OK=1` cho ứng dụng báo thành công bằng 200 |
 | nginx (`nginx.conf`) | `limit_req` | 20 r/s (vượt ngắn 40) mỗi IP; POST `/login…` 30/phút (vượt ngắn 10) mỗi IP; tổng 350 r/s | Giới hạn tốc độ ở Cổng 1 (sau khi áp bản vá). Vượt hạn mức → 429. Nguồn miễn trừ (`exempt.geo`, do enforcer ghi từ `EXEMPT_CIDRS` và `nsmctl exempt-add`) không bị giới hạn |
 | apache | `LOG_MAX_MB` | 200 | Xoay `access.json` / `modsec_audit.json` / `error.log` khi vượt kích thước này (giữ 1 bản cũ) |
 | apache, nginx | `LOG_ROTATE_CHECK_S` | 60 | Chu kỳ kiểm kích thước nhật ký (giây) |

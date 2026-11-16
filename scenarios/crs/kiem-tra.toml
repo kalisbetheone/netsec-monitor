@@ -1,0 +1,17 @@
+# Việc 4 (16/11/2026): phát lại lưu lượng hợp lệ THẬT của các website khác để biết luật CRS nào chặn nhầm (tools/crsfp.sh).
+# Không có kỳ vọng: kịch bản CHỈ ĐO. Chạy:  SC_DIR=scenarios/crs SC_OUT_NAME=crs bash tools/scenario.sh quan-sat kiem-tra
+title = "Phát lại 2 000 request hợp lệ THẬT — mẫu KIỂM TRA (dòng 380 000 trở đi, cách 350 dòng)"
+case = "A1 (dữ liệu thật, khảo sát chặn nhầm của CRS)"
+notes = """Như mẫu quan sát nhưng từ dòng 380 000: các website nửa sau bảng chữ cái và phần 'browsing'. KHÔNG dùng để viết ngoại lệ: chỉ đọc \ncon số tổng trước và sau tinh chỉnh (tools/crsfp.sh --tong)."""
+max_s = 400
+exempt = ["self"]
+
+[[actor]]
+name = "phát lại"
+role = "benign"
+kind = "replay"
+ips = 4
+count = 500
+every = 350
+start = 380000
+interval_s = 0.05

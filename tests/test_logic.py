@@ -1029,6 +1029,46 @@ check("50 IP × 4 lần POST đăng nhập -> cả 50 IP bị báo (mẫu 'stuff
 check("mỗi IP chỉ bị báo một lần trong thời gian chờ", len(al) == 50, str(len(al)))
 check("5 người cùng gõ sai mật khẩu vài lần KHÔNG phải chiến dịch", run_campaign(5, 4) == [])
 check("100 người mỗi người đăng nhập 1–2 lần (cao điểm hợp lệ) KHÔNG bị báo", run_campaign(100, 2) == [])
+# 16/11/2026: chỉ đếm lần đăng nhập KHÔNG thành công (TIER3_LOGIN_COUNT=failed)
+def LA(status, loc=None, uri="/login.php", method="POST"):
+    ev = {"method": method, "uri": uri}
+    if loc is not None: ev["loc"] = loc
+    return T.login_attempt(ev, status)
+_lc = T.LOGIN_COUNT; T.LOGIN_COUNT = "failed"
+check("đăng nhập ĐÚNG ở cổng đặt chỗ (302 -> profile.php) KHÔNG được đếm", not LA(302, "profile.php"))
+check("đăng nhập ĐÚNG ở DVWA (302 -> index.php) KHÔNG được đếm", not LA(302, "index.php"))
+check("đăng nhập SAI ở DVWA (302 quay lại login.php) được đếm", LA(302, "login.php") and LA(302, "/login.php") and LA(302, "http://dvwa.local/login.php?e=1"))
+check("đăng nhập SAI trả 401 được đếm (trang và API)", LA(401, "-") and LA(401, "-", uri="/api.php"))
+check("POST đăng nhập bị giới hạn tốc độ (429) hoặc bị từ chối (403) được đếm", LA(429, "-") and LA(403, "-"))
+check("POST đăng nhập trả 200 (trang đăng nhập hiện lại — DVWA với botnet) ĐƯỢC đếm; GET trang đăng nhập không phải lần thử",
+      LA(200, "-") and not LA(200, "-", method="GET"))
+check("POST tới đường dẫn KHÔNG phải đăng nhập trả 200 (api.php đăng nhập đúng) không được đếm", not LA(200, "-", uri="/api.php"))
+check("302 không có header Location KHÔNG được đếm; nhật ký định dạng cũ (không có trường loc) đếm như trước", not LA(302, "-") and LA(302))
+T.LOGIN_2XX_OK = True
+check("TIER3_LOGIN_2XX_OK=1: POST đăng nhập trả 200 được coi là thành công, không đếm", not LA(200, "-") and LA(401, "-"))
+T.LOGIN_2XX_OK = False
+T.LOGIN_COUNT = "all"
+check("TIER3_LOGIN_COUNT=all: cách đếm cũ, đăng nhập đúng cũng được đếm", LA(302, "profile.php") and LA(200, "-"))
+T.LOGIN_COUNT = "failed"
+def run_mixed(n_bots, good_logins, t0=6_000_000.0):
+    """Chiến dịch n_bots IP × 4 lần sai (401) + MỘT khách thật 10.10.12.250 đăng nhập đúng good_logins lần và gõ sai 2 lần."""
+    T.st.clear(); T.login_ev.clear(); T.camp.update(last_alert={}, since=0, last_eval=0.0, max_ts=0.0)
+    buf, prod = FakeBuf(), FakeProd(); T.time.time = lambda: t0 + 30; k = 0
+    for r_ in range(4):
+        for i in range(n_bots):
+            T.add({"src_ip": f"10.10.12.{i + 1}", "ts_ms": (t0 + k * 0.05) * 1000, "uri": "/login.php", "status": 401, "method": "POST",
+                   "query": "", "ua": "curl/8", "loc": "-"}, prod, buf); k += 1
+    for j in range(good_logins + 2):
+        T.add({"src_ip": "10.10.12.250", "ts_ms": (t0 + j * 0.5) * 1000, "uri": "/login.php", "status": 401 if j < 2 else 302,
+               "method": "POST", "query": "", "ua": "Mozilla/5.0", "loc": "-" if j < 2 else "profile.php"}, prod, buf)
+    T.campaign(prod, buf, force=True)
+    return {m_[2]["src_ip"] for m_ in prod.msgs if m_[2].get("shape") == "stuffing"}
+hit = run_mixed(40, 12)
+check("chiến dịch 40 IP: cả 40 bot bị báo, khách thật đăng nhập đúng 12 lần (gõ sai 2 lần) KHÔNG bị báo",
+      len(hit) == 40 and "10.10.12.250" not in hit, str(len(hit)))
+T.LOGIN_COUNT = "all"
+check("cách đếm cũ: cùng tình huống, khách thật BỊ báo (lỗi đã sửa)", "10.10.12.250" in run_mixed(40, 12))
+T.LOGIN_COUNT = _lc
 al = run_campaign(20, 3, status=401, uri="/api.php")
 check("API trả 401 (sai mật khẩu) cũng được tính là lần thử đăng nhập", len({a["src_ip"] for a in al}) == 20, str(len(al)))
 
@@ -1040,6 +1080,21 @@ for v in ("1' UNION SELECT user,password FROM users-- -", "x&sleep$mc 15&", "+|+
 for v in ("order by price", "select a laptop for school", "ls", "dir", "true or false", "1=1", "C# and C++", "4.2.6'", "delete",
           "laptop gaming 15 inch", "Nguyễn Văn An", "rock 'n' roll", "50% off today", ""):
     check(f"KHÔNG có cấu trúc tấn công: {v!r}", not K.constructs(v))
+# bộ bổ sung v2 (TIER2_CONSTRUCT_RULES=2): bộ gốc KHÔNG khớp, v2 khớp
+for v in ("') or ('a'='a", "1 and left(version(),1)=4", "' || myappadmin.adduser('admin', 'newpass') || '", "exec master..xp_cmdshell 'net users'",
+          "1' ORDER BY 1,2,3--+", "select current_setting('config_file');", "\nid", "\n/usr/bin/id\n", "; netstat -an", "ipconfig /all",
+          ";phpinfo();//", "Li4vLi4vLi4vZXRjL3Bhc3N3ZA==", "..2f..2f..2fvar2flog2faccess.log", "/var/log/apache/error.log", "/usr/local/php5/lib/php.ini",
+          "&#x00003c", "&lt;A HREF=&quot;http://www.google.com&quot;&gt;XSS&lt;/A&gt;", "confirm?.(document?.cookie)", "<iframe src=http://x.test/a.html <"):
+    check(f"v2 thêm: bộ gốc không khớp, bộ bổ sung khớp: {v!r}", not K.constructs(v, "1") and bool(K.constructs(v, "2")))
+# bộ bổ sung vẫn hẹp: các chuỗi hợp lệ dễ nhầm này KHÔNG được khớp
+for v in ("ifconfig", "ipconfig", "ls", "id", "D:\\photos\\2025", "The students' union runs a bar on campus.", "order by 12 March", "order by price",
+          "select a laptop for school", "true or false", "Tom and Jerry", "&#272;&#224; N&#7861;ng", "union", "delete", "50% off today",
+          "ping", "netstat", "a || b", "/home/dashboard", "report.log"):
+    check(f"v2 KHÔNG khớp: {v!r}", not K.constructs(v, "2"))
+check("v2b KHÔNG khớp truy vấn GraphQL (dòng 'id' đứng một mình)",
+      not K.constructs("query {\n  userInfo {\n    id\n    hashedEmail\n    __typename\n  }\n}", "2"))
+check("không đặt TIER2_CONSTRUCT_RULES thì mô-đun dùng bộ gốc (docker-compose.yml đặt 2 cho classifier)",
+      K.RULESET == "1" or bool(os.environ.get("TIER2_CONSTRUCT_RULES")))
 check("xét TỪNG giá trị: chú thích SQL ở cuối một giá trị vẫn được thấy dù còn tham số khác", K.any_construct(["hello", "7 asc  -- ", "1"]))
 check("giá trị dài bị cắt ở 2 000 ký tự (không quét vô hạn)", not K.constructs("a" * 2500 + "<script>alert(1)</script>"))
 _t2, _con, _mode = C.tier2, C.T2_CONSTRUCT, C.T2_MODE
