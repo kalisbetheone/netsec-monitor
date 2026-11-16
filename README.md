@@ -77,7 +77,7 @@ tạo lại. Hướng dẫn từng bước (gỡ chặn nhầm, gỡ luật, ch�
 
 ## Quan sát
 - **Cổng 1:** nginx ghi JSON các request nó từ chối (403 vì IP bị chặn, 429 vì vượt giới hạn kết nối) →
-  topic `gate1.logs` → chỉ mục `gate-events-*`. Dashboard có hàng "Cổng 1 — IP đang bị chặn vẫn làm gì".
+  topic `gate1.logs` → chỉ mục `gate-events-*`. Dashboard có hàng "Cổng 1 — giới hạn tốc độ, và IP đang bị chặn vẫn làm gì".
 - **error.log của Apache** (ModSecurity, PHP, máy chủ) → topic `web.errors` → chỉ mục `apache-errors-*`.
   Cả hai nguồn được dịch vụ `logsink` gom mỗi 10 giây (một bản ghi kèm `count`), không ghi từng dòng.
 - **Nhịp tim:** mỗi dịch vụ Python ghi 30 giây một lần vào `nsm-health-*` (số đã xử lý, thông điệp Kafka

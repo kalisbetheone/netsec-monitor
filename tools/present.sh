@@ -98,7 +98,7 @@ finish_step "2. khai thác thật" "$t" "$rc"
 # ---------------------------------------------------------------- bước 3
 banner "BƯỚC 3 — Nguồn tấn công bị khoá IP trong vài giây" \
   "scenario.sh td-3-tan-cong-co-ban" \
-  "Lệnh chặn IP; IP đã bị chặn; Quyết định của responder" \
+  "Lệnh chặn IP; Phát hiện theo tầng; IP đã bị chặn; Quyết định của responder" \
   "Cả 4 IP tấn công (sqli, xss, lfi, rce) bị chặn trong 15 giây"
 pause
 t=$(date +%s)
@@ -108,7 +108,7 @@ finish_step "3. khoá IP" "$t" "$rc"
 # ---------------------------------------------------------------- bước 4
 banner "BƯỚC 4 — Luật tự sinh áp dụng ngay, có cảnh báo, gỡ bằng một lệnh" \
   "reset.sh; SC_CONT=1 scenario.sh td-4-luat-ap-dung-ngay; nsmctl rules; nsmctl rule-revoke <mã>" \
-  "Luật tự sinh (ban hành); Vòng đời luật tự sinh; Thao tác trên luật và đổi chế độ (kiểm toán); cảnh báo 'NSM: luật tự sinh vừa được ban hành'" \
+  "Luật tự sinh (ban hành); Vòng đời luật tự sinh; Thao tác trên luật và đổi chế độ (kiểm toán); Cảnh báo đang bật ('NSM: luật tự sinh vừa được ban hành')" \
   "Có luật lớp rce chặn IP mới; gỡ một luật xong thì luật đó không còn trong danh sách"
 pause
 t=$(date +%s); ok=0
@@ -141,7 +141,7 @@ finish_step "5. nhồi tài khoản + flood" "$t" "$rc"
 # ---------------------------------------------------------------- bước 6
 banner "BƯỚC 6 — Gỡ chặn nhầm một IP; chuyển sang chạy thử rồi trả về chặn thật" \
   "nsmctl blocks; nsmctl unblock <IP>; nsmctl mode dryrun; nsmctl mode enforce" \
-  "Thao tác trên luật và đổi chế độ (kiểm toán); cảnh báo 'NSM: có thay đổi thủ công (nsmctl)'" \
+  "Thao tác trên luật và đổi chế độ (kiểm toán); Cảnh báo đang bật ('NSM: có thay đổi thủ công (nsmctl)')" \
   "IP được gỡ khỏi danh sách chặn; chế độ đổi sang dryrun rồi về enforce"
 pause
 t=$(date +%s); ok=0
