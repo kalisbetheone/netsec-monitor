@@ -1,7 +1,7 @@
-title = "T9: tier3 dừng 6 phút — nhịp tim ngừng và Grafana bật cảnh báo mất nhịp tim"
+title = "T9: tier3 dừng 6 phút — heartbeat ngừng và Grafana bật cảnh báo mất heartbeat"
 case = "mở rộng (T9)"
-notes = """Luật cảnh báo 'NSM: dịch vụ tier3 mất nhịp tim' xét 3 phút không có nhịp tim, phải kéo dài 1 phút, đánh giá mỗi phút \
--> bật sau khoảng 4–5 phút. tier3 dừng từ giây 5 tới giây 365. Kiểm tra: không có nhịp tim của tier3 trong lúc dừng, có lại sau \
+notes = """Luật cảnh báo 'NSM: dịch vụ tier3 mất heartbeat' xét 3 phút không có heartbeat, phải kéo dài 1 phút, đánh giá mỗi phút \
+-> bật sau khoảng 4–5 phút. tier3 dừng từ giây 5 tới giây 365. Kiểm tra: không có heartbeat của tier3 trong lúc dừng, có lại sau \
 khi bật, và lịch sử cảnh báo của Grafana có lần chuyển sang Alerting. Người dùng hợp lệ chạy suốt kịch bản không bị ảnh hưởng."""
 max_s = 420
 

@@ -72,7 +72,7 @@ finish_step "chuẩn bị (reset-all)" "$t" "$rc"
 # ---------------------------------------------------------------- bước 1
 banner "BƯỚC 1 — Hệ thống sạch; khách thường của cổng đặt chỗ đang dùng bình thường" \
   "nsmctl blocks; nsmctl rules; nsmctl mode; docker compose ps client-booking" \
-  "Nhịp tim gần nhất của từng dịch vụ; Lưu lượng theo nguồn cảm biến" \
+  "Heartbeat gần nhất của từng dịch vụ; Lưu lượng theo nguồn cảm biến" \
   "Không IP nào bị chặn, không luật tự sinh nào, responder ở enforce, client-booking đang chạy"
 pause
 t=$(date +%s); ok=0

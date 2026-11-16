@@ -7,7 +7,7 @@
  ],
  "timezone": "browser",
  "schemaVersion": 39,
- "version": 9,
+ "version": 10,
  "refresh": "10s",
  "time": {
   "from": "now-15m",
@@ -866,7 +866,7 @@
    "type": "alertlist",
    "title": "Cảnh báo đang bật",
    "id": 41,
-   "description": "Các luật cảnh báo của Grafana đang báo hoặc đang chờ báo: có IP mới bị chặn, luật tự sinh vừa được ban hành, có thay đổi thủ công (nsmctl), dịch vụ mất nhịp tim, đường ống ứ đọng. Trống nghĩa là không cảnh báo nào đang bật.",
+   "description": "Các luật cảnh báo của Grafana đang báo hoặc đang chờ báo: có IP mới bị chặn, luật tự sinh vừa được ban hành, có thay đổi thủ công (nsmctl), dịch vụ mất heartbeat, pipeline ứ đọng. Trống nghĩa là không cảnh báo nào đang bật.",
    "gridPos": {
     "h": 8,
     "w": 6,
@@ -1503,7 +1503,7 @@
   {
    "id": 22,
    "type": "row",
-   "title": "Sức khoẻ đường ống (mỗi dịch vụ tự ghi nhịp tim 30 giây một lần)",
+   "title": "Tình trạng hoạt động của pipeline (mỗi dịch vụ gửi heartbeat 30 giây một lần)",
    "gridPos": {
     "h": 1,
     "w": 24,
@@ -1516,7 +1516,7 @@
   {
    "id": 17,
    "type": "table",
-   "title": "Nhịp tim gần nhất của từng dịch vụ",
+   "title": "Heartbeat gần nhất của từng dịch vụ",
    "datasource": {
     "type": "elasticsearch",
     "uid": "nsmhealth"
@@ -1591,7 +1591,7 @@
       "indexByName": {},
       "renameByName": {
        "service.keyword": "Dịch vụ",
-       "Max @timestamp": "Nhịp tim cuối",
+       "Max @timestamp": "Heartbeat cuối",
        "Max uptime_s": "Đã chạy (giây)",
        "Max processed": "Đã xử lý",
        "Max kafka_lag": "Kafka chưa đọc (cao nhất)",
@@ -1607,7 +1607,7 @@
      {
       "matcher": {
        "id": "byName",
-       "options": "Nhịp tim cuối"
+       "options": "Heartbeat cuối"
       },
       "properties": [
        {
@@ -1633,7 +1633,7 @@
    "options": {
     "showHeader": true
    },
-   "description": "Mỗi dịch vụ phân tích tự ghi một nhịp tim 30 giây một lần. Dòng nào có 'Nhịp tim cuối' cũ hơn vài phút nghĩa là dịch vụ đó đã dừng."
+   "description": "Mỗi dịch vụ phân tích gửi một bản tin heartbeat (bản ghi báo dịch vụ còn hoạt động) 30 giây một lần. Dòng nào có 'Heartbeat cuối' cũ hơn vài phút nghĩa là dịch vụ đó đã dừng."
   },
   {
    "id": 18,
@@ -1717,7 +1717,7 @@
      "mode": "multi"
     }
    },
-   "description": "Số thông điệp Kafka mà từng dịch vụ chưa đọc kịp. Tăng liên tục nghĩa là đường ống xử lý chậm hơn lưu lượng vào."
+   "description": "Số thông điệp Kafka mà từng dịch vụ chưa đọc kịp. Tăng liên tục nghĩa là pipeline xử lý chậm hơn lưu lượng vào."
   },
   {
    "id": 30,

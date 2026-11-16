@@ -58,7 +58,7 @@ title = "Dò mật khẩu: 60 lần POST đăng nhập từ một IP"
 case = "C4"                      # ca tương ứng trong spec
 notes = "..."                    # giải thích, in vào báo cáo
 max_s = 120                      # thời gian tối đa của tác nhân
-settle_s = 15                    # chờ đường ống ghi dữ liệu trước khi chấm
+settle_s = 15                    # chờ pipeline ghi dữ liệu trước khi chấm
 exempt = ["self"]                # (tuỳ chọn) miễn trừ tạm IP của kịch bản, hoặc một dải CIDR
 rulegen = false                  # (tuỳ chọn) true = để rulegen chạy trong kịch bản; mặc định rulegen bị dừng (cô lập).
                                  # Kịch bản có rulegen: mọi luật tự sinh bị XOÁ trước và sau kịch bản
@@ -130,7 +130,7 @@ gate1_latency_ms_max = 50        # thời gian phản hồi 403 của Cổng 1 (
 malformed_recorded_min_share = 0.7  # request dị dạng bị từ chối có bản ghi trong gate-events / apache-errors
 nginx_reload_max_per_min = 13    # số lần nginx nạp lại danh sách chặn
 secrets_absent = true            # giá trị bí mật (họ "secret") không còn nguyên văn trong Elasticsearch
-heartbeat_gap = "tier3"          # nhịp tim của dịch vụ ngừng khi dừng, có lại sau khi bật
+heartbeat_gap = "tier3"          # heartbeat của dịch vụ ngừng khi dừng, có lại sau khi bật
 alert_fired = "tier3"            # Grafana có lần chuyển cảnh báo (chứa chuỗi này) sang Alerting
 bodies_received_min_share = 0.99 # thân POST của vai benign tới được classifier
 # --- thêm 15/11/2026 ---
@@ -169,4 +169,4 @@ chặn của responder được xoá (như `tools/reset.sh`), nên các kịch b
 | E1 / E2 / E3 / E4 / E5 | 15 / 16, 19 / 17, 26 / 12 / 18 |
 | Đợt nâng cấp 15/11 | 34–36 (kiểm chứng bộ thử bằng khai thác thật), 37 (giới hạn tốc độ một IP), 38 (nhồi tài khoản 200 IP), 39 (flood phân tán 300 IP — giới hạn đã biết), 40 (cao điểm hợp lệ không bị chặn nhầm), 41 (luật tự sinh áp dụng ngay và gỡ) |
 | Cổng đặt chỗ `booking.local` (15/11 chiều) | 45 (nhồi tài khoản vào trang đăng nhập, botnet 100 IP), 46 (dò mã đặt chỗ từ một IP), 47 (Cổng 2 chặn họ `sqli` ở ô tìm chuyến; khách gõ dấu nháy không bị ảnh hưởng) |
-| Ngoài spec | 05 (họ mới), 20–21 (bộ thử bên ngoài), 28 (né bằng đệm), 29 (che mật khẩu), 30 (nhịp tim + cảnh báo), 31 (xoay nhật ký), 33 (vòng đời luật) |
+| Ngoài spec | 05 (họ mới), 20–21 (bộ thử bên ngoài), 28 (né bằng đệm), 29 (che mật khẩu), 30 (heartbeat + cảnh báo), 31 (xoay nhật ký), 33 (vòng đời luật) |

@@ -53,7 +53,7 @@ groups:
           description: "Quyết định có reason=manual trong 2 phút gần nhất (do tools/nsmctl.sh gửi). Nếu không ai trong nhóm thực hiện, kiểm tra ngay tài khoản Kafka 'ctl'."
         labels: {severity: info, he_thong: nsm}
       - uid: nsm-pipeline-lag
-        title: "NSM: đường ống xử lý bị ứ đọng"
+        title: "NSM: pipeline xử lý bị ứ đọng"
         condition: C
         data:
           - {"refId": "A", "relativeTimeRange": {"from": 180, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "*", "metrics": [{"id": "1", "type": "max", "field": "kafka_lag"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
@@ -64,10 +64,10 @@ groups:
         for: 2m
         annotations:
           summary: "Một dịch vụ đang chậm hơn lưu lượng (Kafka còn hơn 5000 thông điệp chưa đọc)"
-          description: "Xem hàng 'Sức khoẻ đường ống' trên dashboard NSM. Khi ứ đọng, phát hiện và lệnh chặn sẽ đến trễ."
+          description: "Xem hàng 'Tình trạng hoạt động của pipeline' trên dashboard NSM. Khi ứ đọng, phát hiện và lệnh chặn sẽ đến trễ."
         labels: {severity: warning, he_thong: nsm}
   - orgId: 1
-    name: nsm-suc-khoe         # sức khoẻ dịch vụ: mỗi dịch vụ tự ghi nhịp tim 30 giây một lần vào nsm-health-*
+    name: nsm-trang-thai       # tình trạng hoạt động: mỗi dịch vụ gửi heartbeat 30 giây một lần vào nsm-health-*
     folder: NSM
     interval: 1m
     rules:
@@ -139,10 +139,10 @@ groups:
         for: 0s
         annotations:
           summary: "Một dịch vụ đã phải bỏ bản ghi vì Elasticsearch không nhận quá lâu"
-          description: "Việc phát hiện và chặn không bị ảnh hưởng, nhưng bản ghi sự kiện/kiểm toán cũ nhất đã mất. Kiểm tra sức khoẻ Elasticsearch."
+          description: "Việc phát hiện và chặn không bị ảnh hưởng, nhưng bản ghi sự kiện/kiểm toán cũ nhất đã mất. Kiểm tra trạng thái hoạt động của Elasticsearch."
         labels: {severity: warning, he_thong: nsm}
       - uid: nsm-hb-classifier
-        title: "NSM: dịch vụ classifier mất nhịp tim"
+        title: "NSM: dịch vụ classifier mất heartbeat"
         condition: C
         data:
           - {"refId": "A", "relativeTimeRange": {"from": 180, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:classifier", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
@@ -152,11 +152,11 @@ groups:
         execErrState: Error
         for: 1m
         annotations:
-          summary: "Không nhận được nhịp tim của classifier trong 3 phút"
+          summary: "Không nhận được heartbeat của classifier trong 3 phút"
           description: "Dịch vụ classifier có thể đã dừng hoặc treo. Kiểm tra: docker compose ps  và  docker compose logs --tail 40 classifier."
         labels: {severity: critical, he_thong: nsm}
       - uid: nsm-hb-tier3
-        title: "NSM: dịch vụ tier3 mất nhịp tim"
+        title: "NSM: dịch vụ tier3 mất heartbeat"
         condition: C
         data:
           - {"refId": "A", "relativeTimeRange": {"from": 180, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:tier3", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
@@ -166,11 +166,11 @@ groups:
         execErrState: Error
         for: 1m
         annotations:
-          summary: "Không nhận được nhịp tim của tier3 trong 3 phút"
+          summary: "Không nhận được heartbeat của tier3 trong 3 phút"
           description: "Dịch vụ tier3 có thể đã dừng hoặc treo. Kiểm tra: docker compose ps  và  docker compose logs --tail 40 tier3."
         labels: {severity: critical, he_thong: nsm}
       - uid: nsm-hb-responder
-        title: "NSM: dịch vụ responder mất nhịp tim"
+        title: "NSM: dịch vụ responder mất heartbeat"
         condition: C
         data:
           - {"refId": "A", "relativeTimeRange": {"from": 180, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:responder", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
@@ -180,11 +180,11 @@ groups:
         execErrState: Error
         for: 1m
         annotations:
-          summary: "Không nhận được nhịp tim của responder trong 3 phút"
+          summary: "Không nhận được heartbeat của responder trong 3 phút"
           description: "Dịch vụ responder có thể đã dừng hoặc treo. Kiểm tra: docker compose ps  và  docker compose logs --tail 40 responder."
         labels: {severity: critical, he_thong: nsm}
       - uid: nsm-hb-enforcer
-        title: "NSM: dịch vụ enforcer mất nhịp tim"
+        title: "NSM: dịch vụ enforcer mất heartbeat"
         condition: C
         data:
           - {"refId": "A", "relativeTimeRange": {"from": 180, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:enforcer", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
@@ -194,11 +194,11 @@ groups:
         execErrState: Error
         for: 1m
         annotations:
-          summary: "Không nhận được nhịp tim của enforcer trong 3 phút"
-          description: "Dịch vụ enforcer có thể đã dừng hoặc treo. Kiểm tra: docker compose ps  và  docker compose logs --tail 40 enforcer. Lưu ý: nhịp tim của enforcer đi qua Kafka và do logsink ghi hộ — nếu logsink cũng đang báo mất nhịp tim thì xử lý logsink trước."
+          summary: "Không nhận được heartbeat của enforcer trong 3 phút"
+          description: "Dịch vụ enforcer có thể đã dừng hoặc treo. Kiểm tra: docker compose ps  và  docker compose logs --tail 40 enforcer. Lưu ý: heartbeat của enforcer đi qua Kafka và do logsink ghi hộ — nếu logsink cũng đang báo mất heartbeat thì xử lý logsink trước."
         labels: {severity: critical, he_thong: nsm}
       - uid: nsm-hb-logsink
-        title: "NSM: dịch vụ logsink mất nhịp tim"
+        title: "NSM: dịch vụ logsink mất heartbeat"
         condition: C
         data:
           - {"refId": "A", "relativeTimeRange": {"from": 180, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:logsink", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
@@ -208,11 +208,11 @@ groups:
         execErrState: Error
         for: 1m
         annotations:
-          summary: "Không nhận được nhịp tim của logsink trong 3 phút"
+          summary: "Không nhận được heartbeat của logsink trong 3 phút"
           description: "Dịch vụ logsink có thể đã dừng hoặc treo. Kiểm tra: docker compose ps  và  docker compose logs --tail 40 logsink."
         labels: {severity: critical, he_thong: nsm}
       - uid: nsm-hb-rulegen
-        title: "NSM: dịch vụ rulegen mất nhịp tim"
+        title: "NSM: dịch vụ rulegen mất heartbeat"
         condition: C
         data:
           - {"refId": "A", "relativeTimeRange": {"from": 420, "to": 0}, "datasourceUid": "nsmhealth", "model": {"refId": "A", "datasource": {"type": "elasticsearch", "uid": "nsmhealth"}, "query": "service:rulegen", "metrics": [{"id": "1", "type": "count"}], "bucketAggs": [{"id": "2", "type": "date_histogram", "field": "@timestamp", "settings": {"interval": "1m", "min_doc_count": "0"}}], "timeField": "@timestamp", "intervalMs": 60000, "maxDataPoints": 43200}}
@@ -222,6 +222,6 @@ groups:
         execErrState: Error
         for: 1m
         annotations:
-          summary: "Không nhận được nhịp tim của rulegen trong 7 phút"
+          summary: "Không nhận được heartbeat của rulegen trong 7 phút"
           description: "Dịch vụ rulegen có thể đã dừng hoặc treo. Kiểm tra: docker compose ps  và  docker compose logs --tail 40 rulegen."
         labels: {severity: critical, he_thong: nsm}

@@ -933,7 +933,7 @@ def cmd_observe(a):
                              "fields": sorted({k for d in hit for k, v in d.items() if any(sv in json.dumps(v, ensure_ascii=False).lower() for sv in secrets)})}
     o["alerts"] = grafana_alerts(t0, t1)
     note(f"   quan sát: {len(web)} sự kiện, {len(dec)} quyết định, {len(gate)} bản ghi Cổng 1, {len(o['rules'])} luật, "
-         f"{len(o['health'])} nhịp tim")
+         f"{len(o['health'])} bản tin heartbeat")
     out(o)
 
 
@@ -1263,8 +1263,8 @@ def judge_extra(s, e, runs, obs, roles, m, chk, extra):
             a, b = T0 + float(f.get("stop_at_s", 0)) + 45, T0 + float(f.get("start_at_s", 0))
             during = [t for t in hb if a <= t < b]
             after_ = [t for t in hb if t >= b]
-            chk(f"nhịp tim của {svc} ngừng khi dừng và có lại sau khi bật", not during and bool(after_),
-                f"{len(during)} nhịp trong lúc dừng, {len(after_)} nhịp sau khi bật")
+            chk(f"heartbeat của {svc} ngừng khi dừng và có lại sau khi bật", not during and bool(after_),
+                f"{len(during)} bản tin trong lúc dừng, {len(after_)} bản tin sau khi bật")
     if "alert_fired" in e:
         al = obs.get("alerts")
         key = e["alert_fired"].lower()

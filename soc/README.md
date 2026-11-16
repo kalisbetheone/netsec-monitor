@@ -32,7 +32,7 @@ alias dcs="docker compose --env-file '$PWD/.env' -f '$PWD/soc/docker-compose.yml
 | tier3 | Phát hiện bất thường hành vi theo cửa sổ trượt | |
 | responder | Chặn IP (ngưỡng, TTL) → enforce.blocklist | |
 | rulegen | Sinh luật có kiểm chứng → enforce.rules | |
-| logsink | Gom nhật ký Cổng 1, error.log Apache, nhịp tim enforcer → ES | |
+| logsink | Gom nhật ký Cổng 1, error.log Apache, heartbeat của enforcer → ES | |
 | nsmctl | Công cụ quản trị (không tự chạy, xem dưới) | |
 
 ## Kênh với máy WEB (qua Kafka)

@@ -80,14 +80,14 @@ tạo lại. Hướng dẫn từng bước (gỡ chặn nhầm, gỡ luật, ch�
   topic `gate1.logs` → chỉ mục `gate-events-*`. Dashboard có hàng "Cổng 1 — giới hạn tốc độ, và IP đang bị chặn vẫn làm gì".
 - **error.log của Apache** (ModSecurity, PHP, máy chủ) → topic `web.errors` → chỉ mục `apache-errors-*`.
   Cả hai nguồn được dịch vụ `logsink` gom mỗi 10 giây (một bản ghi kèm `count`), không ghi từng dòng.
-- **Nhịp tim:** mỗi dịch vụ Python ghi 30 giây một lần vào `nsm-health-*` (số đã xử lý, thông điệp Kafka
-  chưa đọc, dòng log hỏng, lỗi ghi Elasticsearch, lỗi gửi Kafka, số bản ghi phải bỏ). Enforcer gửi nhịp tim qua
+- **Heartbeat:** mỗi dịch vụ Python gửi một bản tin heartbeat 30 giây một lần vào `nsm-health-*` (số đã xử lý, thông điệp Kafka
+  chưa đọc, dòng log hỏng, lỗi ghi Elasticsearch, lỗi gửi Kafka, số bản ghi phải bỏ). Enforcer gửi heartbeat qua
   Kafka. Classifier ghi thêm tuổi của sự kiện mới nhất theo từng nguồn (`age_net_events_s`, `age_web_logs_s`,
   `age_web_audit_s`) để biết Suricata / Filebeat / Apache còn gửi hay không; tier3 ghi `model_loaded`.
   `docker compose ps` cho thấy dịch vụ Python nào bị treo (healthcheck dựa trên vòng lặp chính).
 - **Cảnh báo Grafana** (Alerting → Alert rules → thư mục NSM), nạp từ
   `soc/grafana/provisioning/alerting/nsm-alerts.yml`: có IP mới bị chặn; luật tự sinh vừa ban hành; có
-  thay đổi thủ công; đường ống ứ đọng; một dịch vụ mất nhịp tim; không còn sự kiện từ Suricata / không còn
+  thay đổi thủ công; pipeline ứ đọng; một dịch vụ mất heartbeat; không còn sự kiện từ Suricata / không còn
   nhật ký web; tier3 chạy không có model; gửi Kafka thất bại; bộ đệm Elasticsearch tràn. Nhận cảnh báo ra
   ngoài: đặt `ALERT_WEBHOOK_URL=https://...` trong `.env` rồi `docker compose up -d grafana`
   (`soc/grafana/start.sh` tự tạo contact point). Để trống thì cảnh báo chỉ hiện trong Grafana.
@@ -168,11 +168,11 @@ python -B tests/test_logic.py
 ```
 Bộ test giả lập Kafka/Elasticsearch và kiểm tra: tầng 1 không báo nhầm URL lành tính, ngưỡng chặn,
 khử đếm trùng giữa cảm biến, cửa sổ hành vi tầng 3, trích bất biến và kiểm chứng luật, enforcer,
-lệnh quản trị (nsmctl), đăng nhập Kafka, nhịp tim và bộ gom nhật ký (logsink).
+lệnh quản trị (nsmctl), đăng nhập Kafka, heartbeat và bộ gom nhật ký (logsink).
 
 ## Tầng 1 chạy đồng bộ ở Cổng 2
 Regex tầng 1 của classifier được chép thành luật ModSecurity (`web/apache/nsm-tier1.conf`, nạp sau CRS và luật tự
-sinh) để request tấn công ĐẦU TIÊN mà CRS bỏ lọt bị 403 ngay, không phải chờ đường ống phát hiện chặn IP.
+sinh) để request tấn công ĐẦU TIÊN mà CRS bỏ lọt bị 403 ngay, không phải chờ pipeline phát hiện chặn IP.
 ```bash
 python -X utf8 -B tools/gen_tier1_modsec.py      # sinh lại sau khi sửa regex trong services/classifier.py
 docker compose up -d --build apache
@@ -221,7 +221,7 @@ bash tools/tier1sync.sh                          # đối chiếu luật ModSecu
 | nginx | `LOG_MAX_MB` | 50 | Xoay `gate1.json` khi vượt kích thước này |
 | classifier | `PENDING_WAIT_S` | 15 | Thời gian tối đa chờ thân request POST từ nhật ký kiểm toán trước khi phân loại không có thân |
 | suricata | `LOG_MAX_MB` | 200 | Xoay `eve.json` / `stats.log` / `fast.log` khi vượt kích thước này |
-| mọi dịch vụ Python | `HEARTBEAT_S` | 30 | Chu kỳ ghi nhịp tim vào `nsm-health-*` |
+| mọi dịch vụ Python | `HEARTBEAT_S` | 30 | Chu kỳ gửi heartbeat vào `nsm-health-*` |
 
 ## Giới hạn đã biết
 - **Tầng 2:** model gốc (run_4) gắn nhãn tấn công cho 40,7 % lưu lượng lành tính thật nên từ 12/11 chỉ được ghi nhận.
