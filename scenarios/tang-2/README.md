@@ -12,6 +12,7 @@ Tiêu chí, ngưỡng và kết quả ngày 15/11/2026: `eval/PROTOCOL.md`; bả
 | `doc-tay.json` | ghi chép đọc tay: đã đọc bao nhiêu, giữ payload nào |
 | `loc-cong-2.toml`, `loc-cong-2b.toml` | bước lọc qua Cổng 2 (cần `ung-vien*.jsonl`, sinh bằng `eval/t2test_candidates.py`) |
 | `44-chi-tang-2-thay.toml` | kịch bản đo |
+| `td-8-tang-2-hoc-may.toml` | bản TRÌNH DIỄN của kịch bản 44 (2 vòng gieo, pha kiểm chứng ở giây 110, ngưỡng trình diễn); chạy bằng `bash tools/demo-tang2.sh` |
 
 Chạy (từ thư mục `nsm`):
 
