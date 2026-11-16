@@ -1053,7 +1053,8 @@ for v in ("ifconfig", "ipconfig", "ls", "id", "D:\\photos\\2025", "The students'
     check(f"v2 KHÔNG khớp: {v!r}", not K.constructs(v, "2"))
 check("v2b KHÔNG khớp truy vấn GraphQL (dòng 'id' đứng một mình)",
       not K.constructs("query {\n  userInfo {\n    id\n    hashedEmail\n    __typename\n  }\n}", "2"))
-check("mặc định dùng bộ gốc (TIER2_CONSTRUCT_RULES chưa đặt)", K.RULESET == "1" or bool(os.environ.get("TIER2_CONSTRUCT_RULES")))
+check("không đặt TIER2_CONSTRUCT_RULES thì mô-đun dùng bộ gốc (docker-compose.yml đặt 2 cho classifier)",
+      K.RULESET == "1" or bool(os.environ.get("TIER2_CONSTRUCT_RULES")))
 check("xét TỪNG giá trị: chú thích SQL ở cuối một giá trị vẫn được thấy dù còn tham số khác", K.any_construct(["hello", "7 asc  -- ", "1"]))
 check("giá trị dài bị cắt ở 2 000 ký tự (không quét vô hạn)", not K.constructs("a" * 2500 + "<script>alert(1)</script>"))
 _t2, _con, _mode = C.tier2, C.T2_CONSTRUCT, C.T2_MODE
