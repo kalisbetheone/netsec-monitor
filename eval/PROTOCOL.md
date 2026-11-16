@@ -875,3 +875,13 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     đăng nhập không thành công trong 60 giây giữa chiến dịch vẫn bị khoá; mẫu `bruteforce` theo-từng-IP (>= 30 POST/phút, hầu hết
     là POST) không phân biệt đúng / sai — khách của kịch bản 48 bản đầu (30 lần đăng nhập đúng/phút) bị khoá vì mẫu này; mỗi
     kịch bản một lượt; bản hai máy không đo.
+
+- 16/11/2026 (17:40) — **Lượt đo chốt trên cấu hình cuối; việc cải tiến dừng ở đây.** `bash tools/baseline.sh chot1611`,
+  15:22:47–17:23:29, commit `6161e74` (0 tệp chưa commit; image dựng lại 15:21). 14 bước, mọi bước mã thoát 0.
+  - Đây là lượt GHI NHẬN: không có tiêu chí ghi trước, không có thay đổi nào được thử. Ngưỡng của từng kịch bản là ngưỡng có sẵn.
+  - Kết quả: 46 kịch bản — 42 ĐẠT, 1 LỖ HỔNG ĐÃ BIẾT (04), 3 CHỈ ĐO (20, 21, 35), 0 KHÔNG ĐẠT; kết luận của 45 kịch bản chung với
+    lượt 15/11 giống hệt. Bench `20261116-171909`: hệ thống 65/65, Cổng 2 65/65, bộ phân loại 63/65; nhãn nhầm thường 0/28, khó 5/27;
+    khoá IP sqli/rce/recon/flood 3/3 mỗi loại (2,5 / 2,5 / 1,7 / 1,6 s). GoTestWAF 317/668 và waf-bypass 5 076/1 663 trùng lượt 15/11.
+  - Giới hạn khi so với lượt 15/11: mỗi lượt một lần chạy; bốn thay đổi nằm giữa hai lượt không tách được; thông lượng 15/11 đo khi
+    máy có bốn phiên khác. Bảng và cách đọc: `docs/baseline/Moc-so-do-NSM-16-11.md`.
+  - Stack sạch 17:24, khoá đã nhả.
