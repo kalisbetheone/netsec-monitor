@@ -498,3 +498,28 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     bị sửa; bản sao tạm đã xoá. Chưa chạy lại kịch bản 41 với thiết lập CŨ để đối chiếu trực tiếp.
   - **Giới hạn mới của công cụ đo (ghi nhận, chưa sửa):** chạy các tổ hợp kịch bản khác nhau trong vòng 24 giờ có thể làm một IP
     đóng vai hợp lệ ở lượt này và vai tấn công ở lượt sau; cơ chế "nguồn sạch có tiếng" của rulegen khi đó gỡ luật.
+
+- 16/11/2026 (08:40) — **Cải thiện tầng 2, bước 2, vòng 2: KẾT QUẢ — model mới KHÔNG đạt đủ các mốc ghi trước -> KHÔNG thay model.**
+  - **Huấn luyện:** ba phiên Colab của `NSM-train-v4` (425 224 dòng train), 6 ứng viên; mỗi ứng viên học 16–27 phút. Gộp trên máy
+    (`NSM_SHARD=gop`, `train/gop_v4.log`). Ứng viên M3 trọng số 10 không có ngưỡng nào thoả ba ràng buộc; M3 trọng số 3 thiếu một
+    lựa chọn. **Model được chọn theo tiêu chí ghi trước: M2 (hồi quy logistic), trọng số 3, `mass`, θ = 0,91, cổng cú pháp tắt**
+    (valid: phát hiện trên payload lọt Cổng 2, trung bình theo lớp 0,7775; văn bản hợp lệ khó 0,22 %; lành tính thường 0,097 %).
+  - **Trên các tập kiểm tra (chỉ báo cáo; model đang chạy -> model được chọn):** `test_hardtext` bị gắn nhãn 13,1 % -> 0,9 %;
+    câu của khung kịch bản 11,9 % -> 3,1 %; văn bản tự do 0,14 % -> 0,10 %; HttpParams phát hiện 98,7 % -> 98,9 %, báo nhầm
+    0,30 % -> 0,04 %; **website chưa thấy (`test_sites`), tầng 2 thêm báo nhầm 0,19 % -> 0,34 %**; SR-BH phần có tham số
+    54,6 % -> 53,4 %; **`test_residual` (tấn công thật lọt Cổng 2) 59,9 % -> 37,9 %** (sqli 66,6 -> 45,4 %; rce 42,1 -> 17,9 %).
+  - **Trên hệ thống thật** (`tools/t2model.sh v4 tier2_v4_ungvien.joblib 0.91 mass 0`, 08:35; `eval/results/t2model-v4.txt`,
+    `bench-results/20261116-083519`; số của model đang chạy lấy từ lượt 15/11 22:17, cùng mã classifier):
+
+    | Mốc ghi trước | Model đang chạy | Model vòng 2 | Đạt |
+    |---|---|---|---|
+    | văn bản đối chứng bị gắn nhãn, hai danh sách gộp <= 6/120 | 25/120 | 12/120 (mới 5, cũ 7) | KHÔNG |
+    | bench, mẫu hợp lệ khó bị gắn nhãn <= 2/27 | 8/27 | 3/27 | KHÔNG |
+    | bộ thử 52 payload được gắn nhãn >= 39/52 | 40/52 | 47/52 | có |
+    | riêng RCE >= 7/14 | 5/14 | 10/14 | có |
+    | bench, bộ phân loại bắt tấn công không giảm | 63/65 | 62/65 | KHÔNG |
+
+    Ba mốc không đạt -> theo quy tắc KHÔNG thay model; 5 kịch bản (02, 13, 25, 41, 42) vì vậy không chạy. Classifier đã được trả
+    về model và cấu hình cũ (kiểm bằng biến môi trường của container); `stack.sh check` sạch lúc 08:38. Tệp model ứng viên giữ ở
+    `models/tier2_v4_ungvien.joblib` (không đưa vào kho) và trên Drive. Không chỉnh ngưỡng, không chọn lại ứng viên, không sửa
+    danh sách đối chứng hay bộ thử sau khi thấy kết quả.

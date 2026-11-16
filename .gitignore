@@ -24,3 +24,7 @@ scenarios/tang-2/loc/
 scenarios/tang-2/loc-test/
 train/data_1411/
 scenarios/tang-2/loc-extra/
+
+# model tầng 2 ứng viên chưa được nhận (giữ để đối chiếu)
+models/*_ungvien.joblib
+train/metrics_v*.json
