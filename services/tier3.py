@@ -58,23 +58,24 @@ MIN_429, F429 = E("TIER3_MIN_429", "40"), E("TIER3_FRAC_429", "0.3")
 # địa chỉ mà MỖI địa chỉ thử đăng nhập >= STUFF_PER_IP lần, và tổng số lần thử của chúng >= STUFF_MIN_TOTAL, thì từng địa
 # chỉ đó bị báo (mẫu 'stuffing'). Một người gõ sai mật khẩu vài lần KHÔNG bị báo trừ khi đang có cả chiến dịch.
 # "Thử đăng nhập" = POST tới đường dẫn khớp TIER3_LOGIN_RE, hoặc bất kỳ phản hồi 401 nào (API trả 401 khi sai mật khẩu);
-# từ 16/11/2026 chỉ các lần KHÔNG thành công được đếm (xem login_attempt bên dưới).
+# từ 16/11/2026 lần đăng nhập rõ ràng thành công không được đếm (xem login_attempt bên dưới).
 import re
 LOGIN_RE = re.compile(os.getenv("TIER3_LOGIN_RE", r"/login"), re.I)
 STUFF_PER_IP = int(E("TIER3_STUFF_PER_IP", "3"))
 STUFF_MIN_IPS = int(E("TIER3_STUFF_MIN_IPS", "8"))
 STUFF_MIN_TOTAL = int(E("TIER3_STUFF_MIN_TOTAL", "40"))
-# 16/11/2026 — CHỈ ĐẾM LẦN ĐĂNG NHẬP KHÔNG THÀNH CÔNG (TIER3_LOGIN_COUNT=failed, mặc định). Trước đó mọi POST tới /login đều
-# được đếm, kể cả đăng nhập đúng, nên khi đang có chiến dịch thì khách thật đăng nhập >= 3 lần/phút bị khoá cùng botnet
-# (client-booking bị khoá 7 lần trong hai ngày; Danh-sach-gioi-han, mục 23). Một POST tới đường dẫn đăng nhập được coi là:
-#   - KHÔNG thành công: phản hồi >= 400 (401 sai mật khẩu, 403, 429 bị giới hạn tốc độ...), hoặc 3xx chuyển hướng QUAY LẠI
-#     trang đăng nhập (DVWA: Location: login.php);
-#   - thành công (không đếm): 3xx tới trang khác (profile.php, index.php), hoặc 2xx.
-# Ứng dụng trả 200 kèm thông báo lỗi khi sai mật khẩu thì đặt TIER3_LOGIN_2XX_FAILED=1 (khi đó 2xx được đếm, kể cả đăng nhập
-# đúng trả 200). Cần trường "loc" (header Location của phản hồi) trong nhật ký truy cập — web/apache/logjson.conf; dòng nhật
-# ký chưa có trường này thì 3xx được đếm như trước. TIER3_LOGIN_COUNT=all = cách đếm cũ.
+# 16/11/2026 — KHÔNG ĐẾM LẦN ĐĂNG NHẬP RÕ RÀNG THÀNH CÔNG (TIER3_LOGIN_COUNT=failed). Trước đó mọi POST tới /login đều được
+# đếm, kể cả đăng nhập đúng, nên khi đang có chiến dịch thì khách thật đăng nhập >= 3 lần/phút bị khoá cùng botnet
+# (client-booking bị khoá 7 lần trong hai ngày; Danh-sach-gioi-han, mục 23). Một POST tới đường dẫn đăng nhập:
+#   - KHÔNG đếm khi RÕ RÀNG thành công: 3xx chuyển hướng tới trang KHÁC trang đăng nhập (profile.php, index.php);
+#   - ĐẾM trong mọi trường hợp còn lại: >= 400 (401, 403, 429...), 3xx QUAY LẠI trang đăng nhập (DVWA: Location: login.php),
+#     và 2xx — trang đăng nhập được trả lại kèm thông báo lỗi là cách báo sai mật khẩu phổ biến (DVWA trả 200 cho botnet của
+#     kịch bản 10 và 38; vòng đo đầu ngày 16/11 coi 2xx là thành công nên bỏ lọt cả hai chiến dịch).
+# Ứng dụng báo đăng nhập ĐÚNG bằng 200 (API trả token tại /login) thì đặt TIER3_LOGIN_2XX_OK=1. Cần trường "loc" (header
+# Location của phản hồi) trong nhật ký truy cập — web/apache/logjson.conf; dòng nhật ký chưa có trường này thì 3xx được đếm
+# như trước. TIER3_LOGIN_COUNT=all = cách đếm cũ.
 LOGIN_COUNT = os.getenv("TIER3_LOGIN_COUNT", "failed")
-LOGIN_2XX_FAILED = os.getenv("TIER3_LOGIN_2XX_FAILED", "0") == "1"
+LOGIN_2XX_OK = os.getenv("TIER3_LOGIN_2XX_OK", "0") == "1"
 _LOC_HOST = re.compile(r"^[a-z][a-z0-9+.-]*://[^/]*", re.I)
 
 def login_attempt(ev, status):
@@ -90,7 +91,7 @@ def login_attempt(ev, status):
         if loc in ("", "-"): return False
         p = _LOC_HOST.sub("", loc.split("?", 1)[0].split("#", 1)[0])
         return bool(LOGIN_RE.search(p if p.startswith("/") else "/" + p))
-    return LOGIN_2XX_FAILED and 200 <= status < 300
+    return not LOGIN_2XX_OK                           # 2xx (và 1xx): mơ hồ -> đếm, trừ khi ứng dụng báo thành công bằng 200
 
 login_ev = deque(maxlen=200000)      # (ts, ip, ua) của mọi lần thử đăng nhập ĐƯỢC ĐẾM, toàn hệ thống
 camp = {"last_alert": {}, "since": 0, "last_eval": 0.0, "max_ts": 0.0}

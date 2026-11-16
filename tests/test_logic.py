@@ -1040,11 +1040,13 @@ check("đăng nhập ĐÚNG ở DVWA (302 -> index.php) KHÔNG được đếm",
 check("đăng nhập SAI ở DVWA (302 quay lại login.php) được đếm", LA(302, "login.php") and LA(302, "/login.php") and LA(302, "http://dvwa.local/login.php?e=1"))
 check("đăng nhập SAI trả 401 được đếm (trang và API)", LA(401, "-") and LA(401, "-", uri="/api.php"))
 check("POST đăng nhập bị giới hạn tốc độ (429) hoặc bị từ chối (403) được đếm", LA(429, "-") and LA(403, "-"))
-check("đăng nhập qua API trả 200 KHÔNG được đếm; GET trang đăng nhập không phải lần thử", not LA(200, "-") and not LA(200, "-", method="GET"))
+check("POST đăng nhập trả 200 (trang đăng nhập hiện lại — DVWA với botnet) ĐƯỢC đếm; GET trang đăng nhập không phải lần thử",
+      LA(200, "-") and not LA(200, "-", method="GET"))
+check("POST tới đường dẫn KHÔNG phải đăng nhập trả 200 (api.php đăng nhập đúng) không được đếm", not LA(200, "-", uri="/api.php"))
 check("302 không có header Location KHÔNG được đếm; nhật ký định dạng cũ (không có trường loc) đếm như trước", not LA(302, "-") and LA(302))
-T.LOGIN_2XX_FAILED = True
-check("TIER3_LOGIN_2XX_FAILED=1: POST đăng nhập trả 200 được đếm", LA(200, "-"))
-T.LOGIN_2XX_FAILED = False
+T.LOGIN_2XX_OK = True
+check("TIER3_LOGIN_2XX_OK=1: POST đăng nhập trả 200 được coi là thành công, không đếm", not LA(200, "-") and LA(401, "-"))
+T.LOGIN_2XX_OK = False
 T.LOGIN_COUNT = "all"
 check("TIER3_LOGIN_COUNT=all: cách đếm cũ, đăng nhập đúng cũng được đếm", LA(302, "profile.php") and LA(200, "-"))
 T.LOGIN_COUNT = "failed"

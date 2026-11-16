@@ -809,7 +809,7 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     dựng lại, container tạo lại 13:31; kiểm lại: mẫu quan sát 86/2 000 như lượt nền, bench Cổng 2 65/65; `stack.sh check` sạch 13:38.
   - Không viết thêm ngoại lệ sau khi thấy lượt sau. Tôi không xem bảng luật của mẫu kiểm tra, nên mẫu đó còn dùng được cho lần sau.
 
-- 16/11/2026 (14:00) — **Tầng 3, bộ đếm chiến dịch nhồi tài khoản: chỉ đếm lần đăng nhập KHÔNG thành công — TIÊU CHÍ GHI TRƯỚC KHI ĐO.**
+- 16/11/2026 (13:52) — **Tầng 3, bộ đếm chiến dịch nhồi tài khoản: chỉ đếm lần đăng nhập KHÔNG thành công — TIÊU CHÍ GHI TRƯỚC KHI ĐO.**
   Người dùng duyệt sửa ("Có, sửa tầng 3") sau phát hiện ở mục 13:20 (a). Chưa đo gì.
   - Thay đổi: `services/tier3.py` thêm `login_attempt()` và `TIER3_LOGIN_COUNT` (`failed` | `all`; trong commit này compose vẫn đặt
     `all` = cách cũ); nhật ký truy cập của Apache thêm trường `loc` (header `Location` của phản hồi) để phân biệt chuyển hướng
@@ -829,3 +829,29 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   - Giới hạn biết trước: ứng dụng trả 200 kèm thông báo lỗi khi sai mật khẩu sẽ KHÔNG được bộ đếm chiến dịch thấy ở chế độ mặc
     định mới (phải đặt `TIER3_LOGIN_2XX_FAILED=1`, khi đó đăng nhập đúng trả 200 lại bị đếm); khách thật gõ sai từ 3 lần trong 60
     giây giữa lúc có chiến dịch vẫn bị khoá; mỗi kịch bản một lượt; bản hai máy không đo.
+
+- 16/11/2026 (14:30) — **Tầng 3, bộ đếm chiến dịch, vòng 1: KẾT QUẢ — TRƯỢT điều 1 và 3 -> `failed` (bản vòng 1) KHÔNG được nhận.
+  Vòng 2: tiêu chí ghi trước.** Đo 13:53–14:20 (`eval/results/t3all-20261116-135349`, `t3failed-20261116-140118`).
+
+  | # | Điều kiện | Kết quả vòng 1 |
+  |---|---|---|
+  | 1 | KB 48 với `failed` đạt; >= 29/30 lần đăng nhập của khách trả 302 | **KHÔNG**: 30/30 trả 302, bot bị khoá, nhưng khách bị khoá MUỘN |
+  | 2 | KB 48 với `all`: khách bị khoá | đạt (bị Cổng 1 chặn sau 11 lần đăng nhập) |
+  | 3 | KB 45, 10, 38 với `failed` đạt | **KHÔNG**: 45 đạt; 10: 0/50 IP bị khoá; 38: 0/200 bot bị khoá |
+  | 4 | KB 09, 02, 13 với `failed` đạt | đạt |
+  | 5 | Không quyết định khoá nào với 10.10.10.21 trong lượt `failed` | đạt (0; lượt `all`: 2 quyết định khoá) |
+
+  - Hai nguyên nhân, xem sau khi có kết quả: (a) với botnet của kịch bản 10 và 38, DVWA trả **200** cho POST đăng nhập sai (không
+    có phiên và mã CSRF: trang đăng nhập hiện lại), mà bản vòng 1 coi 2xx là thành công — đúng giới hạn đã ghi trước ở mục 13:52,
+    nhưng tôi đã không kiểm rằng chính DVWA rơi vào đó; (b) khách của kịch bản 48 gửi 30 POST trong 60 giây và chạm mẫu
+    `bruteforce` THEO-TỪNG-IP của tầng 3 (>= 30 POST, >= 80 % là POST, <= 2 đường dẫn) — một bộ phát hiện khác; kịch bản thiết kế sai.
+  - Theo quy tắc: compose giữ `TIER3_LOGIN_COUNT=all`. Stack sạch 14:20.
+  - **Vòng 2:** (a) `login_attempt()` chỉ KHÔNG đếm lần RÕ RÀNG thành công (3xx tới trang khác trang đăng nhập); 2xx được đếm
+    (mơ hồ), `TIER3_LOGIN_2XX_OK=1` cho ứng dụng báo thành công bằng 200; (b) khách của kịch bản 48 đăng nhập đúng 12 lần cách nhau
+    5 giây (dưới ngưỡng 30 POST của mẫu `bruteforce`, vẫn >= 3 lần/phút nên cách đếm cũ phải khoá).
+  - Đo: `all`: kịch bản 48; `failed`: 48, 45, 10, 38, 09, 02, 13. **Năm điều kiện giữ nguyên như mục 13:52**, với điều 1 đổi thành
+    ">= 11/12 lần đăng nhập của khách trả 302" và điều 3 so với lượt `all` của vòng 1 (45: đạt; 10: 50/50; 38: đạt).
+  - Một điều không đạt -> giữ `all`, KHÔNG có vòng 3 trong buổi này; ghi lại làm giới hạn.
+  - Giới hạn biết trước của bản vòng 2: ứng dụng báo đăng nhập ĐÚNG bằng 200 tại đường dẫn khớp `/login` vẫn bị đếm như cũ (trừ khi
+    đặt `TIER3_LOGIN_2XX_OK=1`, khi đó đăng nhập sai trả 200 không được thấy); khách thật có từ 3 lần đăng nhập KHÔNG thành công
+    trong 60 giây giữa lúc có chiến dịch vẫn bị khoá; mẫu `bruteforce` theo-từng-IP không phân biệt đăng nhập đúng với sai.
