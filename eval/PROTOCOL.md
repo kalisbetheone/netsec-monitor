@@ -553,3 +553,25 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     chọn (A2 trước; A2 hỏng ở điều 6 thì chạy cho A1).
   - **Số báo cáo kèm, không thuộc quy tắc:** mốc tuyệt đối 5 % nhãn nhầm trên danh sách đối chứng (ghi 15/11) có đạt hay không;
     số của hai danh sách đối chứng cũ; riêng lớp RCE của bộ thử.
+
+- 16/11/2026 (10:15) — **Tầng 2, cổng cấu trúc: KẾT QUẢ đo trên hệ thống thật — cả A1 và A2 trượt hai trong sáu điều kiện ghi trước ->
+  GIỮ A0, cổng TẮT.** Một lượt mỗi cấu hình, 09:59–10:11 (`eval/results/t2model-cgA0.txt`, `-cgA1.txt`, `-cgA2.txt`; bench
+  `bench-results/20261116-095946`, `-100338` và lượt A2 kế tiếp).
+
+  | # | Điều kiện | A0 | A1 (cổng) | A2 (cổng, mass 0,50) | A1 | A2 |
+  |---|---|---|---|---|---|---|
+  | 1 | đối chứng thứ ba bị gắn nhãn <= nửa của A0 | 10/60 | 1/60 | 2/60 | đạt | đạt |
+  | 2 | bench mẫu khó <= nửa của A0 | 8/27 | 5/27 | 5/27 | KHÔNG | KHÔNG |
+  | 3 | bench mẫu thường <= A0 | 2/28 | 0/28 | 0/28 | đạt | đạt |
+  | 4 | bench: tấn công bộ phân loại bắt >= A0 | 63/65 | 61/65 | 61/65 | KHÔNG | KHÔNG |
+  | 5 | bộ thử 52 payload >= A0 | 40/52 | 40/52 | 49/52 | đạt | đạt |
+  | 6 | 5 kịch bản | — | chưa chạy | chưa chạy | — | — |
+
+  Số báo cáo kèm: hai danh sách đối chứng cũ A0 12 + 13, A1 3 + 4, A2 5 + 4 (cả ba danh sách: 35/180 -> 8/180 -> 11/180); mốc tuyệt
+  đối 5 % trên danh sách thứ ba: A1 1,7 % và A2 3,3 % (đạt), A0 16,7 %; lớp RCE của bộ thử 5/14, 5/14, 12/14; XSS 6/8, 6/8, 8/8.
+  Ở bench, cả 65 tấn công vẫn bị Cổng 2 chặn ở cả ba cấu hình; số tấn công do tầng 2 quyết định giảm 6 -> 4.
+  - Cấu hình chạy KHÔNG đổi (`TIER2_CONSTRUCT_GATE` mặc định 0). Image classifier đã được dựng lại với mã mới; lượt A0 (cổng tắt, mã
+    mới) cho đúng các số của mã cũ (40/52; 12 và 13 trên 60; bench 8/27, 2/28, 63/65), tức mã mới không đổi hành vi khi cổng tắt.
+  - Tôi KHÔNG xem hai tấn công nào và năm mẫu khó nào của bench gây ra kết quả ở điều 2 và 4, để bench còn dùng được cho lần đo
+    sau. Không sửa bộ biểu thức, ngưỡng, danh sách hay quy tắc sau khi thấy kết quả. Năm kịch bản không chạy vì không cấu hình nào
+    sắp được chọn. `stack.sh check` sạch lúc 10:11.
