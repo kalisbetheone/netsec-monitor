@@ -1,0 +1,42 @@
+title = "Cổng đặt chỗ: khách thật đăng nhập ĐÚNG nhiều lần giữa lúc bị nhồi tài khoản — không được bị khoá cùng botnet"
+case = "C4 mở rộng, A1 (chống khoá nhầm của bộ đếm chiến dịch)"
+notes = """Như kịch bản 45 (botnet 100 IP, mỗi IP 4 lần đăng nhập sai vào booking.local), thêm một KHÁCH THẬT đăng nhập ĐÚNG 30 lần, \
+cách nhau 2 giây (tài khoản thử user7@example.test của seed.php — một văn phòng dùng chung IP, hoặc ứng dụng tự đăng nhập lại). \
+Trước 16/11 bộ đếm chiến dịch của tầng 3 đếm mọi POST tới /login nên khách này bị khoá cùng botnet (client-booking bị khoá 7 lần \
+trong hai ngày). Từ 16/11 chỉ lần đăng nhập KHÔNG thành công được đếm (TIER3_LOGIN_COUNT=failed): botnet vẫn bị khoá, khách thì không. \
+IP bí danh của botnet: bot_offset 800–899."""
+max_s = 170
+
+[[actor]]
+name = "botnet nhồi tài khoản vào cổng đặt chỗ"
+kind = "botnet"
+bots = 100
+bot_offset = 800
+family = "login"
+host = "booking.local"
+path = "/login.php"
+method = "POST"
+param = "password"
+fields = [["email", "user{n}@example.test"]]
+count = 4
+interval_s = 4
+stop_on_block = true
+start_s = 10
+
+[[actor]]
+name = "khách thật đăng nhập đúng"
+role = "benign"
+family = "login"
+source = "file:/scenarios/48-mat-khau-dung.jsonl"
+host = "booking.local"
+path = "/login.php"
+method = "POST"
+param = "password"
+fields = [["email", "user7@example.test"]]
+count = 30
+interval_s = 2
+stop_on_block = false
+
+[expect]
+bots_blocked_min_share = 0.8
+benign_blocked = false

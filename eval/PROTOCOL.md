@@ -808,3 +808,24 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   - Đã làm: hai tệp `web/apache/crs/nsm-tuning-*.conf` trả về bản ngày 14/11 (bản ứng viên còn trong commit `1afcd4a`); image apache
     dựng lại, container tạo lại 13:31; kiểm lại: mẫu quan sát 86/2 000 như lượt nền, bench Cổng 2 65/65; `stack.sh check` sạch 13:38.
   - Không viết thêm ngoại lệ sau khi thấy lượt sau. Tôi không xem bảng luật của mẫu kiểm tra, nên mẫu đó còn dùng được cho lần sau.
+
+- 16/11/2026 (14:00) — **Tầng 3, bộ đếm chiến dịch nhồi tài khoản: chỉ đếm lần đăng nhập KHÔNG thành công — TIÊU CHÍ GHI TRƯỚC KHI ĐO.**
+  Người dùng duyệt sửa ("Có, sửa tầng 3") sau phát hiện ở mục 13:20 (a). Chưa đo gì.
+  - Thay đổi: `services/tier3.py` thêm `login_attempt()` và `TIER3_LOGIN_COUNT` (`failed` | `all`; trong commit này compose vẫn đặt
+    `all` = cách cũ); nhật ký truy cập của Apache thêm trường `loc` (header `Location` của phản hồi) để phân biệt chuyển hướng
+    quay lại trang đăng nhập (sai) với chuyển hướng đi trang khác (đúng). Một POST tới đường dẫn đăng nhập được đếm khi phản hồi
+    >= 400 hoặc 3xx quay lại trang đăng nhập; 2xx và 3xx tới trang khác không đếm (`TIER3_LOGIN_2XX_FAILED=1` để đếm 2xx).
+  - Kịch bản mới 48: như 45 (botnet 100 IP × 4 lần sai vào `booking.local`) thêm một khách thật đăng nhập ĐÚNG 30 lần cách nhau 2 giây.
+  - Đo cùng buổi, hai chế độ: `all` (cũ): kịch bản 48, 45, 10, 38; `failed` (mới): 48, 45, 10, 38, 09, 02, 13.
+  - **`failed` được đặt làm mặc định khi đạt CẢ năm điều:**
+    1. Kịch bản 48 với `failed` đạt (>= 80 % bot bị khoá, khách thật không bị khoá) VÀ ít nhất 29/30 lần đăng nhập của khách thật
+       trả 302 (tức kịch bản thật sự đăng nhập đúng).
+    2. Kịch bản 48 với `all`: khách thật BỊ khoá (kịch bản tái hiện được lỗi). Nếu không bị khoá thì kịch bản không kiểm được bản
+       sửa: không đổi mặc định dựa trên lượt này, báo lại.
+    3. Kịch bản 45, 10, 38 với `failed` đạt; tỉ lệ bot / IP tấn công bị khoá không thấp hơn lượt `all` quá 5 điểm phần trăm.
+    4. Kịch bản 09, 02, 13 với `failed` đạt.
+    5. Trong các lượt `failed`, responder không ra quyết định khoá nào với `client-booking` (10.10.10.21).
+  - Số báo cáo kèm: quyết định khoá với 10.10.10.21 trong lượt `all`; giá trị `loc` thực tế của POST đăng nhập ở DVWA và cổng đặt chỗ.
+  - Giới hạn biết trước: ứng dụng trả 200 kèm thông báo lỗi khi sai mật khẩu sẽ KHÔNG được bộ đếm chiến dịch thấy ở chế độ mặc
+    định mới (phải đặt `TIER3_LOGIN_2XX_FAILED=1`, khi đó đăng nhập đúng trả 200 lại bị đếm); khách thật gõ sai từ 3 lần trong 60
+    giây giữa lúc có chiến dịch vẫn bị khoá; mỗi kịch bản một lượt; bản hai máy không đo.
