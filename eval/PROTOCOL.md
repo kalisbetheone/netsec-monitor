@@ -716,3 +716,76 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
   - Các điều 1–5 (hệ thống thật, R1 = bộ gốc, R2 = v2b) giữ nguyên như mục 12:05. `TIER2_CONSTRUCT_RULES=2` từ commit này nghĩa là
     v2b; v2 chưa từng chạy trên hệ thống.
   - Một điều không đạt -> giữ bộ gốc, KHÔNG có vòng 3 trong buổi này.
+
+- 16/11/2026 (13:10) — **Cổng 1, khoảng nạp lại danh sách chặn: KẾT QUẢ — chọn N2 (2 giây, vòng chờ như cũ); đã đặt làm mặc định.**
+  Đo 11:52–12:30, một buổi (`eval/results/reload-N5.txt`, `-N2`, `-N5e`, `-N2e`, `-N5lap`; bảng: `tools/reloadcfg.py`).
+
+  | Cấu hình | Lần lượt, 10 lần khoá: T thực thi (s) | So le, 32 lần khoá: T thực thi (s) | KB 39: nạp lại | KB 39: người dùng không-200 | Đỉnh tiến trình / bộ nhớ nginx |
+  |---|---|---|---|---|---|
+  | N5 (mốc) | 0,30 (0,2–2,7) | 2,60 (0,2–5,8) | 4 | 4/60 | 21 / 44 MiB |
+  | N2 | 0,50 (0,2–2,6) | 1,15 (0,2–3,6) | 9 | 5/60 | 21 / 43 MiB |
+  | N5e | 0,45 (0,2–0,7) | 3,10 (0,2–5,4) | 6 | 7/60 | 23 / 46 MiB |
+  | N2e | 0,30 (0,2–0,8) | 1,40 (0,2–3,3) | 12 | 4/60 | 21 / 43 MiB |
+  | N5 lặp cuối buổi | — | 2,35 (0,2–8,8) | — | — | — |
+
+  Giá trị: trung vị (nhỏ nhất–lớn nhất). Mọi cấu hình: 10/10 và 32/32 lần bị khoá; kịch bản 39 và 45 đạt; 300/300 bot bị khoá; 0 dòng
+  lỗi của nginx.
+  - Độ trôi: N5 lặp 2,35 so với 2,60 (lệch 0,25 <= 0,5) -> phép so dùng được.
+  - Điều 1–5: N2 đạt cả năm; N2e đạt cả năm; N5e trượt điều 2 (3,10 > 2,10). Giữa N2 và N2e: trung vị so le 1,15 và 1,40 (chênh đúng
+    0,25, không dưới 0,25) -> chọn trung vị thấp hơn = N2; N2 cũng nạp lại ít lần hơn (9 so với 12).
+  - Số kèm, không thuộc quy tắc: thời gian tới khi bot bị chặn ở kịch bản 39 (trung vị) 29,7 / 29,1 / 35,0 / 30,4 giây — không đổi theo
+    cấu hình (phần lớn là thời gian tầng 3 phát hiện). Ở phép đo lần lượt, N5 và N2 mỗi cấu hình có một lần 2,6–2,7 giây, hai cấu hình
+    "chờ đúng" không có; 10 lần mỗi cấu hình là quá ít để kết luận về điều đó.
+  - Đã làm: `docker-compose.yml` đặt `RELOAD_MIN_INTERVAL_S` mặc định 2 (`RELOAD_EXACT_WAIT` giữ 0); nginx tạo lại lúc 13:11;
+    `stack.sh check` nay kiểm thêm giá trị này. Quay lại: `RELOAD_MIN_INTERVAL_S=5`.
+
+- 16/11/2026 (13:10) — **Tầng 2, bộ quy tắc bổ sung, vòng 2 (v2b): KẾT QUẢ — đạt cả bảy điều; đã đặt làm mặc định.**
+  - Điều 6, 7 (ngoại tuyến, `GSANM/nghien-cuu-tang-2/nc5-vong2.log`, `nc5-vong2-sites-con-lai.json`):
+
+    | Tập | Số đo | Bộ gốc | v2b | Giới hạn |
+    |---|---|---|---|---|
+    | `test_sites`, phần chưa xem (150 000 / 240 309) | nhãn nhầm | 377 | 380 (+0,002 điểm) | tăng <= 0,02 điểm |
+    | `test_hardtext` (5 028) | nhãn nhầm | 96 (1,91 %) | 96 (1,91 %) | tăng <= 0,5 điểm |
+    | `test_freetext` (10 000) | nhãn nhầm | 8 | 9 | tăng <= 0,1 điểm |
+    | HttpParams (31 067) | tấn công được tầng 1 + 2 bắt | 93,61 % | 97,48 % | >= bộ gốc |
+
+  - Điều 1–5 (hệ thống thật, 12:32–12:52, `eval/results/t2model-crR1.txt`, `-crR2.txt`):
+
+    | # | Số đo | R1 (bộ gốc) | R2 (v2b) | Kết quả |
+    |---|---|---|---|---|
+    | 1 | Bộ thử 52 payload | 49/52 | 49/52 | đạt |
+    | 2 | Bench: tấn công bộ phân loại bắt | 61/65 | 63/65 | đạt (về lại mức trước A2) |
+    | 3 | Bench: mẫu hợp lệ khó / thường bị gắn nhãn | 5/27, 0/28 | 5/27, 0/28 | đạt |
+    | 4 | Ba danh sách đối chứng cũ; danh sách 4a | 11/180; 0/32 | 11/180; 0/32 | đạt |
+    | 5 | Kịch bản 02, 13, 25, 41, 42 | — | đều ĐẠT | đạt |
+
+  - Số báo cáo, không thuộc điều kiện: danh sách 4b (30 văn bản kỹ thuật cố ý gần quy tắc mới) 0/30 -> 12/30 bị gắn nhãn (10/30 trong
+    đó vốn đã bị Cổng 2 chặn ở cả hai cấu hình). Đây là cái giá biết trước của v2b: văn bản kỹ thuật kiểu "phpinfo() hiển thị gì",
+    "log file ở /var/log/nginx bị đầy" nay qua được cổng cấu trúc và bị model gắn nhãn (nửa trọng số, không tự khoá IP).
+  - Đã làm: `docker-compose.yml` đặt `TIER2_CONSTRUCT_RULES` mặc định 2; classifier tạo lại lúc 13:11 (nhật ký: `construct=True
+    rules=2`); `stack.sh check` kiểm thêm giá trị này. Quay lại bộ gốc: `TIER2_CONSTRUCT_RULES=1`.
+  - Hệ quả cho số đã công bố: với A2 + v2b, bench bộ phân loại bắt 63/65 (A2 với bộ gốc: 61/65).
+
+- 16/11/2026 (13:20) — **Cổng 2, khảo sát chặn nhầm: SỐ NỀN và các ngoại lệ được viết (chưa đo lượt "sau").**
+  - (a) Lưu lượng hợp lệ đã tích luỹ, từ 15/11 01:21: `client` 10.10.10.20: 34 936 request, 0 bị Cổng 2 chặn; `client-booking`
+    10.10.10.21: 43 225 request, 0 bị Cổng 2 chặn. Nhãn tầng 2 trên `client`: 2 358/33 039 (7,1 %, đều là tìm kiếm "order by price")
+    trước khi bật A2; 0/1 907 từ khi bật A2. **Phát hiện ngoài CRS:** `client-booking` (không miễn trừ) bị responder khoá 7 lần
+    (`immediate:behaviour`, 15 phút mỗi lần); 6 lần trùng thời điểm kịch bản nhồi tài khoản 10, 38, 45 chạy — bộ đếm chiến dịch của
+    tầng 3 tính mọi POST tới /login (kể cả đăng nhập thành công) nên khách thật đăng nhập >= 3 lần/phút bị coi là thành viên chiến dịch.
+  - (b) Lượt nền `tools/crsdo.sh truoc` (12:53–13:07): mẫu quan sát 86/2 000 (4,30 %), mẫu kiểm tra 76/2 000 (3,80 %); bench Cổng 2
+    chặn 65/65; kịch bản 01: 925/1 152; 36: 32/32, đạt; 47: đạt; GoTestWAF 317/675 bị chặn, bộ thử báo nhầm 13/141 bị chặn;
+    waf-bypass 5 076 bị chặn, 1 663 lọt, 3 FALSED. Bảng luật của lượt nền không đọc được (công cụ lỗi với thân nhị phân, nhật ký
+    kiểm toán bị xoay mất sau đó); phát lại mẫu quan sát lần nữa lúc 13:09 (`crstruoc2-20261116-130927`): lại đúng 86/2 000.
+  - Luật gây chặn nhầm trên mẫu quan sát (số request bị chặn có luật đó): 920420 kiểu nội dung không cho phép 17; 943120 tham số
+    sessionid không có Referer 14; 932235 chèn lệnh Unix 10 (8 ở `query` của GraphQL); 931120 RFI 9 (đều ở `dl`); 942100 libinjection 6;
+    920340 + 920640 thiếu Content-Type 6; 942550 SQLi dạng JSON 4 (`data`); 921130 3; 942190 3; 930120 3; còn lại mỗi luật 1–2.
+  - **Ngoại lệ được viết** (`web/apache/crs/nsm-tuning-config.conf`, `-before.conf`; dải id 1000110–1000113):
+    (1) cho phép `application/csp-report`, `application/vnd.api+json`, `text/ping`, hai kiểu JSON được giao cho bộ xử lý JSON;
+    (2) thêm 932235 vào ngoại lệ GraphQL sẵn có (cùng phạm vi); (3) gỡ 942550 khỏi `data` / `options` khi giá trị là tài liệu JSON;
+    (4) gỡ 931120 khỏi `dl`, 921130 khỏi `nt_protocol` và `ak.proto`.
+  - **Cố ý KHÔNG tinh chỉnh:** 943120 (14) và 920340/920640 (6) — phụ thuộc header `Referer` / `Content-Type` mà tập dữ liệu không
+    ghi, không biết request gốc có thiếu thật không; 942100, 942190, 930120, 930130, 911100 (phương thức PUT), 920480 và các kiểu nội
+    dung riêng của một dịch vụ — không có ngoại lệ hẹp nào đủ an toàn hoặc chỉ khớp một dịch vụ.
+  - Nhận xét về dữ liệu, ghi trước khi đo lượt sau: tập openappsec ghi MỌI request của trình duyệt khi duyệt một website, kể cả
+    request tới máy chủ của bên thứ ba (Google Analytics, Facebook Pixel, Chrome UMA). Một website được bảo vệ không nhận các
+    request đó, nên 4,3 % và 3,8 % là số cao hơn mức một website thật sẽ thấy; tỉ lệ này không tách riêng được từ dữ liệu.

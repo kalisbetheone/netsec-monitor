@@ -30,7 +30,8 @@ def main():
     seen = blocked = 0
     per = defaultdict(lambda: {"n": 0, "sole": 0, "msg": "", "vars": Counter(), "paths": Counter(), "ct": Counter(), "ex": []})
     combos = Counter()
-    for line in sys.stdin:
+    for raw in sys.stdin.buffer:                     # thân nhị phân (gzip...) có byte không phải UTF-8: thay bằng ký tự thế
+        line = raw.decode("utf-8", "replace")
         if mark not in line: continue
         try: ev = json.loads(line)
         except ValueError: continue
