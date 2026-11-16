@@ -18,12 +18,23 @@ def conf(p):
 
 def labels(nhan_dir):
     out = {}
-    for actor, name, src in ((0, "bo_thu", "bo-thu.jsonl"), (1, "doi_chung_moi", "doi-chung-2.jsonl"), (2, "doi_chung_cu", "doi-chung.jsonl")):
+    # kịch bản do-nhan: 3 tác nhân; do-nhan-3 (16/11): thêm danh sách đối chứng thứ ba ở vị trí 1
+    scn = "do-nhan-3" if os.path.isdir(os.path.join(ROOT, nhan_dir, "do-nhan-3")) else "do-nhan"
+    actors = ([(0, "bo_thu", "bo-thu.jsonl"), (1, "doi_chung_3", "doi-chung-3.jsonl"), (2, "doi_chung_moi", "doi-chung-2.jsonl"), (3, "doi_chung_cu", "doi-chung.jsonl")]
+              if scn == "do-nhan-3" else [(0, "bo_thu", "bo-thu.jsonl"), (1, "doi_chung_moi", "doi-chung-2.jsonl"), (2, "doi_chung_cu", "doi-chung.jsonl")])
+    bo = T.jl(os.path.join(ROOT, "scenarios", "tang-2", "bo-thu.jsonl"))
+    for actor, name, src in actors:
         pool = [o["value"] for o in T.jl(os.path.join(ROOT, "scenarios", "tang-2", src))]     # request thứ i gửi pool[i % len(pool)]
-        _, rows, _ = T.align(os.path.join(ROOT, nhan_dir), "do-nhan", actor)
+        _, rows, _ = T.align(os.path.join(ROOT, nhan_dir), scn, actor)
         hit = [r for r in rows if r.get("label") not in (None, "benign")]
         out[name] = {"n": len(rows), "labelled": len(hit), "gate2_blocked": sum(1 for r in rows if str(r["status"]) == "403"),
                      "values": sorted({pool[int(r["i"]) % len(pool)][:40] for r in hit})}
+        if name == "bo_thu":                           # theo lớp, để đọc riêng lớp RCE
+            c = {}
+            for r in rows:
+                k = bo[int(r["i"]) % len(bo)]["cls"]; c.setdefault(k, [0, 0]); c[k][1] += 1
+                c[k][0] += r.get("label") not in (None, "benign")
+            out[name]["theo_lop"] = {k: f"{a}/{n}" for k, (a, n) in sorted(c.items())}
     return out
 
 
@@ -49,7 +60,7 @@ def main():
         print(f"\n===== cổng cú pháp = {c['gate']}  ({c.get('classifier_sau')}) =====")
         lab = labels(c["nhan"])
         for k, v in lab.items():
-            print(f"  {k:14} bị gắn nhãn tấn công {v['labelled']:2}/{v['n']} | Cổng 2 chặn {v['gate2_blocked']}")
+            print(f"  {k:14} bị gắn nhãn tấn công {v['labelled']:2}/{v['n']} | Cổng 2 chặn {v['gate2_blocked']}" + (f" | theo lớp {v['theo_lop']}" if "theo_lop" in v else ""))
             if k != "bo_thu":
                 print("      ", v["values"])
         print("  bench (pha detect):")

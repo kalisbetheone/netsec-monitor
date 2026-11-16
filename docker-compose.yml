@@ -275,6 +275,9 @@ services:
       # Model cũ (run_4) giữ ở models/tier2_run4.joblib; muốn quay lại: chép đè models/tier2.joblib và đặt lại
       # θ=0.90, gate=1, argmax, TIER2_MODE=observe.
       TIER2_THRESHOLD: "${TIER2_THRESHOLD:-0.67}"
+      # cổng CẤU TRÚC (16/11/2026): nhãn của model chỉ được tính khi một giá trị tham số có cấu trúc tấn công rõ
+      # (services/constructs.py); 0 = như trước. Đo bằng tools/t2model.sh.
+      TIER2_CONSTRUCT_GATE: "${TIER2_CONSTRUCT_GATE:-0}"
       TIER2_SYNTAX_GATE: "${TIER2_SYNTAX_GATE:-0}"   # cổng cú pháp của tầng 2; đổi tạm bằng biến môi trường khi đo (tools/t2gate.sh)
       TIER2_DECISION: "${TIER2_DECISION:-argmax}"      # model 14/11 (có văn bản tự do Tatoeba): argmax, ngưỡng 0,67; model 12/11 giữ ở models/tier2_1211.joblib (mass, 0,87)
       # enforce = nhãn tầng 2 dẫn tới cảnh báo/chặn; observe = chỉ ghi nhận (t2_label); corroborate = chỉ tính khi

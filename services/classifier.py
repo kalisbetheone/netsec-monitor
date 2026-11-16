@@ -17,6 +17,7 @@ Sửa sau đợt rà soát 12/11/2026:
 import ipaddress, json, math, os, time, uuid, re
 from collections import Counter
 import secrule
+import constructs
 from urllib.parse import unquote, unquote_plus
 from common import (EsBuffer, Heartbeat, consumer, day_index, es_client, install_stop, iso, log,
                     parse_json_line, parse_ts, producer, running)
@@ -53,6 +54,12 @@ def t2_confidence(score):
     x = min(max((score - T2_THRESHOLD) / (1.0 - T2_THRESHOLD), 0.0), 1.0)
     return round(T2_CONF_FLOOR + (1.0 - T2_CONF_FLOOR) * x, 4)
 T2_STRUCTURED = os.getenv("TIER2_STRUCTURED_BODY", "0") == "1"
+# Cổng CẤU TRÚC (16/11/2026): nhãn của model tầng 2 chỉ được tính khi có ít nhất một giá trị tham số mang cấu trúc tấn công rõ
+# (services/constructs.py). Model gắn nhãn theo từ vựng ("order by price", "ls"); bộ biểu thức bắt cú pháp; yêu cầu cả hai cùng
+# đồng ý. Nhãn bị cổng này bỏ vẫn được GHI LẠI (t2_label, t2_conf, t2_gated="construct") để theo dõi, nhưng không thành cảnh
+# báo. Mặc định 0: hành vi như trước. Khác cổng cú pháp TIER2_SYNTAX_GATE (chỉ xét "có ký tự đặc biệt nào không", và chặn
+# TRƯỚC khi hỏi model).
+T2_CONSTRUCT = os.getenv("TIER2_CONSTRUCT_GATE", "0") == "1"
 ANOMALY_CONF = float(os.getenv("ANOMALY_CONFIDENCE", "0.5"))
 # Trần quét. Trước đây chỉ đọc 100 tham số đầu, 2048 ký tự mỗi giá trị, 4096 ký tự thân JSON — đặt payload
 # sau phần đệm là qua mặt được. Nay quét hết trong trần; vượt trần thì gắn nhãn 'uninspected' (không coi là lành tính).
@@ -190,7 +197,7 @@ if os.path.exists(MODEL_PATH):
     _benign_i = _classes.index("benign") if "benign" in _classes else -1
     try: _names = _vec.get_feature_names_out()
     except Exception: _names = None
-    L.info("tier2 model loaded: %s | decision=%s θ=%.2f gate=%s", _classes, T2_DECISION, T2_THRESHOLD, T2_GATE)
+    L.info("tier2 model loaded: %s | decision=%s θ=%.2f gate=%s construct=%s", _classes, T2_DECISION, T2_THRESHOLD, T2_GATE, T2_CONSTRUCT)
 else:
     L.info("no tier2 model — tier 1 only")
 
@@ -352,6 +359,12 @@ def classify(path, qargs, bargs, ua, ev, headers=None):
                   and (T2_STRUCTURED or not (structured and f == "ARGS_POST"))]
     t2 = tier2(ev, " ".join(gate_units)) if gate_units else None
     out = {"label": "benign", "conf": 0.0, "tier": None, "rule": None, "field": None, "evidence": None}
+    if t2 and T2_CONSTRUCT:
+        # cùng tập giá trị mà tầng 2 được xem: tham số query + thân (thân JSON/XML/multipart chỉ khi bật TIER2_STRUCTURED_BODY)
+        vals = [v for _, v in qargs] + ([v for _, v in bargs] if (T2_STRUCTURED or not structured) else [])
+        if not constructs.any_construct(vals):
+            out.update(t2_label=t2[0], t2_conf=round(t2[1], 4), t2_evidence=" | ".join(t2[2])[:120], t2_gated="construct")
+            t2 = None
     if t2:
         corroborated = bool(ev.get("_waf_blocked"))
         if T2_MODE == "enforce" or (T2_MODE in ("corroborate", "weighted") and corroborated) or T2_MODE == "weighted":
@@ -511,7 +524,7 @@ def _classify_web(ev, body, intercepted=None, truncated=False):
            "cookie_n": [n for n, _ in cookies][:50],                             # chỉ TÊN cookie, không lưu giá trị
            "f_len": len(target), "f_special": sum(not ch.isalnum() for ch in target),
            "f_entropy": round(entropy(target), 3)}
-    for k in ("t2_label", "t2_conf", "t2_evidence", "weighted"):
+    for k in ("t2_label", "t2_conf", "t2_evidence", "t2_gated", "weighted"):
         if k in c: doc[k] = c[k]
     if truncated: doc["body_truncated"] = True
     store_event(ES_BUF, ts, doc)

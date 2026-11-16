@@ -181,6 +181,7 @@ services:
       INTERNAL_CIDRS: 10.10.30.0/24,10.10.10.10/32,172.16.0.0/12
       MODEL_PATH: /models/tier2.joblib
       TIER2_THRESHOLD: "0.67"              # model tầng 2 huấn luyện lại 12/11/2026 — xem bản một máy
+      TIER2_CONSTRUCT_GATE: "0"
       TIER2_SYNTAX_GATE: "0"
       TIER2_DECISION: "mass"
       TIER2_MODE: ${TIER2_MODE:-corroborate}   # enforce khoá người dùng gõ văn bản tự do — xem bản một máy

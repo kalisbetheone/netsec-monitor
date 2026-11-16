@@ -523,3 +523,33 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     về model và cấu hình cũ (kiểm bằng biến môi trường của container); `stack.sh check` sạch lúc 08:38. Tệp model ứng viên giữ ở
     `models/tier2_v4_ungvien.joblib` (không đưa vào kho) và trên Drive. Không chỉnh ngưỡng, không chọn lại ứng viên, không sửa
     danh sách đối chứng hay bộ thử sau khi thấy kết quả.
+
+- 16/11/2026 (10:00) — **Tầng 2, cổng CẤU TRÚC (`TIER2_CONSTRUCT_GATE`): thay đổi mã và tiêu chí GHI TRƯỚC khi đo trên hệ thống thật.**
+  Người dùng duyệt ("Có, làm bước 1"). Nghiên cứu ngoại tuyến: `Nghien-cuu-khac-phuc-tang-2-NSM.md` (thư mục GSANM).
+  - **Thay đổi mã:** `services/constructs.py` (bộ biểu thức "có cấu trúc tấn công rõ", chuyển nguyên từ `train/t2_constructs.py`,
+    không đổi biểu thức nào); `services/classifier.py`: khi `TIER2_CONSTRUCT_GATE=1`, nhãn của model tầng 2 chỉ được tính nếu có ít
+    nhất một giá trị tham số (query + thân, đúng tập giá trị mà tầng 2 được xem) khớp bộ biểu thức; nhãn bị bỏ vẫn được ghi vào bản
+    ghi (`t2_label`, `t2_conf`, `t2_gated = "construct"`) nhưng không thành cảnh báo. Mặc định 0 = hành vi như trước. Kiểm thử mới
+    trong `tests/test_logic.py`. Tầng 1, Cổng 2, responder, rulegen không đổi.
+  - **Ba cấu hình được đo, cùng buổi, cùng máy, mỗi cấu hình một lượt** (`tools/t2model.sh`, model đang chạy `tier2.joblib`):
+    A0 = hiện tại (argmax, θ 0,67, không cổng cấu trúc); A1 = A0 + cổng cấu trúc; A2 = cổng cấu trúc + `mass`, θ 0,50 (ngưỡng
+    chọn trên valid theo tiêu chí ghi ngày 15/11, `nghien-cuu-tang-2/nc1.json`).
+  - **Đã biết trước khi ghi tiêu chí** (chấm ngoại tuyến bằng đúng mã classifier, trên các danh sách ĐÃ bị nhìn thấy): bộ thử 52
+    payload A0 40, A1 40, A2 49; hai danh sách đối chứng cũ (120 văn bản) A0 25, A1 7, A2 9; valid và các tập test như bảng trong
+    báo cáo nghiên cứu. **Chưa biết:** pha detect của bench với cổng cấu trúc; danh sách đối chứng THỨ BA
+    `scenarios/tang-2/doi-chung-3.jsonl` (60 văn bản, viết trước khi đo, cùng cơ cấu 7 nhóm như hai danh sách trước, không trùng
+    giá trị nào, không được chấm thử bằng model hay bộ biểu thức trước khi đo); 5 kịch bản.
+  - **Quy tắc quyết định.** Một cấu hình (A1 hoặc A2) "đạt" nếu CẢ SÁU điều sau đúng, so với A0 đo cùng buổi:
+    1. danh sách đối chứng thứ ba: số văn bản bị gắn nhãn <= một nửa số của A0;
+    2. bench, mẫu hợp lệ "khó": số bị gắn nhãn <= một nửa số của A0;
+    3. bench, mẫu hợp lệ thường: số bị gắn nhãn <= số của A0;
+    4. bench: số tấn công bộ phân loại bắt được >= số của A0;
+    5. bộ thử 52 payload: số được gắn nhãn >= số của A0;
+    6. 5 kịch bản 02, 13, 25, 41, 42 đều đạt với cấu hình đó. Riêng kịch bản 41: nếu không đạt với lý do luật bị tự gỡ
+       `benign_hit_live` do IP thử có lịch sử hợp lệ từ lượt trước (hiện tượng đã ghi ngày 16/11 01:55), thì chạy lại MỘT lần từ bản
+       sao tạm với IP chưa từng dùng và lấy kết quả đó.
+    **Chọn:** nếu A2 đạt và số nhãn nhầm của nó không vượt A1 quá 2 văn bản ở danh sách thứ ba và quá 1 mẫu ở bench khó -> dùng A2;
+    nếu không, A1 đạt -> dùng A1; nếu không cấu hình nào đạt -> giữ A0 và tắt cổng. Năm kịch bản chỉ chạy cho cấu hình sắp được
+    chọn (A2 trước; A2 hỏng ở điều 6 thì chạy cho A1).
+  - **Số báo cáo kèm, không thuộc quy tắc:** mốc tuyệt đối 5 % nhãn nhầm trên danh sách đối chứng (ghi 15/11) có đạt hay không;
+    số của hai danh sách đối chứng cũ; riêng lớp RCE của bộ thử.

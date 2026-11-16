@@ -1032,6 +1032,35 @@ check("100 người mỗi người đăng nhập 1–2 lần (cao điểm hợp 
 al = run_campaign(20, 3, status=401, uri="/api.php")
 check("API trả 401 (sai mật khẩu) cũng được tính là lần thử đăng nhập", len({a["src_ip"] for a in al}) == 20, str(len(al)))
 
+print("== constructs: cấu trúc tấn công rõ, và cổng cấu trúc của tầng 2 (TIER2_CONSTRUCT_GATE, 16/11/2026)")
+import constructs as K
+for v in ("1' UNION SELECT user,password FROM users-- -", "x&sleep$mc 15&", "+|+dir+c:/", "1.2.3 ASC  -- ", "..../0x2f..../0x2fetc0x2fpasswd",
+          "<img src=x onerror=alert(1)>", ";cat /etc/passwd", "admin'--", "`id`"):
+    check(f"có cấu trúc tấn công: {v!r}", bool(K.constructs(v)))
+for v in ("order by price", "select a laptop for school", "ls", "dir", "true or false", "1=1", "C# and C++", "4.2.6'", "delete",
+          "laptop gaming 15 inch", "Nguyễn Văn An", "rock 'n' roll", "50% off today", ""):
+    check(f"KHÔNG có cấu trúc tấn công: {v!r}", not K.constructs(v))
+check("xét TỪNG giá trị: chú thích SQL ở cuối một giá trị vẫn được thấy dù còn tham số khác", K.any_construct(["hello", "7 asc  -- ", "1"]))
+check("giá trị dài bị cắt ở 2 000 ký tự (không quét vô hạn)", not K.constructs("a" * 2500 + "<script>alert(1)</script>"))
+_t2, _con, _mode = C.tier2, C.T2_CONSTRUCT, C.T2_MODE
+C.tier2 = lambda ev, gate_text=None: ("sqli", 0.99, ["sele"])      # giả lập: model LUÔN gắn nhãn sqli
+C.T2_MODE = "weighted"
+C.T2_CONSTRUCT = False
+r = cls("/search.php", "q=order+by+price")
+check("cổng cấu trúc TẮT: nhãn của model được dùng như trước", r["label"] == "sqli" and r.get("weighted") is True, str(r))
+C.T2_CONSTRUCT = True
+r = cls("/search.php", "q=order+by+price")
+check("cổng BẬT, văn bản không có cấu trúc: nhãn benign; nhãn của model chỉ được ghi lại (t2_gated)",
+      r["label"] == "benign" and r.get("t2_label") == "sqli" and r.get("t2_gated") == "construct", str(r))
+r = cls("/search.php", "q=7+ASC++--+")
+check("cổng BẬT, giá trị có cấu trúc: nhãn của model được dùng (tầng 2, nửa trọng số)",
+      r["label"] == "sqli" and r.get("tier") == 2 and r.get("weighted") is True and "t2_gated" not in r, str(r))
+r = cls("/search.php", "a=hello&q=7+ASC++--+&b=1")
+check("cổng BẬT: cấu trúc ở tham số GIỮA vẫn được thấy", r["label"] == "sqli" and r.get("tier") == 2, str(r))
+r = cls("/login.php", "", "username=admin&password=password")
+check("cổng BẬT: form đăng nhập thường (thân POST) không còn bị gắn nhãn", r["label"] == "benign", str(r))
+C.tier2, C.T2_CONSTRUCT, C.T2_MODE = _t2, _con, _mode
+
 print()
 if FAILS:
     print(f"THẤT BẠI {len(FAILS)} mục:"); [print("  -", f) for f in FAILS]; sys.exit(1)
