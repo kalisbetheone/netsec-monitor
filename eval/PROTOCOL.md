@@ -585,3 +585,27 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     IP đã có lịch sử). Một kịch bản không đạt vì lý do khác -> KHÔNG bật, báo lại người dùng.
   - Đo thêm, không thuộc điều kiện nào: kịch bản 44 (tầng 2 -> luật tự sinh) với A2, một lượt, để biết cổng cấu trúc có đổi được
     việc "phát hiện nhưng không thành luật" hay không (lượt 15/11: chỉ lớp LFI có luật, 2/18 payload giữ lại bị chặn).
+
+- 16/11/2026 (10:50) — **Tầng 2: cấu hình A2 được đặt làm MẶC ĐỊNH** (`docker-compose.yml`: `TIER2_CONSTRUCT_GATE=1`,
+  `TIER2_DECISION=mass`, `TIER2_THRESHOLD=0.50`; model không đổi). Theo quyết định của chủ dự án ghi ở mục 10:25.
+  - **5 kịch bản với A2** (`eval/results/t2modelcgA2kbkb-20261116-101927`): 02, 13, 25, 41, 42 đều ĐẠT (kịch bản 41 đạt ngay,
+    không cần chạy lại với IP mới). Lượt đo lặp của A2 trong cùng script cho đúng các số của lượt 10:07: bộ thử 49/52; đối chứng
+    2 + 4 + 5 trên 180; bench thường 0/28, khó 5/27, bộ phân loại bắt 61/65.
+  - **Kịch bản 44 với A2, một lượt** (`eval/results/t2test-20261116-103344`; lượt 15/11 dùng cấu hình cũ để so):
+
+    | Số đo | 15/11 (cấu hình cũ) | 16/11 (A2) | Ngưỡng ghi 15/11 |
+    |---|---|---|---|
+    | Lớp có luật tự sinh | chỉ LFI | SQLi, LFI, RCE (XSS không) | mọi lớp |
+    | Payload giữ lại bị luật tự sinh chặn | 2/18 (11,1 %) | 6/18 (33,3 %): lfi 2/5, rce 2/5, sqli 2/5, xss 0/3 | >= 50 % |
+    | Thời gian tới khi luật có hiệu lực | LFI 64 s | SQLi, LFI, RCE 57–62 s | <= 120 s |
+    | Văn bản đối chứng bị luật tự sinh chặn | 0 | 0 | 0 |
+
+    Ba luật: `generate_series(` (sqli, G2r), `../` (lfi, G2r), biểu thức nối lệnh viết sẵn (rce); đều từ bằng chứng tầng 2, 3 IP
+    nguồn. Hai số đo 2 và 3 vẫn KHÔNG ĐẠT theo ngưỡng ghi ngày 15/11, nhưng tốt hơn lượt trước. Phần "Số đo 1" trong `t2test.md`
+    của lượt này (40/52) KHÔNG phải số của A2: công cụ lấy nó từ lượt lọc ngày 15/11; số của A2 là 49/52 (kịch bản đếm nhãn).
+    Rulegen vẫn ghi "không có ứng viên an toàn đủ điểm" cho phần còn lại của cụm sqli và lfi sau khi đã sinh luật đầu.
+  - Sau khi đổi mặc định: classifier khởi động lại, nhật ký ghi `decision=mass θ=0.50 gate=False construct=True`; kiểm thử đạt;
+    `stack.sh check` sạch (mốc của công cụ kiểm đã đổi sang A2). Bản hai máy `soc/docker-compose.yml` KHÔNG đổi (cổng cấu trúc
+    0, chế độ corroborate): cấu hình A2 chưa được đo ở chế độ đó.
+  - Hệ quả cho các số đã công bố: các số tầng 2 của lượt chốt 15/11 (bench mẫu khó 8/27, mẫu thường 2/28, bộ phân loại 63/65,
+    kịch bản 42 gắn nhãn 0,9 %) thuộc cấu hình cũ; số của A2 là 5/27, 0/28, 61/65; kịch bản 42 đạt, số đo nằm trong thư mục trên.
