@@ -77,7 +77,8 @@ services:
     build: ./web/nginx
     restart: unless-stopped
     environment:
-      RELOAD_MIN_INTERVAL_S: "5"                # E5: gom các thay đổi blocklist, tối đa 1 lần nạp lại / 5 giây
+      RELOAD_MIN_INTERVAL_S: "${RELOAD_MIN_INTERVAL_S:-5}"   # E5: gom các thay đổi blocklist, tối đa 1 lần nạp lại / N giây
+      RELOAD_EXACT_WAIT: "${RELOAD_EXACT_WAIT:-0}"           # 1 = khi phải chờ thì chờ ĐÚNG phần còn lại rồi nạp (16/11; 0 = như cũ)
       LOG_MAX_MB: "50"                          # xoay gate1.json (request bị Cổng 1 từ chối) khi vượt kích thước này (giữ 1 bản cũ)
     volumes:
       - blocklist:/etc/nginx/blocklist

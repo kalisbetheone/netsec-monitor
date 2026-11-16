@@ -609,3 +609,30 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     0, chế độ corroborate): cấu hình A2 chưa được đo ở chế độ đó.
   - Hệ quả cho các số đã công bố: các số tầng 2 của lượt chốt 15/11 (bench mẫu khó 8/27, mẫu thường 2/28, bộ phân loại 63/65,
     kịch bản 42 gắn nhãn 0,9 %) thuộc cấu hình cũ; số của A2 là 5/27, 0/28, 61/65; kịch bản 42 đạt, số đo nằm trong thư mục trên.
+
+- 16/11/2026 (11:55) — **Cổng 1: khoảng nạp lại danh sách chặn 5 giây -> 2 giây — TIÊU CHÍ GHI TRƯỚC KHI ĐO.** Chưa đo gì.
+  - Bối cảnh: `web/nginx/entrypoint.sh` nạp lại nginx tối đa một lần mỗi `RELOAD_MIN_INTERVAL_S` (5) giây. Khi một thay đổi đến
+    trong khoảng đó, vòng chờ hiện tại ngủ 1 giây rồi quay lại `inotifywait -t 2`, nên có thể chờ lâu hơn 5 giây tới 2 giây.
+    Lượt đo 16/11 01:26: T thực thi 0,2–1,2 giây khi các lần khoá cách nhau ~5,5 giây; trước đó từng ghi tới 2,9 giây.
+  - Thay đổi mã để đo được (không đổi hành vi mặc định): `RELOAD_MIN_INTERVAL_S` nhận từ biến môi trường (mặc định 5); công tắc
+    mới `RELOAD_EXACT_WAIT` (mặc định 0 = như cũ; 1 = ngủ đúng phần còn lại rồi nạp); `bench.sh` thêm `BENCH_MTTR_STAGGER_S` và
+    `BENCH_MTTR_INTERVAL`; công cụ `tools/reloadcfg.sh`.
+  - Bốn cấu hình, cùng buổi, thứ tự: **N5** (5 giây, như cũ — mốc), **N2** (2 giây), **N5e** (5 giây, chờ đúng), **N2e** (2 giây,
+    chờ đúng). Cuối buổi lặp lại phép đo so le của N5 để biết độ trôi.
+  - Mỗi cấu hình đo: (a) `bench.sh -r 5 mttr`, kịch bản sqli và rce, lần lượt: 10 lần khoá; (b) hai lượt so le: 16 IP bắt đầu
+    cách nhau 1 giây, mỗi IP 4 request/giây (`BENCH_MTTR_STAGGER_S=1 BENCH_MTTR_INTERVAL=0.25`, `-r 8`): 32 lần khoá; (c) kịch bản
+    39 (300 IP bị khoá dồn dập, có một người dùng hợp lệ), kèm lấy mẫu số tiến trình và bộ nhớ của container nginx và đếm số lần
+    nạp lại; (d) kịch bản 45.
+  - **Một cấu hình ứng viên (N2, N5e, N2e) được chọn thay N5 khi đạt CẢ năm điều:**
+    1. Mọi lần chạy mttr đều bị khoá (10/10 và 32/32).
+    2. Đo so le (gộp hai lượt): trung vị T thực thi thấp hơn N5 ít nhất 0,5 giây, và giá trị lớn nhất không cao hơn N5.
+    3. Đo lần lượt: trung vị T thực thi không cao hơn N5 quá 0,25 giây.
+    4. Kịch bản 39 và 45 đạt; ở kịch bản 39 số request của người dùng hợp lệ không nhận 200 không nhiều hơn N5 quá 2 (trên 60).
+    5. Trong kịch bản 39: đỉnh số tiến trình của container nginx không quá 2 lần N5, đỉnh bộ nhớ không quá 1,5 lần N5, nhật ký
+       nginx không có dòng `[emerg]`, `[alert]` hay "nginx -t failed".
+  - Nhiều ứng viên cùng đạt: chọn trung vị so le thấp nhất; chênh nhau dưới 0,25 giây thì chọn cấu hình nạp lại ít lần hơn ở kịch
+    bản 39. Không ứng viên nào đạt: giữ N5.
+  - **Độ trôi:** nếu trung vị so le của lượt N5 lặp cuối buổi lệch lượt N5 đầu buổi quá 0,5 giây, phép so không đáng tin: không
+    đổi gì, báo lại.
+  - Giới hạn biết trước: T thực thi chỉ chính xác tới khoảng cách giữa hai request (0,5 giây ở phép đo lần lượt, 0,25 giây ở phép
+    đo so le); mỗi kịch bản một lượt; cùng một máy chạy cả hệ thống lẫn công cụ đo.
