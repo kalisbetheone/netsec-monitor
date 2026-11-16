@@ -25,6 +25,40 @@ Notebook 03 so model Qwen lớn (`Qwen/Qwen3.8-27B`, ~18 GB tải về máy Cola
 notebook 02 về chất lượng chọn luật và mức ảo giác. Chạy sau notebook 02 (đọc `results.json` của nó). Nếu runtime
 bị ngắt, chạy lại từ đầu: phần đã xong được đọc lại từ `results_large.json` và bỏ qua.
 
+**Mục 8 của notebook 03 (thêm 15/11/2026): đo lại H1 có lưu câu trả lời thô.** H1 ở mục 7 phần lớn do dữ liệu (đa số
+cụm không có token nào thoả ngưỡng 80 %), nên mục 8 lưu câu trả lời và chấm riêng trên các cụm có đáp án. Cách chạy:
+Run all lần nữa trên **A100 40 GB**. Các mục 4–6 được bỏ qua nhờ `results_large.json` (không tinh chỉnh lại; bản tinh
+chỉnh được đo bằng adapter đã lưu trong `output/rulesel_large/lora_qwen3.8-27b`), chỉ mục 8 chạy: khoảng 20–30 phút gồm
+cả tải model. Muốn chỉ đo hai model nhỏ thì chọn L4: phần 27B tự bỏ qua khi GPU dưới 34 GB. Kết quả:
+`output/rulesel_large/replies/*.jsonl` (câu trả lời thô) và các khoá `_h1v2*` trong `results_large.json`. Bản notebook
+và `results_large.json` của lần chạy 15/11 được giữ ở `notebooks/03_large_qwen_hallucination_lan2_15-11.ipynb` và
+`output/rulesel_large/results_large_lan2_15-11.json`.
+
+**Notebook 01 chia cho 3 phiên chạy cùng lúc (thêm 15/11/2026).** Thay vì một phiên học lần lượt mọi ứng viên:
+- mở `01_tier2_classifier_phien1.ipynb`, `_phien2.ipynb`, `_phien3.ipynb`, mỗi tệp ở một phiên riêng, rồi Run all ở cả
+  ba (mỗi phiên vẫn phải cài scikit-learn 1.6.1 và Run all lần hai như mục 4 dưới đây). Loại runtime nào cũng được:
+  scikit-learn chỉ dùng CPU, nên L4 chỉ khác ở số CPU và RAM;
+- mỗi phiên học phần ứng viên của mình và ghi vào `output/tier2/parts/<tên ứng viên>.joblib` + `.json`. Không mở chung
+  một tệp notebook ở hai phiên: Colab sẽ lưu đè lên nhau;
+- khi cả ba phiên in "xong phần của mình", chạy bước gộp: `01_tier2_classifier_gop.ipynb` (vài phút, không cần GPU),
+  hoặc trên máy cá nhân: `NSM_SHARD=gop NSM_TRAIN_BASE=<thư mục NSM-train> python train/notebooks_src/01_tier2_classifier.py`.
+  Bước gộp chọn model theo đúng quy tắc của bản một phiên và ghi `tier2_new.joblib`, `metrics.json`,
+  `docker-compose-env.txt` như trước. Thiếu phần của ứng viên nào thì bước gộp dừng và nêu tên;
+- bản một phiên `01_tier2_classifier.ipynb` vẫn chạy như cũ. Phần XGBoost nghiên cứu chỉ có ở bản một phiên.
+
+**Đợt cải thiện tầng 2 — thư mục `NSM-train-v3` (vòng 1, 15/11/2026) và `NSM-train-v4` (vòng 2, 16/11/2026).** Vòng 2 = vòng 1 +
+1 202 payload SQLi / chèn lệnh từ nguồn tải thêm (`eval/data/payloads_extra/SOURCE.md`); nên chạy vòng 2. Dữ liệu `tier2_*` của
+đợt này khác hai đợt trước:
+- payload tấn công có cờ `g2` ("pass" = lọt Cổng 2 thật và có cấu trúc tấn công rõ); các payload đó được cấy thêm;
+- thêm văn bản hợp lệ "khó" (từ khoá SQL / lệnh shell, ký hiệu) vào train / valid, cờ `hard`;
+- hai tập kiểm tra mới: `tier2_test_hardtext` và `tier2_test_residual` (tấn công thật của SR-BH mà Cổng 2 để lọt).
+Notebook 01 nhận ra dữ liệu này (in "V2: True") và tự đổi: 6 ứng viên (M2, M3 × trọng số 1 / 3 / 10), mục tiêu chọn là phát
+hiện trên payload lọt Cổng 2 (trung bình đều theo lớp), thêm ràng buộc báo nhầm ≤ 5 % trên văn bản hợp lệ khó. Cách chạy:
+ba phiên, mỗi phiên một tệp `01_tier2_classifier_phien<i>.ipynb` trong `NSM-train-v4/notebooks`; xong cả ba thì gộp.
+Tiêu chí được ghi trước trong `nsm/eval/PROTOCOL.md` (mục 15/11/2026 23:00 và mục 16/11/2026). Dựng lại dữ liệu:
+`train/t2_pool.py` (rồi `test`, `extra`) → bước lọc qua Cổng 2 → `train/t2_pool_result.py`, `train/t2_hard_benign.py`, rồi
+`train/build_tier2_dataset.py`.
+
 1. Mở notebook trong Colab (chuột phải → Open with → Google Colaboratory).
 2. Runtime → Change runtime type → chọn như bảng trên.
 3. Runtime → Run all. Ô đầu tiên hỏi quyền truy cập Drive: chấp nhận.

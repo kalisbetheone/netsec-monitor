@@ -182,7 +182,7 @@ bash tools/tier1sync.sh                          # đối chiếu luật ModSecu
 ## Tham số chính (docker-compose.yml)
 | Dịch vụ | Tham số | Giá trị | Ý nghĩa |
 |---|---|---|---|
-| classifier | `TIER2_THRESHOLD` / `TIER2_DECISION` | 0.67 / argmax | Ngưỡng của model tầng 2 ngày 14/11 (sau khi áp bản vá; model 12/11 giữ ở `models/tier2_1211.joblib` dùng mass / 0,87). Ngưỡng này khác thang θ: điểm vượt ngưỡng được đổi sang 0,90–1,00 trước khi gửi responder (`TIER2_CONF_FLOOR`), điểm gốc lưu ở `t2_conf` |
+| classifier | `TIER2_THRESHOLD` / `TIER2_DECISION` / `TIER2_CONSTRUCT_GATE` | 0.50 / mass / 1 | Cấu hình tầng 2 từ 16/11: nhãn của model chỉ được tính khi một giá trị tham số có cấu trúc tấn công rõ (`services/constructs.py`); ngưỡng 0,50 kiểu `mass`. Cấu hình trước: 0.67 / argmax / 0. Model là bản 14/11 (bản 12/11 giữ ở `models/tier2_1211.joblib`). Ngưỡng này khác thang θ: điểm vượt ngưỡng được đổi sang 0,90–1,00 trước khi gửi responder (`TIER2_CONF_FLOOR`), điểm gốc lưu ở `t2_conf` |
 | classifier | `TIER2_SYNTAX_GATE` | 0 | 1 = chỉ hỏi model khi giá trị tham số có ký tự cú pháp tấn công |
 | classifier | `TIER2_MODE` | weighted | `observe`: nhãn tầng 2 chỉ ghi vào `t2_label`. `corroborate`: chỉ tính khi Cổng 2 cũng chặn request đó. `weighted` (15/11, mặc định sau khi áp bản vá): nhãn chỉ do model vẫn thành cảnh báo nhưng mang cờ `weighted` — responder tính nửa trọng số, không tính cửa sổ dài, không khoá ngay; Cổng 2 cũng chặn thì tính đủ. `enforce`: tính đủ mọi nhãn |
 | classifier | `ATTACK_ARCHIVE` | 1 | Ghi thêm sự kiện có nhãn tấn công vào `attack-events-*` (giữ 1 năm) |

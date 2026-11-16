@@ -331,3 +331,281 @@ Mọi chênh lệch được báo cáo kèm ví dụ. Nếu tỷ lệ chênh vư
     chặn. KHÔNG đổi ngưỡng, bộ thử, kịch bản hay cấu hình sau khi thấy kết quả. Kỳ vọng `verify_gate2_min_share = 0.5`
     của kịch bản 44 vì vậy KHÔNG ĐẠT và được giữ nguyên. Kết quả phụ: Cổng 2 chặn 9 085/9 289 (97,8 %) payload công khai
     mà regex tầng 1 bỏ lọt.
+
+- 15/11/2026 (22:15) — **Cải thiện tầng 2, bước 1: cổng cú pháp (`TIER2_SYNTAX_GATE`) — tiêu chí GHI TRƯỚC khi đo.**
+  Người dùng duyệt lúc 22:00. Bối cảnh: model 14/11 gắn nhãn tấn công cho văn bản hợp lệ có từ khoá SQL / lệnh shell với
+  điểm 1,00 (`order by price`, `select a laptop for school`), nên nâng ngưỡng không giúp; cổng cú pháp bỏ qua model khi giá
+  trị tham số không có ký tự đặc biệt nào.
+  - **Đã biết trước khi ghi tiêu chí (chấm NGOẠI TUYẾN bằng đúng mã classifier, trùng số đo thật 40/52 và 12/60):** cổng bật ->
+    bộ thử 52 payload 37/52, danh sách đối chứng cũ 5/60. Hai tập này vì vậy KHÔNG còn là phép kiểm độc lập cho cổng.
+  - **Phần chưa biết kết quả:** pha detect của bench với cổng bật; danh sách đối chứng MỚI `scenarios/tang-2/doi-chung-2.jsonl`
+    (60 văn bản, viết trước khi chạy, cùng cơ cấu nhóm với danh sách cũ, không trùng giá trị nào); 5 kịch bản 02, 13, 25, 41, 42.
+  - **Cách đo:** `tools/t2gate.sh 0` rồi `tools/t2gate.sh 1`, cùng buổi, cùng máy, mỗi cấu hình MỘT lượt: bench pha detect;
+    kịch bản đếm nhãn `scenarios/tang-2/do-nhan` (52 payload + đối chứng mới + đối chứng cũ, mỗi giá trị một lần, rulegen
+    dừng); 5 kịch bản trên. So bằng `tools/t2gate.py`.
+  - **Quy tắc quyết định: giữ cổng BẬT nếu CẢ BỐN điều sau đúng, ngược lại giữ cổng tắt:**
+    1. bench, lành tính "khó": số mẫu bị gắn nhãn ở cổng bật <= một nửa số ở cổng tắt (cùng buổi);
+    2. đối chứng mới: số văn bản bị gắn nhãn ở cổng bật <= một nửa số ở cổng tắt;
+    3. bench: số tấn công bộ phân loại bắt được ở cổng bật >= số ở cổng tắt;
+    4. bộ thử 52 payload: cổng bật gắn nhãn >= 32/52 (ngưỡng 60 % đã dùng cho số đo 1 của bộ thử tầng 2).
+    Thêm một điều kiện chặn: không kịch bản nào trong 5 kịch bản ĐẠT ở cổng tắt mà KHÔNG ĐẠT ở cổng bật. Nếu một kịch bản
+    không đạt ở cả hai cấu hình thì ghi lại, không tính vào quyết định.
+  - Không chỉnh ngưỡng `TIER2_THRESHOLD` trong bước này. Không sửa danh sách đối chứng, bộ thử hay kịch bản sau khi thấy kết quả.
+
+- 15/11/2026 (22:52) — **Cải thiện tầng 2, bước 1: KẾT QUẢ đo cổng cú pháp — quyết định theo quy tắc ghi trước: GIỮ CỔNG TẮT.**
+  Một lượt mỗi cấu hình, 22:17–22:52 (`tools/t2gate.sh`; `eval/results/t2gate-0.txt`, `t2gate-1.txt`; bench
+  `bench-results/20261115-221757` và `-223508`).
+
+  | Phép đo | Cổng tắt | Cổng bật | Điều kiện | Đạt |
+  |---|---|---|---|---|
+  | bench, lành tính "khó" bị gắn nhãn | 8/27 | 7/27 | bật <= một nửa của tắt (<= 4) | KHÔNG |
+  | đối chứng mới bị gắn nhãn | 13/60 | 7/60 | bật <= một nửa của tắt (<= 6) | KHÔNG |
+  | bench, bộ phân loại bắt tấn công | 63/65 | 63/65 | bật >= tắt | có |
+  | bộ thử 52 payload được gắn nhãn | 40/52 | 37/52 | >= 32/52 | có |
+  | 5 kịch bản 02, 13, 25, 41, 42 | 5 đạt | 5 đạt | không kịch bản nào từ đạt thành không đạt | có |
+
+  Ghi thêm (không thuộc quy tắc): bench lành tính thường 2/28 -> 0/28; đối chứng cũ 12/60 -> 5/60. Cổng có ích cho văn bản
+  KHÔNG có ký tự đặc biệt, nhưng phần lớn mẫu "khó" của bench có ký tự đặc biệt nên cổng không chạm tới. Hai điều kiện không
+  đạt -> cấu hình chạy KHÔNG đổi (`TIER2_SYNTAX_GATE` mặc định 0). Cổng vẫn là một lựa chọn trong bảng chọn model của bước 2
+  (notebook 01 chọn cách quyết định × cổng trên valid). Không sửa danh sách đối chứng, bộ thử, kịch bản hay ngưỡng sau khi thấy
+  kết quả. Sau lượt đo, classifier được trả về mặc định và `stack.sh check` sạch.
+- 15/11/2026 (23:00) — **Cải thiện tầng 2, bước 2: dữ liệu huấn luyện mới và tiêu chí chọn model — GHI TRƯỚC khi huấn luyện.**
+  - **Cờ "lọt Cổng 2" (`g2`).** Payload train/valid (seclists, openappsec_mal; giá trị dài nhất ModSecurity thấy, khử trùng theo
+    giá trị: 47 607) mà regex tầng 1 bỏ lọt (33 887) được gửi qua Cổng 2 THẬT dạng `GET /index.php?q=<payload>`, 8 tác nhân song
+    song, IP miễn trừ, rulegen dừng (`train/t2_pool.py`, `scenarios/tang-2/loc/`, kết quả `eval/results/t2pool-20261115-225610`,
+    234 giây): 28 279 bị Cổng 2 chặn, 5 608 lọt. Sau lượt lọc 6 IP thử bị responder khoá (cảnh báo tới sau khi hết miễn trừ);
+    đã gỡ bằng `nsmctl unblock` lúc 23:02 — không ảnh hưởng mã phản hồi đã ghi (không request nào bị Cổng 1 chặn).
+  - **Lọc chất lượng.** Payload lọt chỉ được đánh dấu `g2 = pass` nếu có CẤU TRÚC TẤN CÔNG rõ theo `train/t2_constructs.py` (biểu
+    thức viết tay, viết TRƯỚC khi có model mới nào được chấm; kiểm trên 52 payload đã đọc tay: nhận 50/52); còn lại là
+    `pass_weak` và được dùng như payload thường. Lý do: đọc tay 15/11 cho thấy chỉ 57/126 payload lọt là tấn công thật. Kết quả:
+    `pass` train sqli 71, xss 19, lfi 4 109, rce 16; valid sqli 18, xss 6, lfi 1 024, rce 8. Lớp LFI lấn át, nên (a) mỗi lớp
+    chỉ được cấy thêm tối đa 3 000 dòng (train) / 1 200 dòng (valid), mỗi payload tối đa 10 / 3 vật mang; (b) mục tiêu chọn
+    model là trung bình ĐỀU theo lớp.
+  - **Văn bản hợp lệ "khó"** (`train/t2_hard_benign.py`): 5 856 câu Tatoeba có từ khoá SQL / lệnh shell (chia theo băm của trình
+    dựng dữ liệu) + chuỗi ngắn sinh theo 13 họ mẫu (chia theo băm của chuỗi) + 2 họ CHỈ có ở test (`toan`, `url`). Mọi chuỗi
+    trùng một chuỗi của các danh sách kiểm tra (hai danh sách đối chứng, mẫu lành tính của bench, câu của khung kịch bản; 320
+    chuỗi) bị loại khỏi dữ liệu sinh. Không sinh câu SQL hoàn chỉnh đứng một mình làm mẫu hợp lệ.
+  - **Bộ kiểm tra mới, không dùng để chọn:** `test_hardtext` (phần test của văn bản khó) và `test_residual` — payload tấn công
+    THẬT của SR-BH 2020 mà regex tầng 1 bỏ lọt (1 383), gửi qua Cổng 2 (`eval/results/t2pooltest-20261115-225311`): 721 lọt, trong
+    đó 205 có cấu trúc tấn công rõ (sqli 149, rce 56; chủ yếu 5 khung của máy quét: `<giá trị>&sleep$mc 15&`,
+    `<giá trị>&cat$jj $jj/etc$jj/passwd&`, `<giá trị> ASC  -- `, `<giá trị> DESC  -- `, `<giá trị>-- `). 516 giá trị lọt còn lại
+    là giá trị thường của request bị gắn nhãn tấn công hoặc dò bằng một ký tự cuối (`4.2.6'`) — không dùng.
+  - **Ứng viên:** M2 (hồi quy logistic, C = 1) và M3 (SGD) × trọng số 1 / 3 / 10 cho dòng `g2 = pass` và dòng văn bản khó
+    (6 ứng viên, 2 ứng viên mỗi phiên Colab). Đặc trưng và dạng model không đổi (thay vào classifier được ngay).
+  - **Tiêu chí chọn (trên valid, không nhìn tập test):** với mỗi ứng viên × cách quyết định × cổng cú pháp, lấy ngưỡng cho mục
+    tiêu cao nhất trong các ngưỡng thoả CẢ BA ràng buộc: tầng 2 thêm <= 0,1 % báo nhầm trên lành tính thường; <= 0,2 % trên văn
+    bản tự do; <= 5 % trên văn bản hợp lệ khó. **Mục tiêu = tỷ lệ phát hiện trên payload `g2 = pass`, trung bình đều theo lớp**,
+    hoà thì lấy phát hiện chung cao hơn, rồi báo nhầm hệ thống thấp hơn.
+  - **Mốc đạt của bước 2, đo trên HỆ THỐNG THẬT sau khi có model (không phải trên valid):** (1) văn bản hợp lệ khó bị gắn nhãn
+    <= 5 % trên hai danh sách đối chứng gộp (hiện 25/120) và trên bench "khó" (hiện 8/27; 5 % của 27 làm tròn lên = 2);
+    (2) bộ thử 52 payload được gắn nhãn >= 39/52 (75 %), riêng RCE >= 7/14 (hiện 5/14); (3) bench: bộ phân loại bắt tấn công
+    không giảm (63/65); (4) 5 kịch bản 02, 13, 25, 41, 42 vẫn đạt. Không đạt đủ thì KHÔNG thay model.
+  - **Giới hạn đã biết trước khi huấn luyện:** phần lọt có cấu trúc của SQLi / XSS / RCE trong train chỉ 71 / 19 / 16 payload
+    (valid 18 / 6 / 8), nên số đo "lọt Cổng 2" của ba lớp này trên valid dao động mạnh; cả tập train chỉ có 614 giá trị SQLi
+    khác nhau. Nguồn SQLi / RCE bổ sung cần tải thêm và chưa được người dùng duyệt -> đợt này (vòng 1) KHÔNG có nguồn mới.
+  - **Dữ liệu đã dựng (23:07, `train/build_tier2_dataset.py`, 254 giây).** Số dòng cấy thêm cho payload `g2 = pass`: train
+    sqli 710, xss 190, lfi 3 000, rce 220; valid sqli 54, xss 18, lfi 1 024, rce 27 (trình dựng đếm theo payload của từng lớp
+    nên số payload RCE là 22 / 9, lệch chút so với 16 / 8 đếm theo giá trị ở trên). Văn bản hợp lệ khó: 44 172 dòng train,
+    9 096 dòng valid, 5 028 dòng `test_hardtext`. `test_residual`: 1 025 dòng (sqli 745, rce 280). Bản dữ liệu 14/11 được giữ ở
+    `train/data_1411/` và trên Drive (`NSM-train-v2`); đợt này nằm ở `NSM-train-v3`.
+  - **Lượt chạy thử nhanh trên máy (23:08–23:15, `NSM_SMOKE=1`, 30 000 dòng train — KHÔNG phải kết quả).** Mục đích: kiểm mã của
+    notebook với dữ liệu mới. Lượt này IN RA số trên các tập test, nên các số đó đã được nhìn thấy trước lượt huấn luyện đầy đủ:
+    model đang chạy (argmax, 0,67, cổng tắt): `test_hardtext` bị gắn nhãn 12,8 %, `test_residual` phát hiện 58,6 % (sqli 66,6 %,
+    rce 37,5 %); model thử nhanh được chọn (M3, trọng số 1): `test_hardtext` 0,9 %, `test_residual` 22,7 %. KHÔNG đổi dữ liệu,
+    ứng viên, trọng số hay tiêu chí sau khi thấy các số này. Điều cần theo dõi ở lượt đầy đủ: bớt nhãn nhầm có thể phải trả
+    bằng phát hiện trên tấn công thật lọt Cổng 2.
+
+- 16/11/2026 — **Cải thiện tầng 2, bước 2, VÒNG 2: thêm nguồn SQLi và chèn lệnh — GHI TRƯỚC khi lọc, dựng dữ liệu và huấn luyện.**
+  Người dùng duyệt việc tải ("Có, tải đi"). Lúc ghi mục này, vòng 1 (`NSM-train-v3`) CHƯA có kết quả huấn luyện đầy đủ nào được
+  tôi nhìn thấy; số duy nhất đã thấy là của lượt chạy thử nhanh ghi ở mục trước.
+  - **Nguồn** (`eval/data/payloads_extra/`, `SOURCE.md` có commit, kích thước, SHA-256): PayloadsAllTheThings `SQL Injection/Intruder`
+    (21 tệp) và `Command Injection/Intruder` (2 tệp), commit `08ea40e`, MIT; fuzzdb `attack/sql-injection/detect` (8 tệp) và ba tệp
+    dạng chèn lệnh của `attack/os-cmd-execution`, commit `5656ab2`, BSD 3 điều khoản + CC BY 3.0. 36 tệp, 120 246 byte, chỉ là văn
+    bản. Các tệp liệt kê tên lệnh trần của fuzzdb KHÔNG tải (tên lệnh trần là văn bản hợp lệ trong dữ liệu huấn luyện).
+  - **Quy tắc giữ payload** (`train/t2_pool.py extra`): mỗi dòng một payload; giữ nếu dài 4–400 ký tự, không còn chỗ trống mẫu
+    (`{cmd}`), có cấu trúc tấn công rõ theo `train/t2_constructs.py`, chưa có trong payload train/valid hiện tại, và không trùng giá
+    trị nào của các tập kiểm tra (HttpParams, SR-BH, bộ thử 52 payload). Kết quả: 2 457 dòng -> 328 trùng nhau, 134 sai độ dài
+    hoặc là mẫu, 397 không rõ cấu trúc, 395 đã có, 0 trùng tập kiểm tra -> **giữ 1 203** (sqli 876 train + 162 valid; rce 143 +
+    22). Chia train / valid 85 / 15 theo băm của payload đã che chữ số. Số giá trị SQLi khác nhau của train: 614 -> 1 490.
+  - **Phần còn lại KHÔNG đổi so với vòng 1:** gửi phần regex tầng 1 bỏ lọt (401 payload) qua Cổng 2 thật để gắn cờ `g2`; trình dựng
+    dữ liệu, văn bản hợp lệ khó, 6 ứng viên, tiêu chí chọn trên valid, và các mốc đạt đo trên hệ thống thật đều như mục 15/11 23:00.
+    Hai tập `test_hardtext` và `test_residual` giữ nguyên nội dung.
+  - **Cách dùng hai vòng:** dữ liệu vòng 2 nằm ở thư mục Drive riêng `NSM-train-v4`; vòng 1 (`NSM-train-v3`) giữ nguyên. Nếu cả hai
+    vòng được huấn luyện thì MỖI vòng chọn model của mình theo tiêu chí trên valid của vòng đó; model đưa đi đo trên hệ thống thật
+    là model của vòng 2 (dữ liệu là tập cha của vòng 1). Model vòng 1 chỉ được đo thêm để so sánh, và việc đó được ghi lại.
+  - **Đã lọc và dựng (16/11, 00:32–00:41).** 401 payload mới mà regex tầng 1 bỏ lọt qua Cổng 2 thật
+    (`eval/results/t2poolextra-20261116-003234`, 125 giây): 247 bị chặn, 154 lọt và đều có cấu trúc tấn công rõ (train sqli 74,
+    rce 39; valid sqli 38, rce 3). Một payload không gửi được bị bỏ -> 1 202 payload bổ sung. Dữ liệu vòng 2
+    (`train/build_tier2_dataset.py`, 277 giây): dòng cấy thêm cho payload `g2 = pass` — train sqli 1 450 (vòng 1: 710), xss 190,
+    lfi 3 000, rce 610 (vòng 1: 220); valid sqli 168 (54), xss 18, lfi 1 024, rce 36 (27). Sau lượt lọc, các IP thử bị khoá muộn
+    được gỡ ngay trong script; `stack.sh check` sạch lúc 00:35.
+  - **Đính chính câu "hai tập `test_hardtext` và `test_residual` giữ nguyên nội dung":** hai tập có CÙNG tập văn bản và payload như
+    vòng 1 (5 028 và 1 025 dòng), nhưng vật mang được chọn lại ngẫu nhiên khi dựng, nên từng dòng không giống hệt vòng 1.
+  - Lúc dựng xong vòng 2, thư mục `NSM-train-v3` trên Drive chưa có `output/`: vòng 1 chưa được huấn luyện.
+
+- 16/11/2026 (01:15) — **Khâu chậm trên đường cảnh báo: số đo từng khâu, giả thuyết, và tiêu chí GHI TRƯỚC khi đổi cấu hình.**
+  Bối cảnh: bước khoá IP có lúc chậm (trình diễn lượt 2 ngày 15/11: cảnh báo của IP thử RCE tới responder chậm khoảng 8 giây).
+  - **Phép đo** (`tools/alertlat.sh`, `tools/alertlat.py`; `eval/results/alertlat-20261116-010449`; 24 request tấn công thử, mỗi
+    request một IP, đều bị Cổng 2 chặn; ba topic đọc kèm dấu thời gian Kafka; mốc 0 = lúc Apache xử lý request):
+
+    | Pha (8 lần mỗi pha) | Nhật ký truy cập tới Kafka | Nhật ký kiểm toán tới Kafka | Cảnh báo được phát | Thời gian trong classifier |
+    |---|---|---|---|---|
+    | POST, nhật ký kiểm toán nguội | 1,11 s [0,13–1,79] | 3,13 s [0,05–5,29] | 3,33 s [1,45–5,30] | 0,01 s [0,00–0,52] |
+    | GET | 0,90 s [0,12–1,89] | 2,41 s [0,51–7,83] | 0,92 s [0,13–1,90] | 0,00 s [0,00–0,01] |
+    | POST, nhật ký kiểm toán nóng | 1,21 s [0,47–1,94] | 0,85 s [0,15–1,81] | 1,69 s [1,29–2,15] | 0,01 s [0,00–1,01] |
+
+    (trung vị [nhỏ nhất – lớn nhất]). Lượt thử ngắn trước đó (`alertlat-20261116-010248`, mỗi pha một lần) chỉ để kiểm công cụ.
+  - **Kết luận từ số đo:** classifier không phải khâu chậm. Khâu chậm là Filebeat ĐỌC TỆP: nhật ký truy cập tới Kafka sau
+    0–2 giây; nhật ký kiểm toán của ModSecurity tới sau 0–5 giây khi tệp ít được ghi (có lần 7,8 giây) và 0–2 giây khi tệp được
+    ghi liên tục. Request POST có thân phải chờ dòng kiểm toán mới được phân loại (`classifier.handle_web`), nên cảnh báo của POST
+    chậm theo. Giả thuyết về nguyên nhân: input `filestream` của Filebeat, khi đọc tới cuối tệp, chờ `backoff.init` (mặc định
+    2 giây) rồi mới xem lại, và gấp đôi thời gian chờ tới `backoff.max` (mặc định 10 giây) khi tệp vẫn chưa có dòng mới;
+    `web/filebeat/filebeat.yml` không đặt hai giá trị này.
+  - **Thay đổi sẽ thử:** `backoff.init: 200ms`, `backoff.max: 1s` cho ba input nằm trên đường cảnh báo (apache-access,
+    modsec-audit, suricata-eve). Hai input còn lại (gate1, apache-error) chỉ đi tới logsink, giữ mặc định.
+  - **Giữ thay đổi nếu CẢ SÁU điều sau đúng (đo lại cùng buổi, cùng máy, một lượt); ngược lại trả về như cũ:**
+    1. nhật ký truy cập tới Kafka: trung vị <= 0,5 s và lớn nhất <= 1,0 s (gộp ba pha);
+    2. nhật ký kiểm toán ở pha POST nguội: lớn nhất <= 1,5 s;
+    3. cảnh báo ở pha POST nguội: trung vị <= 1,5 s;
+    4. không mất dòng: 24/24 lần thử có nhật ký truy cập và cảnh báo, 16/16 lần POST có nhật ký kiểm toán;
+    5. `bench.sh -r 5 mttr` với kịch bản sqli và rce: 10/10 lần bị chặn, và trung vị "T quyết định" của mỗi kịch bản không lớn hơn
+       mốc đo NGAY TRƯỚC khi đổi cấu hình;
+    6. CPU của container filebeat (trung bình 10 mẫu `docker stats`) không tăng quá 3 điểm phần trăm so với mốc.
+
+- 16/11/2026 (01:55) — **Khâu chậm trên đường cảnh báo: KẾT QUẢ sau khi đặt `backoff.init: 200ms`, `backoff.max: 1s` cho ba input của
+  Filebeat — cả sáu điều kiện ghi trước đều đạt -> GIỮ thay đổi** (`web/filebeat/filebeat.yml`). Một lượt mỗi cấu hình, cùng buổi.
+
+  | # | Điều kiện | Trước | Sau | Đạt |
+  |---|---|---|---|---|
+  | 1 | nhật ký truy cập tới Kafka, gộp ba pha: trung vị <= 0,5 s, lớn nhất <= 1,0 s | 1,07 s / 1,94 s | 0,27 s / 0,74 s | có |
+  | 2 | nhật ký kiểm toán, pha POST nguội: lớn nhất <= 1,5 s | 5,29 s | 0,86 s | có |
+  | 3 | cảnh báo, pha POST nguội: trung vị <= 1,5 s | 3,33 s | 0,80 s | có |
+  | 4 | không mất dòng | 24/24, 16/16 | 24/24, 16/16 | có |
+  | 5 | bench mttr 5 lần: bị chặn 10/10; trung vị "T quyết định" không tăng | sqli 2,8 s; rce 3,5 s | sqli 2,2 s; rce 2,3 s; 10/10 | có |
+  | 6 | CPU filebeat tăng không quá 3 điểm % | 0,43 % | 1,29 % | có |
+
+  Dữ liệu: `eval/results/alertlat-20261116-010449` (trước), `alertlat-20261116-011915` (sau); bench `bench-results/20261116-011423`
+  (trước), `20261116-012637` (sau). "T tổng" của bench: sqli 3,5 -> 2,5 s, rce 4,0 -> 3,0 s. Khâu thực thi (quyết định -> nginx
+  chặn) KHÔNG đổi và vẫn dao động (0,2–2,9 s trước, 0,2–1,2 s sau): nginx nạp lại danh sách chặn tối đa một lần mỗi 5 giây
+  (`RELOAD_MIN_INTERVAL_S`), chưa đụng tới.
+  - **Phép kiểm an toàn NGOÀI tiêu chí (thêm sau khi thấy sáu điều kiện đạt):** chạy 4 kịch bản 02, 13, 41, 45 với thiết lập mới
+    (`eval/results/alertlatkb-20261116-012955`): 02, 13, 45 đạt; **41 KHÔNG ĐẠT** — luật tự sinh được ban hành rồi bị TỰ GỠ với lý do
+    `benign_hit_live`. Nguyên nhân tìm được: bộ cấp phát IP của công cụ kịch bản phụ thuộc danh sách kịch bản của lượt chạy; ba IP
+    của vai kiểm chứng lần này (10.10.12.173–.175) từng là người dùng hợp lệ trong lượt chạy tối 15/11 (16 sự kiện lành tính mỗi
+    IP trong 24 giờ trước), nên rulegen coi chúng là "nguồn sạch có tiếng" và gỡ luật sau 4 lần luật chặn chúng — đúng thiết kế
+    của lưới an toàn, sai do dữ liệu thử. Kiểm chéo: chạy lại kịch bản 41 từ một bản sao tạm với IP chưa từng dùng (10.10.13.x),
+    cùng thiết lập Filebeat mới (`eval/results/alertlat41-20261116-014835`): ĐẠT 3/3 phép kiểm. Tệp kịch bản 41 trong kho KHÔNG
+    bị sửa; bản sao tạm đã xoá. Chưa chạy lại kịch bản 41 với thiết lập CŨ để đối chiếu trực tiếp.
+  - **Giới hạn mới của công cụ đo (ghi nhận, chưa sửa):** chạy các tổ hợp kịch bản khác nhau trong vòng 24 giờ có thể làm một IP
+    đóng vai hợp lệ ở lượt này và vai tấn công ở lượt sau; cơ chế "nguồn sạch có tiếng" của rulegen khi đó gỡ luật.
+
+- 16/11/2026 (08:40) — **Cải thiện tầng 2, bước 2, vòng 2: KẾT QUẢ — model mới KHÔNG đạt đủ các mốc ghi trước -> KHÔNG thay model.**
+  - **Huấn luyện:** ba phiên Colab của `NSM-train-v4` (425 224 dòng train), 6 ứng viên; mỗi ứng viên học 16–27 phút. Gộp trên máy
+    (`NSM_SHARD=gop`, `train/gop_v4.log`). Ứng viên M3 trọng số 10 không có ngưỡng nào thoả ba ràng buộc; M3 trọng số 3 thiếu một
+    lựa chọn. **Model được chọn theo tiêu chí ghi trước: M2 (hồi quy logistic), trọng số 3, `mass`, θ = 0,91, cổng cú pháp tắt**
+    (valid: phát hiện trên payload lọt Cổng 2, trung bình theo lớp 0,7775; văn bản hợp lệ khó 0,22 %; lành tính thường 0,097 %).
+  - **Trên các tập kiểm tra (chỉ báo cáo; model đang chạy -> model được chọn):** `test_hardtext` bị gắn nhãn 13,1 % -> 0,9 %;
+    câu của khung kịch bản 11,9 % -> 3,1 %; văn bản tự do 0,14 % -> 0,10 %; HttpParams phát hiện 98,7 % -> 98,9 %, báo nhầm
+    0,30 % -> 0,04 %; **website chưa thấy (`test_sites`), tầng 2 thêm báo nhầm 0,19 % -> 0,34 %**; SR-BH phần có tham số
+    54,6 % -> 53,4 %; **`test_residual` (tấn công thật lọt Cổng 2) 59,9 % -> 37,9 %** (sqli 66,6 -> 45,4 %; rce 42,1 -> 17,9 %).
+  - **Trên hệ thống thật** (`tools/t2model.sh v4 tier2_v4_ungvien.joblib 0.91 mass 0`, 08:35; `eval/results/t2model-v4.txt`,
+    `bench-results/20261116-083519`; số của model đang chạy lấy từ lượt 15/11 22:17, cùng mã classifier):
+
+    | Mốc ghi trước | Model đang chạy | Model vòng 2 | Đạt |
+    |---|---|---|---|
+    | văn bản đối chứng bị gắn nhãn, hai danh sách gộp <= 6/120 | 25/120 | 12/120 (mới 5, cũ 7) | KHÔNG |
+    | bench, mẫu hợp lệ khó bị gắn nhãn <= 2/27 | 8/27 | 3/27 | KHÔNG |
+    | bộ thử 52 payload được gắn nhãn >= 39/52 | 40/52 | 47/52 | có |
+    | riêng RCE >= 7/14 | 5/14 | 10/14 | có |
+    | bench, bộ phân loại bắt tấn công không giảm | 63/65 | 62/65 | KHÔNG |
+
+    Ba mốc không đạt -> theo quy tắc KHÔNG thay model; 5 kịch bản (02, 13, 25, 41, 42) vì vậy không chạy. Classifier đã được trả
+    về model và cấu hình cũ (kiểm bằng biến môi trường của container); `stack.sh check` sạch lúc 08:38. Tệp model ứng viên giữ ở
+    `models/tier2_v4_ungvien.joblib` (không đưa vào kho) và trên Drive. Không chỉnh ngưỡng, không chọn lại ứng viên, không sửa
+    danh sách đối chứng hay bộ thử sau khi thấy kết quả.
+
+- 16/11/2026 (10:00) — **Tầng 2, cổng CẤU TRÚC (`TIER2_CONSTRUCT_GATE`): thay đổi mã và tiêu chí GHI TRƯỚC khi đo trên hệ thống thật.**
+  Người dùng duyệt ("Có, làm bước 1"). Nghiên cứu ngoại tuyến: `Nghien-cuu-khac-phuc-tang-2-NSM.md` (thư mục GSANM).
+  - **Thay đổi mã:** `services/constructs.py` (bộ biểu thức "có cấu trúc tấn công rõ", chuyển nguyên từ `train/t2_constructs.py`,
+    không đổi biểu thức nào); `services/classifier.py`: khi `TIER2_CONSTRUCT_GATE=1`, nhãn của model tầng 2 chỉ được tính nếu có ít
+    nhất một giá trị tham số (query + thân, đúng tập giá trị mà tầng 2 được xem) khớp bộ biểu thức; nhãn bị bỏ vẫn được ghi vào bản
+    ghi (`t2_label`, `t2_conf`, `t2_gated = "construct"`) nhưng không thành cảnh báo. Mặc định 0 = hành vi như trước. Kiểm thử mới
+    trong `tests/test_logic.py`. Tầng 1, Cổng 2, responder, rulegen không đổi.
+  - **Ba cấu hình được đo, cùng buổi, cùng máy, mỗi cấu hình một lượt** (`tools/t2model.sh`, model đang chạy `tier2.joblib`):
+    A0 = hiện tại (argmax, θ 0,67, không cổng cấu trúc); A1 = A0 + cổng cấu trúc; A2 = cổng cấu trúc + `mass`, θ 0,50 (ngưỡng
+    chọn trên valid theo tiêu chí ghi ngày 15/11, `nghien-cuu-tang-2/nc1.json`).
+  - **Đã biết trước khi ghi tiêu chí** (chấm ngoại tuyến bằng đúng mã classifier, trên các danh sách ĐÃ bị nhìn thấy): bộ thử 52
+    payload A0 40, A1 40, A2 49; hai danh sách đối chứng cũ (120 văn bản) A0 25, A1 7, A2 9; valid và các tập test như bảng trong
+    báo cáo nghiên cứu. **Chưa biết:** pha detect của bench với cổng cấu trúc; danh sách đối chứng THỨ BA
+    `scenarios/tang-2/doi-chung-3.jsonl` (60 văn bản, viết trước khi đo, cùng cơ cấu 7 nhóm như hai danh sách trước, không trùng
+    giá trị nào, không được chấm thử bằng model hay bộ biểu thức trước khi đo); 5 kịch bản.
+  - **Quy tắc quyết định.** Một cấu hình (A1 hoặc A2) "đạt" nếu CẢ SÁU điều sau đúng, so với A0 đo cùng buổi:
+    1. danh sách đối chứng thứ ba: số văn bản bị gắn nhãn <= một nửa số của A0;
+    2. bench, mẫu hợp lệ "khó": số bị gắn nhãn <= một nửa số của A0;
+    3. bench, mẫu hợp lệ thường: số bị gắn nhãn <= số của A0;
+    4. bench: số tấn công bộ phân loại bắt được >= số của A0;
+    5. bộ thử 52 payload: số được gắn nhãn >= số của A0;
+    6. 5 kịch bản 02, 13, 25, 41, 42 đều đạt với cấu hình đó. Riêng kịch bản 41: nếu không đạt với lý do luật bị tự gỡ
+       `benign_hit_live` do IP thử có lịch sử hợp lệ từ lượt trước (hiện tượng đã ghi ngày 16/11 01:55), thì chạy lại MỘT lần từ bản
+       sao tạm với IP chưa từng dùng và lấy kết quả đó.
+    **Chọn:** nếu A2 đạt và số nhãn nhầm của nó không vượt A1 quá 2 văn bản ở danh sách thứ ba và quá 1 mẫu ở bench khó -> dùng A2;
+    nếu không, A1 đạt -> dùng A1; nếu không cấu hình nào đạt -> giữ A0 và tắt cổng. Năm kịch bản chỉ chạy cho cấu hình sắp được
+    chọn (A2 trước; A2 hỏng ở điều 6 thì chạy cho A1).
+  - **Số báo cáo kèm, không thuộc quy tắc:** mốc tuyệt đối 5 % nhãn nhầm trên danh sách đối chứng (ghi 15/11) có đạt hay không;
+    số của hai danh sách đối chứng cũ; riêng lớp RCE của bộ thử.
+
+- 16/11/2026 (10:15) — **Tầng 2, cổng cấu trúc: KẾT QUẢ đo trên hệ thống thật — cả A1 và A2 trượt hai trong sáu điều kiện ghi trước ->
+  GIỮ A0, cổng TẮT.** Một lượt mỗi cấu hình, 09:59–10:11 (`eval/results/t2model-cgA0.txt`, `-cgA1.txt`, `-cgA2.txt`; bench
+  `bench-results/20261116-095946`, `-100338` và lượt A2 kế tiếp).
+
+  | # | Điều kiện | A0 | A1 (cổng) | A2 (cổng, mass 0,50) | A1 | A2 |
+  |---|---|---|---|---|---|---|
+  | 1 | đối chứng thứ ba bị gắn nhãn <= nửa của A0 | 10/60 | 1/60 | 2/60 | đạt | đạt |
+  | 2 | bench mẫu khó <= nửa của A0 | 8/27 | 5/27 | 5/27 | KHÔNG | KHÔNG |
+  | 3 | bench mẫu thường <= A0 | 2/28 | 0/28 | 0/28 | đạt | đạt |
+  | 4 | bench: tấn công bộ phân loại bắt >= A0 | 63/65 | 61/65 | 61/65 | KHÔNG | KHÔNG |
+  | 5 | bộ thử 52 payload >= A0 | 40/52 | 40/52 | 49/52 | đạt | đạt |
+  | 6 | 5 kịch bản | — | chưa chạy | chưa chạy | — | — |
+
+  Số báo cáo kèm: hai danh sách đối chứng cũ A0 12 + 13, A1 3 + 4, A2 5 + 4 (cả ba danh sách: 35/180 -> 8/180 -> 11/180); mốc tuyệt
+  đối 5 % trên danh sách thứ ba: A1 1,7 % và A2 3,3 % (đạt), A0 16,7 %; lớp RCE của bộ thử 5/14, 5/14, 12/14; XSS 6/8, 6/8, 8/8.
+  Ở bench, cả 65 tấn công vẫn bị Cổng 2 chặn ở cả ba cấu hình; số tấn công do tầng 2 quyết định giảm 6 -> 4.
+  - Cấu hình chạy KHÔNG đổi (`TIER2_CONSTRUCT_GATE` mặc định 0). Image classifier đã được dựng lại với mã mới; lượt A0 (cổng tắt, mã
+    mới) cho đúng các số của mã cũ (40/52; 12 và 13 trên 60; bench 8/27, 2/28, 63/65), tức mã mới không đổi hành vi khi cổng tắt.
+  - Tôi KHÔNG xem hai tấn công nào và năm mẫu khó nào của bench gây ra kết quả ở điều 2 và 4, để bench còn dùng được cho lần đo
+    sau. Không sửa bộ biểu thức, ngưỡng, danh sách hay quy tắc sau khi thấy kết quả. Năm kịch bản không chạy vì không cấu hình nào
+    sắp được chọn. `stack.sh check` sạch lúc 10:11.
+
+- 16/11/2026 (10:25) — **Tầng 2, cổng cấu trúc: CHỦ DỰ ÁN quyết định bật cấu hình A2 dù nó trượt hai điều kiện ghi trước.**
+  Người dùng chọn "Bật cấu hình A2" sau khi đọc bảng kết quả ở mục trên (A2 trượt điều 2: bench mẫu khó 8 -> 5, cần <= 4; và điều 4:
+  bench, bộ phân loại bắt tấn công 63 -> 61). Đây là quyết định SAU KHI ĐÃ THẤY KẾT QUẢ, không phải kết quả của quy tắc ghi trước;
+  quy tắc cho kết quả "giữ A0". Lý do được nêu khi quyết định: nhãn của tầng 2 không tự khoá IP; hai tấn công mất nhãn tầng 2 vẫn
+  bị Cổng 2 chặn; nhãn nhầm trên ba danh sách đối chứng 35/180 -> 11/180; bộ thử 40/52 -> 49/52.
+  - Trước khi đặt A2 làm mặc định: chạy 5 kịch bản 02, 13, 25, 41, 42 với A2 (điều 6 của quy tắc, kèm điều khoản về kịch bản 41 và
+    IP đã có lịch sử). Một kịch bản không đạt vì lý do khác -> KHÔNG bật, báo lại người dùng.
+  - Đo thêm, không thuộc điều kiện nào: kịch bản 44 (tầng 2 -> luật tự sinh) với A2, một lượt, để biết cổng cấu trúc có đổi được
+    việc "phát hiện nhưng không thành luật" hay không (lượt 15/11: chỉ lớp LFI có luật, 2/18 payload giữ lại bị chặn).
+
+- 16/11/2026 (10:50) — **Tầng 2: cấu hình A2 được đặt làm MẶC ĐỊNH** (`docker-compose.yml`: `TIER2_CONSTRUCT_GATE=1`,
+  `TIER2_DECISION=mass`, `TIER2_THRESHOLD=0.50`; model không đổi). Theo quyết định của chủ dự án ghi ở mục 10:25.
+  - **5 kịch bản với A2** (`eval/results/t2modelcgA2kbkb-20261116-101927`): 02, 13, 25, 41, 42 đều ĐẠT (kịch bản 41 đạt ngay,
+    không cần chạy lại với IP mới). Lượt đo lặp của A2 trong cùng script cho đúng các số của lượt 10:07: bộ thử 49/52; đối chứng
+    2 + 4 + 5 trên 180; bench thường 0/28, khó 5/27, bộ phân loại bắt 61/65.
+  - **Kịch bản 44 với A2, một lượt** (`eval/results/t2test-20261116-103344`; lượt 15/11 dùng cấu hình cũ để so):
+
+    | Số đo | 15/11 (cấu hình cũ) | 16/11 (A2) | Ngưỡng ghi 15/11 |
+    |---|---|---|---|
+    | Lớp có luật tự sinh | chỉ LFI | SQLi, LFI, RCE (XSS không) | mọi lớp |
+    | Payload giữ lại bị luật tự sinh chặn | 2/18 (11,1 %) | 6/18 (33,3 %): lfi 2/5, rce 2/5, sqli 2/5, xss 0/3 | >= 50 % |
+    | Thời gian tới khi luật có hiệu lực | LFI 64 s | SQLi, LFI, RCE 57–62 s | <= 120 s |
+    | Văn bản đối chứng bị luật tự sinh chặn | 0 | 0 | 0 |
+
+    Ba luật: `generate_series(` (sqli, G2r), `../` (lfi, G2r), biểu thức nối lệnh viết sẵn (rce); đều từ bằng chứng tầng 2, 3 IP
+    nguồn. Hai số đo 2 và 3 vẫn KHÔNG ĐẠT theo ngưỡng ghi ngày 15/11, nhưng tốt hơn lượt trước. Phần "Số đo 1" trong `t2test.md`
+    của lượt này (40/52) KHÔNG phải số của A2: công cụ lấy nó từ lượt lọc ngày 15/11; số của A2 là 49/52 (kịch bản đếm nhãn).
+    Rulegen vẫn ghi "không có ứng viên an toàn đủ điểm" cho phần còn lại của cụm sqli và lfi sau khi đã sinh luật đầu.
+  - Sau khi đổi mặc định: classifier khởi động lại, nhật ký ghi `decision=mass θ=0.50 gate=False construct=True`; kiểm thử đạt;
+    `stack.sh check` sạch (mốc của công cụ kiểm đã đổi sang A2). Bản hai máy `soc/docker-compose.yml` KHÔNG đổi (cổng cấu trúc
+    0, chế độ corroborate): cấu hình A2 chưa được đo ở chế độ đó.
+  - Hệ quả cho các số đã công bố: các số tầng 2 của lượt chốt 15/11 (bench mẫu khó 8/27, mẫu thường 2/28, bộ phân loại 63/65,
+    kịch bản 42 gắn nhãn 0,9 %) thuộc cấu hình cũ; số của A2 là 5/27, 0/28, 61/65; kịch bản 42 đạt, số đo nằm trong thư mục trên.

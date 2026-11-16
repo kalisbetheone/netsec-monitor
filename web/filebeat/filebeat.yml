@@ -3,6 +3,10 @@
 #  - check_interval 1s: thấy tệp mới ngay sau khi xoay (mặc định 10 s làm dòng đến muộn);
 #  - close.on_state_change.removed false: bản .1 bị ghi đè ở lần xoay sau thì vẫn đọc nốt tới cuối rồi mới đóng
 #    (mặc định đóng ngay khi thấy tệp bị xoá, mất phần chưa đọc).
+# Đọc tới cuối tệp thì xem lại sau backoff.init, gấp đôi dần tới backoff.max khi tệp chưa có dòng mới. Mặc định 2 s / 10 s làm
+# nhật ký truy cập tới Kafka chậm 0–2 giây và nhật ký kiểm toán (ít được ghi) chậm tới 5–8 giây; request POST phải chờ dòng
+# kiểm toán mới được phân loại, nên cảnh báo và việc khoá IP chậm theo (đo 16/11/2026, tools/alertlat.sh). Đặt 200 ms / 1 s
+# cho ba tệp nằm trên đường cảnh báo.
 filebeat.inputs:
   - type: filestream
     id: apache-access
@@ -10,18 +14,24 @@ filebeat.inputs:
     fields: {topic: web.logs}
     prospector.scanner.check_interval: 1s
     close.on_state_change.removed: false
+    backoff.init: 200ms
+    backoff.max: 1s
   - type: filestream
     id: suricata-eve
     paths: [/logs/suricata/eve.json, /logs/suricata/eve.json.1]
     fields: {topic: net.events}
     prospector.scanner.check_interval: 1s
     close.on_state_change.removed: false
+    backoff.init: 200ms
+    backoff.max: 1s
   - type: filestream
     id: modsec-audit
     paths: [/logs/apache/modsec_audit.json, /logs/apache/modsec_audit.json.1]
     fields: {topic: web.audit}
     prospector.scanner.check_interval: 1s
     close.on_state_change.removed: false
+    backoff.init: 200ms
+    backoff.max: 1s
   - type: filestream
     id: nginx-gate1                  # request bị Cổng 1 từ chối (403 do chặn IP, 429 do giới hạn kết nối)
     paths: [/logs/nginx/gate1.json, /logs/nginx/gate1.json.1]
